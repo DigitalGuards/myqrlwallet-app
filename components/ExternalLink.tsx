@@ -1,24 +1,29 @@
-import { Link } from 'expo-router';
+import { ComponentProps, ReactNode } from 'react';
+import { Pressable } from 'react-native';
 import { openBrowserAsync } from 'expo-web-browser';
-import { type ComponentProps } from 'react';
 import { Platform } from 'react-native';
 
-type Props = Omit<ComponentProps<typeof Link>, 'href'> & { href: string };
+// Define props separately from Link component to avoid type conflicts
+type ExternalLinkProps = {
+  href: string;
+  children: ReactNode;
+  style?: ComponentProps<typeof Pressable>['style'];
+};
 
-export function ExternalLink({ href, ...rest }: Props) {
+export function ExternalLink({ href, children, style }: ExternalLinkProps) {
+  const handlePress = async () => {
+    // On native, use openBrowserAsync to open external links
+    if (Platform.OS !== 'web') {
+      await openBrowserAsync(href);
+    } else {
+      // On web, open in a new tab
+      window.open(href, '_blank');
+    }
+  };
+
   return (
-    <Link
-      target="_blank"
-      {...rest}
-      href={href}
-      onPress={async (event) => {
-        if (Platform.OS !== 'web') {
-          // Prevent the default behavior of linking to the default browser on native.
-          event.preventDefault();
-          // Open the link in an in-app browser.
-          await openBrowserAsync(href);
-        }
-      }}
-    />
+    <Pressable onPress={handlePress} style={style}>
+      {children}
+    </Pressable>
   );
 }

@@ -1,74 +1,73 @@
-import { Image, StyleSheet, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View as RNView } from 'react-native';
+// Although named QRLWebView, this component is defined in the QRLWebView.tsx file
+import QRLWebView from '../../components/QRLWebView';
+import WebViewService from '../../services/WebViewService';
+import BiometricService from '../../services/BiometricService';
+import { useIsFocused } from '@react-navigation/native';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+export default function WalletScreen() {
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const isFocused = useIsFocused();
 
-export default function HomeScreen() {
+  // Check biometric settings and authenticate if needed
+  useEffect(() => {
+    async function authCheck() {
+      setIsLoading(true);
+
+      try {
+        const preferences = await WebViewService.getUserPreferences();
+        
+        // Skip biometric check if not enabled in preferences
+        if (!preferences.biometricEnabled) {
+          setIsAuthorized(true);
+          setIsLoading(false);
+          return;
+        }
+
+        // Check if biometrics are available
+        const biometricAvailable = await BiometricService.isBiometricAvailable();
+        
+        if (biometricAvailable) {
+          // Perform biometric authentication
+          const authResult = await BiometricService.authenticate();
+          setIsAuthorized(authResult.success);
+        } else {
+          // Fallback if biometrics are not available
+          setIsAuthorized(true);
+        }
+      } catch (error) {
+        console.error('Authentication error:', error);
+        setIsAuthorized(true); // Fallback to authorized on error
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    // Only run auth check when screen is focused
+    if (isFocused) {
+      authCheck();
+    }
+  }, [isFocused]);
+
+  // Update session timestamp on screen focus
+  useEffect(() => {
+    if (isFocused && isAuthorized) {
+      WebViewService.updateLastSession();
+    }
+  }, [isFocused, isAuthorized]);
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <RNView style={styles.container}>
+      {isAuthorized && <QRLWebView />}
+    </RNView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
   },
 });

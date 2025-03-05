@@ -1,50 +1,126 @@
-# Welcome to your Expo app 👋
+# MyQRL Wallet Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A mobile application that serves as a native wrapper for the [QRL Wallet website](https://qrlwallet.com), providing a seamless mobile experience for QRL cryptocurrency users.
 
-## Get started
+## Features
 
-1. Install dependencies
+- **WebView Integration**: Seamlessly renders qrlwallet.com within a native mobile container
+- **Biometric Authentication**: Optional Face ID / Touch ID / Fingerprint protection (device-dependent)
+- **Session Management**: Maintains wallet sessions with proper caching and security
+- **Native Mobile UX**: Enhanced user experience with native navigation and transitions
+- **Offline Capability**: Access cached wallet data even without internet connection
+- **Modern UI**: Clean and intuitive interface designed specifically for mobile devices
 
-   ```bash
+## Architecture
+
+The application follows a modular architecture with these key components:
+
+1. **WebView Component**: Core component that renders the QRL Wallet website with enhanced mobile capabilities
+2. **Session Management Service**: Handles persistent storage and caching of wallet data
+3. **Biometric Authentication Service**: Provides device-level security for accessing wallet data
+4. **Navigation System**: Offers intuitive tab-based navigation between main screens
+
+## Technical Stack
+
+- **Framework**: React Native / Expo
+- **State Management**: React Hooks
+- **Navigation**: Expo Router
+- **Storage**: AsyncStorage for secure persistent data
+- **Authentication**: Expo Local Authentication for biometrics
+- **UI Components**: Native components with custom styling
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v14 or newer)
+- npm or yarn
+- Expo CLI
+
+### Installation
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/myqrlwalletapp.git
+   cd myqrlwalletapp
+   ```
+
+2. Install dependencies:
+   ```
    npm install
    ```
 
-2. Start the app
-
-   ```bash
-    npx expo start
+3. Run on a device or emulator:
+   ```
+   npm run android
+   npm run ios  # Requires macOS for iOS development
    ```
 
-In the output, you'll find options to open the app in a
+## Development
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Project Structure
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+myqrlwallet/
+├── app/                   # App screens and navigation
+│   ├── (tabs)/            # Tab-based screens
+│   │   ├── index.tsx      # Main wallet screen
+│   │   ├── settings.tsx   # Settings screen
+│   │   ├── about.tsx      # About screen
+│   │   └── _layout.tsx    # Tab navigation layout
+│   └── _layout.tsx        # Root layout
+├── components/            # Reusable UI components
+│   ├── QRLWebView.tsx     # Core WebView component
+│   └── Themed.tsx         # Theme-aware components
+├── constants/             # App constants and configuration
+│   └── Colors.ts          # Theme colors
+├── services/              # Business logic services
+│   ├── WebViewService.ts  # WebView session management
+│   └── BiometricService.ts # Biometric authentication handling
+└── assets/                # Static assets (images, fonts)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### WebView Implementation
 
-## Learn more
+The QRL Wallet WebView is implemented with enhanced features:
 
-To learn more about developing your project with Expo, look at the following resources:
+```typescript
+// Core WebView with security features
+<WebView
+  source={{ uri: 'https://qrlwallet.com' }}
+  originWhitelist={['https://*']}
+  javaScriptEnabled={true}
+  domStorageEnabled={true}
+  sharedCookiesEnabled={true}
+  cacheEnabled={true}
+  // ... additional security configs
+/>
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Extending the App
 
-## Join the community
+The app is designed to be extensible. To add new features:
 
-Join our community of developers creating universal apps.
+1. Create new service modules in the `services/` directory
+2. Add new screens in the appropriate directory under `app/`
+3. Extend existing components or create new ones in `components/`
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Security Considerations
+
+- The WebView is configured with strict security settings
+- User data is stored in secure AsyncStorage
+- Biometric authentication provides device-level security
+- All network requests are made through HTTPS
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [QRL Project](https://www.theqrl.org/) for creating the QRL blockchain
+- [QRL Wallet](https://qrlwallet.com) for the web wallet interface
+
+## Disclaimer
+
+This application is not officially affiliated with or endorsed by the QRL Team. It is an independent mobile wrapper for the QRL web wallet.
