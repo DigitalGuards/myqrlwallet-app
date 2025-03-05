@@ -136,6 +136,155 @@ The app is designed to be extensible. To add new features:
 3. Extend existing components or create new ones in `components/`
 4. Use the Themed components for consistent styling
 
+## Building and Distribution
+
+There are several methods to build and test the application without relying on Metro development server.
+
+### Option 1: Using EAS Build (Recommended)
+
+[EAS Build](https://docs.expo.dev/build/introduction/) is the official Expo service for creating production-ready binaries:
+
+1. **Install EAS CLI**:
+   ```bash
+   npm install -g eas-cli
+   ```
+
+2. **Log in to your Expo account**:
+   ```bash
+   eas login
+   ```
+
+3. **Configure your build**:
+   ```bash
+   eas build:configure
+   ```
+
+4. **Create a build profile in eas.json** (if not created by configure command):
+   ```json
+   {
+     "build": {
+       "preview": {
+         "android": {
+           "buildType": "apk"
+         }
+       },
+       "production": {
+         "android": {
+           "buildType": "app-bundle"
+         }
+       }
+     }
+   }
+   ```
+
+5. **Build the APK**:
+   ```bash
+   eas build -p android --profile preview
+   ```
+
+   This will build an APK in the cloud and provide a download link when complete.
+
+### Option 2: Local Build with Expo Prebuild
+
+If you prefer building locally:
+
+1. **Install the Android SDK** and make sure environment variables are set correctly
+
+2. **Prebuild your Expo project**:
+   ```bash
+   npx expo prebuild --platform android
+   ```
+
+3. **Build the APK using Gradle**:
+   ```bash
+   cd android
+   ./gradlew assembleDebug
+   ```
+
+   The APK will be located at `android/app/build/outputs/apk/debug/app-debug.apk`
+
+### Option 3: Development Build for Testing
+
+Create a development build that can be installed on devices:
+
+1. **Create a development build**:
+   ```bash
+   npx expo run:android
+   ```
+
+   This will create and install a development build on a connected device or emulator.
+
+### Testing Without Metro
+
+#### Using a Development Build with Offline Support
+
+1. **Create a development build as described above**
+
+2. **Configure your app for offline use**:
+   ```bash
+   npx expo run:android --device
+   ```
+
+3. **Bundle your JavaScript**:
+   ```bash
+   npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res
+   ```
+
+4. **Build with bundled JS**:
+   ```bash
+   cd android
+   ./gradlew assembleDebug
+   ```
+
+   The resulting APK will work without Metro.
+
+#### Using Expo Go in Offline Mode
+
+For quick testing without building:
+
+1. **Start your Expo project normally**:
+   ```bash
+   npm start
+   ```
+
+2. **Connect with Expo Go app**
+
+3. **Enable airplane mode** on your device after the app loads to test offline capabilities
+
+### Automating Builds with GitHub Actions (CI/CD)
+
+You can set up a GitHub Actions workflow file (`.github/workflows/build.yml`):
+
+```yaml
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+      - uses: expo/expo-github-action@v7
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install dependencies
+        run: npm install
+      - name: Build Android APK
+        run: eas build --platform android --profile preview --non-interactive
+```
+
+This will automatically build your APK whenever you push to the main branch.
+
 ## Security Considerations
 
 - The WebView is configured with strict security settings
