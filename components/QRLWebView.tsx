@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden', // Prevent content from bleeding outside container
-    paddingTop: 50, // top padding to allow WebView to fill space
+    paddingTop: 40, // top padding to allow WebView to fill space
     marginTop: 0,
   },
   webView: {
