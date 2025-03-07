@@ -1,15 +1,29 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View as RNView } from 'react-native';
-// Although named QRLWebView, this component is defined in the QRLWebView.tsx file
+import React, { useEffect, useState, useRef } from 'react';
+import { StyleSheet, View as RNView, useColorScheme, StatusBar, AppState, AppStateStatus, TouchableOpacity, Platform } from 'react-native';
+// Import QRLWebView
 import QRLWebView from '../../components/QRLWebView';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import { useIsFocused } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
+import { usePathname, router } from 'expo-router';
+import Colors from '../../constants/Colors';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastFocusTime, setLastFocusTime] = useState(0);
   const isFocused = useIsFocused();
+  const colorScheme = useColorScheme();
+  const pathname = usePathname();
+  const appState = useRef(AppState.currentState);
+  const lastActiveUrl = useRef<string | undefined>(undefined);
+
+  // Navigate to settings
+  const navigateToSettings = () => {
+    router.push('/settings');
+  };
 
   // Check biometric settings and authenticate if needed
   useEffect(() => {
@@ -60,7 +74,19 @@ export default function WalletScreen() {
 
   return (
     <RNView style={styles.container}>
-      {isAuthorized && <QRLWebView />}
+      <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
+      {isAuthorized && (
+        <>
+          <QRLWebView />
+          <TouchableOpacity 
+            style={styles.settingsButton} 
+            onPress={navigateToSettings}
+            activeOpacity={0.7}
+          >
+            <FontAwesome name="gear" size={24} color="white" />
+          </TouchableOpacity>
+        </>
+      )}
     </RNView>
   );
 }
@@ -68,6 +94,25 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#0A0A17',
+  },
+  settingsButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 70 : 50,
+    left: 15,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(10, 10, 23, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
 });

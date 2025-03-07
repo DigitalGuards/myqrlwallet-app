@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Link, Tabs, router } from 'expo-router';
-import { Pressable, useColorScheme } from 'react-native';
+import { Link, Tabs, router, usePathname } from 'expo-router';
+import { Pressable, useColorScheme, Platform, StyleSheet, View, Text } from 'react-native';
 
 import Colors from '../../constants/Colors';
 
@@ -17,41 +17,53 @@ function TabBarIcon(props: {
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  const pathname = usePathname();
 
   return (
     <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        tabBarStyle: { height: 60 },
-        tabBarLabelStyle: { fontSize: 12, paddingBottom: 5 },
-        headerShown: true,
-      }}>
+      screenOptions={({ route }) => ({
+        tabBarStyle: { 
+          display: 'none', // Hide the tab bar completely
+        },
+        headerShown: route.name === 'settings', // Only show header on settings page
+        headerStyle: {
+          height: Platform.OS === 'ios' ? 60 : 50,
+          backgroundColor: '#0A0A17',
+          shadowColor: 'transparent',
+          elevation: 0,
+        },
+        headerTitleStyle: {
+          fontWeight: 'bold',
+          color: '#fff',
+          fontSize: 18,
+        },
+        headerTitleAlign: 'center',
+        headerShadowVisible: false,
+      })}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'QRL Wallet',
-          headerTitleStyle: { fontWeight: 'bold' },
-          tabBarIcon: ({ color }) => <TabBarIcon name="credit-card" color={color} />,
-          tabBarLabel: 'Wallet',
-          headerTitleAlign: 'center',
+          headerShown: false, // Hide header on main wallet screen
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ color }) => <TabBarIcon name="gear" color={color} />,
-          headerTitleAlign: 'center',
+          headerTitle: 'Settings',
         }}
       />
-      <Tabs.Screen
-        name="about"
-        options={{
-          title: 'About',
-          tabBarIcon: ({ color }) => <TabBarIcon name="info-circle" color={color} />,
-          headerTitleAlign: 'center',
-        }}
-      />
+      {/* Remove the other tab screens */}
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  headerLogo: {
+    width: 34,
+    height: 34,
+    marginRight: 8,
+  },
+});

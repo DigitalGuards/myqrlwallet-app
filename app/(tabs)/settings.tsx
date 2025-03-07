@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Platform, Alert } from 'react-native';
+import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Image, Linking } from 'react-native';
 import WebViewService, { UserPreferences } from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import Constants from 'expo-constants';
+import { useNavigation } from '@react-navigation/native';
+import { router } from 'expo-router';
 
 export default function SettingsScreen() {
+  const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
     autoLock: true,
     lockTimeoutMinutes: 5,
@@ -14,6 +18,7 @@ export default function SettingsScreen() {
   
   const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string[]>([]);
+  const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load user preferences on component mount
   useEffect(() => {
@@ -82,6 +87,25 @@ export default function SettingsScreen() {
     );
   };
 
+  // Open external links
+  const openLink = (url: string) => {
+    Linking.openURL(url).catch((err) => console.error('Failed to open link:', err));
+  };
+
+  // Add back button functionality to header
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <FontAwesome name="arrow-left" size={20} color="#fff" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
+
   return (
     <ScrollView style={styles.container}>
       <View style={styles.section}>
@@ -142,6 +166,52 @@ export default function SettingsScreen() {
           <FontAwesome name="trash" size={18} color="#d32f2f" style={styles.buttonIcon} />
           <Text style={styles.buttonTextDanger}>Clear Cache</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* About Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>About</Text>
+        
+        <View style={styles.aboutHeader}>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <Text style={styles.appTitle}>MyQRL Wallet</Text>
+          <Text style={styles.version}>Version {appVersion}</Text>
+        </View>
+        
+        <Text style={styles.paragraph}>
+          The Quantum Resistant Ledger (QRL) is a blockchain technology designed to be secure against 
+          quantum computing attacks. This app provides a mobile interface to access your QRL wallet.
+        </Text>
+        
+        <View style={styles.linksContainer}>
+          <TouchableOpacity 
+            style={styles.linkButton} 
+            onPress={() => openLink('https://theqrl.org')}
+          >
+            <FontAwesome name="globe" size={18} color="#5e35b1" style={styles.buttonIcon} />
+            <Text style={styles.linkText}>QRL Website</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.linkButton} 
+            onPress={() => openLink('https://docs.theqrl.org')}
+          >
+            <FontAwesome name="book" size={18} color="#5e35b1" style={styles.buttonIcon} />
+            <Text style={styles.linkText}>Documentation</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.linkButton} 
+            onPress={() => openLink('https://github.com/theqrl')}
+          >
+            <FontAwesome name="github" size={18} color="#5e35b1" style={styles.buttonIcon} />
+            <Text style={styles.linkText}>GitHub</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </ScrollView>
   );
@@ -215,5 +285,50 @@ const styles = StyleSheet.create({
     color: '#d32f2f',
     fontSize: 16,
     fontWeight: '500',
+  },
+  // About section styles
+  aboutHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  logo: {
+    width: 80,
+    height: 80,
+    marginBottom: 10,
+  },
+  appTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
+  version: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 10,
+  },
+  paragraph: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#444',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  linksContainer: {
+    marginTop: 10,
+  },
+  linkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#e0e0e0',
+  },
+  linkText: {
+    fontSize: 16,
+    color: '#5e35b1',
+  },
+  backButton: {
+    padding: 10,
   },
 }); 
