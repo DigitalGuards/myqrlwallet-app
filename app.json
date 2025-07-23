@@ -11,8 +11,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chiefdg.myqrlwallet",
+      "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSFaceIDUsageDescription": "This app uses Face ID to secure your wallet access.",
+        "NSCameraUsageDescription": "This app needs camera access to scan QR codes for wallet addresses."
       }
     },
     "android": {
@@ -20,7 +23,13 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.chiefdg.myqrlwallet"
+      "package": "com.chiefdg.myqrlwallet",
+      "versionCode": 1,
+      "permissions": [
+        "USE_FINGERPRINT",
+        "USE_BIOMETRIC",
+        "CAMERA"
+      ]
     },
     "web": {
       "bundler": "metro",
