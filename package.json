@@ -55,5 +55,9 @@
     "eslint": "^9.31.0",
     "eslint-config-expo": "^9.2.0"
   },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.10",
+    "glob": "^9.3.5"
+  },
   "private": true
 }
