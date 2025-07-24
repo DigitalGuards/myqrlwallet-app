@@ -174,11 +174,11 @@ export default function SettingsScreen() {
         
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../../assets/images/icon.png')}
+            source={require('../../assets/images/myqrlwallet/icon.png')}
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.appTitle}>MyQRL Wallet</Text>
+          <Text style={styles.appTitle}>MyQRLWallet</Text>
           <Text style={styles.version}>Version {appVersion}</Text>
         </View>
         
