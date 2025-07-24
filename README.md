@@ -57,6 +57,7 @@ The application follows a modular architecture with these key components:
 
 3. Run on a device or emulator:
    ```
+   npx expo start ==> a
    npm run android
    npm run ios  # Requires macOS for iOS development
    ```
