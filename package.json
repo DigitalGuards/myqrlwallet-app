@@ -50,7 +50,6 @@
     "@types/react": "~18.3.12",
     "@types/react-test-renderer": "^18.3.0",
     "eslint": "^9.31.0",
-    "eslint-config-expo": "~8.0.1",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^16.3.0",
@@ -62,7 +61,8 @@
   },
   "overrides": {
     "@xmldom/xmldom": "^0.8.10",
-    "glob": "^9.3.5"
+    "glob": "^9.3.5",
+    "eslint-plugin-react-hooks": "^5.2.0"
   },
   "private": true
 }
