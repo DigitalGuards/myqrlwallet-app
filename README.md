@@ -38,8 +38,8 @@ The application follows a modular architecture with these key components:
 
 ### Prerequisites
 
-- Node.js (v14 or newer)
-- npm or yarn
+- Node.js (v18)
+- npm 
 - Expo CLI
 
 ### Installation
