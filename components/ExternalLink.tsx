@@ -1,7 +1,6 @@
 import { ComponentProps, ReactNode } from 'react';
 import { Pressable } from 'react-native';
-import { openBrowserAsync } from 'expo-web-browser';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 // Define props separately from Link component to avoid type conflicts
 type ExternalLinkProps = {
@@ -12,9 +11,9 @@ type ExternalLinkProps = {
 
 export function ExternalLink({ href, children, style }: ExternalLinkProps) {
   const handlePress = async () => {
-    // On native, use openBrowserAsync to open external links
+    // Use Linking API for all platforms
     if (Platform.OS !== 'web') {
-      await openBrowserAsync(href);
+      await Linking.openURL(href);
     } else {
       // On web, open in a new tab
       window.open(href, '_blank');
