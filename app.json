@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "myqrlwallet",
+    "name": "MyQRLWallet",
     "slug": "myqrlwallet",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/myqrlwallet/icon.png",
+    "icon": "./assets/images/myqrlwallet/applogo.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -20,7 +20,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/myqrlwallet/adaptive-icon.png",
+        "foregroundImage": "./assets/images/myqrlwallet/applogo.png",
         "backgroundColor": "#000000"
       },
       "package": "com.chiefdg.myqrlwallet",
@@ -46,7 +46,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#0c0e10"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
