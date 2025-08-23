@@ -26,6 +26,12 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
   // Timeout reference to force loading to complete after a set time
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Allowed domains for security
+  const ALLOWED_DOMAINS = [
+    'qrlwallet.com',
+    'www.qrlwallet.com'
+  ];
+
   // Custom user agent to improve compatibility
   const customUserAgent = userAgent || 
     `Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 MyQRLWallet/${Constants.expoConfig?.version || '1.0.0'}`;
@@ -115,6 +121,30 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
     }
   };
 
+  // Check if URL is allowed
+  const isUrlAllowed = (url: string): boolean => {
+    try {
+      const urlObj = new URL(url);
+      return ALLOWED_DOMAINS.includes(urlObj.hostname);
+    } catch (error) {
+      console.error('Invalid URL:', url);
+      return false;
+    }
+  };
+
+  // Handle navigation requests
+  const onShouldStartLoadWithRequest = (request: any): boolean => {
+    const { url } = request;
+    
+    // Allow initial load and allowed domains
+    if (isUrlAllowed(url)) {
+      return true;
+    }
+    
+    console.warn('Blocked navigation to unauthorized domain:', url);
+    return false;
+  };
+
   return (
     <View style={[styles.outerContainer, { backgroundColor: '#0A0A17' }]}>
       <StatusBar backgroundColor="#0A0A17" barStyle="light-content" />
@@ -135,8 +165,9 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
               ref={webViewRef}
               source={{ uri }}
               style={styles.webView}
-              originWhitelist={['https://*']}
+              originWhitelist={['https://qrlwallet.com', 'https://www.qrlwallet.com']}
               userAgent={customUserAgent}
+              onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
               javaScriptEnabled={true}
               domStorageEnabled={true}
               startInLoadingState={true}
@@ -161,7 +192,7 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
               
               // Additional settings
               incognito={false}
-              thirdPartyCookiesEnabled={true}
+              thirdPartyCookiesEnabled={false}
               pullToRefreshEnabled={true}
               javaScriptCanOpenWindowsAutomatically={false}
               allowsInlineMediaPlayback={true}
