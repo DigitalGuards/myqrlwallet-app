@@ -122,12 +122,12 @@ export default function WalletScreen() {
         const biometricReady = await BiometricService.isBiometricUnlockReady();
 
         if (hasWallet && biometricReady) {
-          // Perform biometric unlock and send PIN to web
+          // Perform biometric unlock and store PIN for later
           const result = await BiometricService.getPinWithBiometric();
-          if (result.success) {
-            // PIN will be sent to web when WebView is ready
+          if (result.success && result.pin) {
+            // Store PIN to send when web app signals ready
+            pendingUnlockPin.current = result.pin;
             setIsAuthorized(true);
-            // We'll send the PIN after WebView loads
           } else {
             // Biometric failed, but still allow access (user can enter PIN manually)
             setIsAuthorized(true);
@@ -150,19 +150,10 @@ export default function WalletScreen() {
     }
   }, [isFocused]);
 
-  // Handle WebView load - prepare for handshake
-  const handleWebViewLoad = useCallback(async () => {
+  // Handle WebView load - just mark as ready
+  // Biometric auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
+  const handleWebViewLoad = useCallback(() => {
     setWebViewReady(true);
-
-    // Prepare biometric unlock PIN if available
-    const biometricReady = await BiometricService.isBiometricUnlockReady();
-    if (biometricReady) {
-      const result = await BiometricService.getPinWithBiometric();
-      if (result.success && result.pin) {
-        // Store PIN to send when web app signals ready
-        pendingUnlockPin.current = result.pin;
-      }
-    }
   }, []);
 
   // Handle WEB_APP_READY message from web - safe to send data now
