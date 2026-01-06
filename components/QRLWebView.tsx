@@ -328,4 +328,3 @@ const styles = StyleSheet.create({
 });
 
 export default QRLWebView;
-export { NativeBridge }; 

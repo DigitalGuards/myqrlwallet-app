@@ -80,8 +80,31 @@ class SeedStorageService {
 
   /**
    * Get all backed up seeds
+   * Uses metadata for efficient lookup with multiGet instead of scanning all keys
    */
   async getAllBackups(): Promise<SeedBackup[]> {
+    // Try to use metadata for efficient lookup
+    const metadata = await this.getWalletMetadata();
+    if (metadata && metadata.addresses.length > 0) {
+      const keys = metadata.addresses.map(
+        address => `${SEED_BACKUP_PREFIX}${address.toLowerCase()}`
+      );
+      const results = await AsyncStorage.multiGet(keys);
+
+      const backups: SeedBackup[] = [];
+      for (const [, data] of results) {
+        if (data) {
+          try {
+            backups.push(JSON.parse(data) as SeedBackup);
+          } catch {
+            // Skip invalid entries
+          }
+        }
+      }
+      return backups;
+    }
+
+    // Fallback: scan all keys (for backwards compatibility)
     const keys = await AsyncStorage.getAllKeys();
     const seedKeys = keys.filter(key => key.startsWith(SEED_BACKUP_PREFIX));
 
