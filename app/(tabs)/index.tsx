@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { StyleSheet, View as RNView, useColorScheme, StatusBar, AppState, AppStateStatus, TouchableOpacity, Platform, Alert } from 'react-native';
 // Import QRLWebView
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
+import PinEntryModal from '../../components/PinEntryModal';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
@@ -17,12 +18,16 @@ export default function WalletScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [lastFocusTime, setLastFocusTime] = useState(0);
   const [webViewReady, setWebViewReady] = useState(false);
+  const [webAppReady, setWebAppReady] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const isFocused = useIsFocused();
   const colorScheme = useColorScheme();
   const pathname = usePathname();
   const appState = useRef(AppState.currentState);
   const lastActiveUrl = useRef<string | undefined>(undefined);
   const webViewRef = useRef<QRLWebViewRef>(null);
+  const pendingUnlockPin = useRef<string | null>(null);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -36,6 +41,27 @@ export default function WalletScreen() {
       console.log('[WalletScreen] Biometric unlock successful, sending PIN to web');
       NativeBridge.sendUnlockWithPin(result.pin);
     }
+  }, []);
+
+  // Handle PIN modal submission
+  const handlePinSubmit = useCallback(async (pin: string) => {
+    setPinModalVisible(false);
+    if (pendingPinAction) {
+      await pendingPinAction(pin);
+      setPendingPinAction(null);
+    }
+  }, [pendingPinAction]);
+
+  // Handle PIN modal cancel
+  const handlePinCancel = useCallback(() => {
+    setPinModalVisible(false);
+    setPendingPinAction(null);
+  }, []);
+
+  // Show PIN modal with a callback
+  const showPinModal = useCallback((action: (pin: string) => Promise<void>) => {
+    setPendingPinAction(() => action);
+    setPinModalVisible(true);
   }, []);
 
   // Handle seed stored event - prompt for biometric setup
@@ -63,30 +89,21 @@ export default function WalletScreen() {
         },
         {
           text: 'Enable',
-          onPress: async () => {
-            // Ask user for their PIN to set up biometric
-            // For now, we'll show a simple alert - in a real implementation,
-            // you'd want a PIN entry modal here
-            Alert.prompt(
-              'Enter Your PIN',
-              'Enter your wallet PIN to enable biometric unlock:',
-              async (pin) => {
-                if (pin) {
-                  const setupResult = await BiometricService.setupBiometricUnlock(pin);
-                  if (setupResult.success) {
-                    Alert.alert('Success', 'Biometric unlock enabled!');
-                  } else {
-                    Alert.alert('Error', setupResult.error || 'Failed to enable biometric unlock');
-                  }
-                }
-              },
-              'secure-text'
-            );
+          onPress: () => {
+            // Show secure PIN modal
+            showPinModal(async (pin: string) => {
+              const setupResult = await BiometricService.setupBiometricUnlock(pin);
+              if (setupResult.success) {
+                Alert.alert('Success', 'Biometric unlock enabled!');
+              } else {
+                Alert.alert('Error', setupResult.error || 'Failed to enable biometric unlock');
+              }
+            });
           },
         },
       ]
     );
-  }, []);
+  }, [showPinModal]);
 
   // Register bridge callbacks
   useEffect(() => {
@@ -133,20 +150,30 @@ export default function WalletScreen() {
     }
   }, [isFocused]);
 
-  // Send PIN to web after WebView is ready
+  // Handle WebView load - prepare for handshake
   const handleWebViewLoad = useCallback(async () => {
     setWebViewReady(true);
 
-    // If biometric unlock is ready, try to unlock automatically
+    // Prepare biometric unlock PIN if available
     const biometricReady = await BiometricService.isBiometricUnlockReady();
     if (biometricReady) {
       const result = await BiometricService.getPinWithBiometric();
       if (result.success && result.pin) {
-        // Small delay to ensure web app is initialized
-        setTimeout(() => {
-          NativeBridge.sendUnlockWithPin(result.pin!);
-        }, 500);
+        // Store PIN to send when web app signals ready
+        pendingUnlockPin.current = result.pin;
       }
+    }
+  }, []);
+
+  // Handle WEB_APP_READY message from web - safe to send data now
+  const handleWebAppReady = useCallback(async () => {
+    console.log('[WalletScreen] Web app is ready, sending initialization data');
+    setWebAppReady(true);
+
+    // Send pending unlock PIN if we have one
+    if (pendingUnlockPin.current) {
+      NativeBridge.sendUnlockWithPin(pendingUnlockPin.current);
+      pendingUnlockPin.current = null;
     }
 
     // Check if we need to restore any seeds
@@ -157,6 +184,11 @@ export default function WalletScreen() {
       NativeBridge.sendRestoreSeed(backup.address, backup.encryptedSeed, backup.blockchain);
     }
   }, []);
+
+  // Register WEB_APP_READY handler
+  useEffect(() => {
+    NativeBridge.onWebAppReady(handleWebAppReady);
+  }, [handleWebAppReady]);
 
   // Update session timestamp on screen focus
   useEffect(() => {
@@ -180,6 +212,13 @@ export default function WalletScreen() {
           </TouchableOpacity>
         </>
       )}
+      <PinEntryModal
+        visible={pinModalVisible}
+        title="Enter Your PIN"
+        message="Enter your wallet PIN to enable biometric unlock"
+        onSubmit={handlePinSubmit}
+        onCancel={handlePinCancel}
+      />
     </RNView>
   );
 }
