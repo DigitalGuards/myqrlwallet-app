@@ -15,7 +15,8 @@ export type WebToNativeMessageType =
   // Seed persistence messages
   | 'SEED_STORED'             // Web stored encrypted seed, native should backup
   | 'REQUEST_BIOMETRIC_UNLOCK'  // Web asks native to unlock with biometric
-  | 'WALLET_CLEARED';         // Web confirmed it cleared localStorage
+  | 'WALLET_CLEARED'          // Web confirmed it cleared localStorage
+  | 'WEB_APP_READY';          // Web app is fully initialized and ready to receive data
 
 /**
  * Message types that can be sent to the WebView
@@ -59,6 +60,11 @@ type BiometricUnlockCallback = () => Promise<void>;
 type SeedStoredCallback = (address: string) => void;
 
 /**
+ * Callback for when web app is fully initialized
+ */
+type WebAppReadyCallback = () => Promise<void>;
+
+/**
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
@@ -66,6 +72,7 @@ class NativeBridge {
   private qrScanCallback: QRScanCallback | null = null;
   private biometricUnlockCallback: BiometricUnlockCallback | null = null;
   private seedStoredCallback: SeedStoredCallback | null = null;
+  private webAppReadyCallback: WebAppReadyCallback | null = null;
 
   /**
    * Set the WebView reference for sending messages back to web
@@ -96,6 +103,13 @@ class NativeBridge {
   }
 
   /**
+   * Register callback for when web app is fully initialized
+   */
+  onWebAppReady(callback: WebAppReadyCallback) {
+    this.webAppReadyCallback = callback;
+  }
+
+  /**
    * Send a message to the WebView
    */
   sendToWeb(message: BridgeResponse) {
@@ -121,37 +135,60 @@ class NativeBridge {
         this.handleScanQR();
         break;
 
-      case 'COPY_TO_CLIPBOARD':
-        await this.handleCopyToClipboard(payload?.text as string);
+      case 'COPY_TO_CLIPBOARD': {
+        const text = payload?.text;
+        if (typeof text !== 'string') {
+          console.warn('[NativeBridge] COPY_TO_CLIPBOARD missing or invalid text');
+          this.sendToWeb({ type: 'ERROR', payload: { message: 'Invalid clipboard text' } });
+          return;
+        }
+        await this.handleCopyToClipboard(text);
         break;
+      }
 
-      case 'SHARE':
-        await this.handleShare(
-          payload?.title as string,
-          payload?.text as string,
-          payload?.url as string
-        );
+      case 'SHARE': {
+        const title = payload?.title;
+        const text = payload?.text;
+        const url = payload?.url;
+        // At least text or url should be provided
+        if ((title !== undefined && typeof title !== 'string') ||
+            (text !== undefined && typeof text !== 'string') ||
+            (url !== undefined && typeof url !== 'string')) {
+          console.warn('[NativeBridge] SHARE has invalid payload types');
+          this.sendToWeb({ type: 'ERROR', payload: { message: 'Invalid share payload' } });
+          return;
+        }
+        await this.handleShare(title, text, url);
         break;
+      }
 
-      case 'TX_CONFIRMED':
-        this.handleTxConfirmed(
-          payload?.txHash as string,
-          payload?.type as 'incoming' | 'outgoing'
-        );
+      case 'TX_CONFIRMED': {
+        const txHash = payload?.txHash;
+        const txType = payload?.type;
+        if (typeof txHash !== 'string' || (txType !== 'incoming' && txType !== 'outgoing')) {
+          console.warn('[NativeBridge] TX_CONFIRMED has invalid payload');
+          return;
+        }
+        this.handleTxConfirmed(txHash, txType);
         break;
+      }
 
       case 'LOG':
         console.log('[WebView]', payload?.message);
         break;
 
       // Seed persistence messages
-      case 'SEED_STORED':
-        await this.handleSeedStored(
-          payload?.address as string,
-          payload?.encryptedSeed as string,
-          payload?.blockchain as string
-        );
+      case 'SEED_STORED': {
+        const address = payload?.address;
+        const encryptedSeed = payload?.encryptedSeed;
+        const blockchain = payload?.blockchain;
+        if (typeof address !== 'string' || typeof encryptedSeed !== 'string' || typeof blockchain !== 'string') {
+          console.warn('[NativeBridge] SEED_STORED missing or invalid required fields');
+          return;
+        }
+        await this.handleSeedStored(address, encryptedSeed, blockchain);
         break;
+      }
 
       case 'REQUEST_BIOMETRIC_UNLOCK':
         await this.handleBiometricUnlockRequest();
@@ -159,6 +196,13 @@ class NativeBridge {
 
       case 'WALLET_CLEARED':
         console.log('[NativeBridge] Web confirmed wallet cleared');
+        break;
+
+      case 'WEB_APP_READY':
+        console.log('[NativeBridge] Web app is ready');
+        if (this.webAppReadyCallback) {
+          await this.webAppReadyCallback();
+        }
         break;
 
       default:

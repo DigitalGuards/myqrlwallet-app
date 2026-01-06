@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Image, Linking } from 'react-native';
 import WebViewService, { UserPreferences } from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
+import PinEntryModal from '../../components/PinEntryModal';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
@@ -22,6 +23,7 @@ export default function SettingsScreen() {
   const [biometricType, setBiometricType] = useState<string[]>([]);
   const [hasWallet, setHasWallet] = useState(false);
   const [biometricUnlockEnabled, setBiometricUnlockEnabled] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load user preferences on component mount
@@ -79,26 +81,28 @@ export default function SettingsScreen() {
     }
   };
 
+  // Handle PIN modal submission for biometric unlock setup
+  const handlePinSubmit = useCallback(async (pin: string) => {
+    setPinModalVisible(false);
+    const result = await BiometricService.setupBiometricUnlock(pin);
+    if (result.success) {
+      setBiometricUnlockEnabled(true);
+      Alert.alert('Success', 'Biometric unlock enabled!');
+    } else {
+      Alert.alert('Error', result.error || 'Failed to enable biometric unlock');
+    }
+  }, []);
+
+  // Handle PIN modal cancel
+  const handlePinCancel = useCallback(() => {
+    setPinModalVisible(false);
+  }, []);
+
   // Handle biometric unlock toggle
   const handleBiometricUnlockToggle = async (newValue: boolean) => {
     if (newValue) {
-      // Enable biometric unlock - need to get PIN from user
-      Alert.prompt(
-        'Enter Your PIN',
-        'Enter your wallet PIN to enable biometric unlock:',
-        async (pin) => {
-          if (pin) {
-            const result = await BiometricService.setupBiometricUnlock(pin);
-            if (result.success) {
-              setBiometricUnlockEnabled(true);
-              Alert.alert('Success', 'Biometric unlock enabled!');
-            } else {
-              Alert.alert('Error', result.error || 'Failed to enable biometric unlock');
-            }
-          }
-        },
-        'secure-text'
-      );
+      // Enable biometric unlock - show secure PIN modal
+      setPinModalVisible(true);
     } else {
       // Disable biometric unlock
       await BiometricService.disableBiometricUnlock();
@@ -128,20 +132,29 @@ export default function SettingsScreen() {
                   text: 'Yes, Remove',
                   style: 'destructive',
                   onPress: async () => {
-                    // Clear native storage
-                    await SeedStorageService.clearWallet();
+                    try {
+                      // Clear native storage
+                      await SeedStorageService.clearWallet();
 
-                    // Tell web app to clear its data
-                    NativeBridge.sendClearWallet();
+                      // Tell web app to clear its data
+                      NativeBridge.sendClearWallet();
 
-                    // Update state
-                    setHasWallet(false);
-                    setBiometricUnlockEnabled(false);
+                      // Update state
+                      setHasWallet(false);
+                      setBiometricUnlockEnabled(false);
 
-                    Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
+                      Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
 
-                    // Navigate back to main screen
-                    router.back();
+                      // Navigate back to main screen
+                      router.back();
+                    } catch (error) {
+                      console.error('[Settings] Failed to remove wallet:', error);
+                      Alert.alert(
+                        'Error',
+                        'Failed to remove wallet. Please try again.',
+                        [{ text: 'OK' }]
+                      );
+                    }
                   },
                 },
               ]
@@ -191,6 +204,7 @@ export default function SettingsScreen() {
   }, [navigation]);
 
   return (
+    <>
     <ScrollView style={styles.container}>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Security</Text>
@@ -332,6 +346,14 @@ export default function SettingsScreen() {
         </View>
       </View>
     </ScrollView>
+    <PinEntryModal
+      visible={pinModalVisible}
+      title="Enter Your PIN"
+      message="Enter your wallet PIN to enable biometric unlock"
+      onSubmit={handlePinSubmit}
+      onCancel={handlePinCancel}
+    />
+    </>
   );
 }
 
