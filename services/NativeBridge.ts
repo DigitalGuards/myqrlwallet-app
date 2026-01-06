@@ -16,7 +16,9 @@ export type WebToNativeMessageType =
   | 'SEED_STORED'             // Web stored encrypted seed, native should backup
   | 'REQUEST_BIOMETRIC_UNLOCK'  // Web asks native to unlock with biometric
   | 'WALLET_CLEARED'          // Web confirmed it cleared localStorage
-  | 'WEB_APP_READY';          // Web app is fully initialized and ready to receive data
+  | 'WEB_APP_READY'           // Web app is fully initialized and ready to receive data
+  // Navigation messages
+  | 'OPEN_NATIVE_SETTINGS';   // Request native app to open its settings screen
 
 /**
  * Message types that can be sent to the WebView
@@ -65,6 +67,11 @@ type SeedStoredCallback = (address: string) => void;
 type WebAppReadyCallback = () => Promise<void>;
 
 /**
+ * Callback for when native settings should be opened
+ */
+type OpenNativeSettingsCallback = () => void;
+
+/**
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
@@ -73,6 +80,7 @@ class NativeBridge {
   private biometricUnlockCallback: BiometricUnlockCallback | null = null;
   private seedStoredCallback: SeedStoredCallback | null = null;
   private webAppReadyCallback: WebAppReadyCallback | null = null;
+  private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
 
   /**
    * Set the WebView reference for sending messages back to web
@@ -107,6 +115,13 @@ class NativeBridge {
    */
   onWebAppReady(callback: WebAppReadyCallback) {
     this.webAppReadyCallback = callback;
+  }
+
+  /**
+   * Register callback for when native settings should be opened
+   */
+  onOpenNativeSettings(callback: OpenNativeSettingsCallback) {
+    this.openNativeSettingsCallback = callback;
   }
 
   /**
@@ -202,6 +217,13 @@ class NativeBridge {
         console.log('[NativeBridge] Web app is ready');
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
+        }
+        break;
+
+      case 'OPEN_NATIVE_SETTINGS':
+        console.log('[NativeBridge] Opening native settings');
+        if (this.openNativeSettingsCallback) {
+          this.openNativeSettingsCallback();
         }
         break;
 
