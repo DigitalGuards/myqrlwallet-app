@@ -1,20 +1,30 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, ActivityIndicator, BackHandler, Text, TouchableOpacity, Platform, useColorScheme, StatusBar } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import Colors from '../constants/Colors';
+import NativeBridge, { BridgeMessage } from '../services/NativeBridge';
 
 // Type definitions
 interface QRLWebViewProps {
   uri?: string;
   userAgent?: string;
+  onQRScanRequest?: () => void;
+  onLoad?: () => void;  // Called when WebView content is loaded
 }
 
-const QRLWebView: React.FC<QRLWebViewProps> = ({ 
+export interface QRLWebViewRef {
+  sendQRResult: (address: string) => void;
+  reload: () => void;
+}
+
+const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri = 'https://qrlwallet.com',
-  userAgent 
-}) => {
+  userAgent,
+  onQRScanRequest,
+  onLoad
+}, ref) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [navState, setNavState] = useState<any>({ url: uri });
@@ -72,6 +82,28 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
     }, [])
   );
 
+  // Set up Native Bridge
+  useEffect(() => {
+    NativeBridge.setWebViewRef(webViewRef);
+
+    // Register QR scan callback
+    if (onQRScanRequest) {
+      NativeBridge.onQRScanRequest(onQRScanRequest);
+    }
+  }, [onQRScanRequest]);
+
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    sendQRResult: (address: string) => {
+      NativeBridge.sendQRResult(address);
+    },
+    reload: () => {
+      if (webViewRef.current) {
+        webViewRef.current.reload();
+      }
+    }
+  }));
+
   const handleLoadStart = () => {
     setIsLoading(true);
     setError(null);
@@ -79,6 +111,10 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
 
   const handleLoadEnd = () => {
     setIsLoading(false);
+    // Notify parent that WebView content is loaded
+    if (onLoad) {
+      onLoad();
+    }
   };
 
   const handleNavigationStateChange = (newNavState: any) => {
@@ -110,14 +146,22 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
   // Handle messages from the WebView
   const handleMessage = (event: any) => {
     const { data } = event.nativeEvent;
-    
+
+    // Handle legacy PAGE_LOADED message
     if (data === 'PAGE_LOADED') {
       console.log('Page fully loaded message received');
       setIsLoading(false);
+      return;
     }
-    // Log other messages for debugging
-    else {
-      console.log(`Message from WebView: ${data}`);
+
+    // Try to parse as JSON bridge message
+    try {
+      const message: BridgeMessage = JSON.parse(data);
+      console.log('[Bridge] Received:', message.type);
+      NativeBridge.handle(message);
+    } catch {
+      // Not a JSON message, log for debugging
+      console.log(`[WebView] Message: ${data}`);
     }
   };
 
@@ -220,7 +264,7 @@ const QRLWebView: React.FC<QRLWebViewProps> = ({
       </View>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   outerContainer: {
@@ -283,4 +327,5 @@ const styles = StyleSheet.create({
   },
 });
 
-export default QRLWebView; 
+export default QRLWebView;
+export { NativeBridge }; 
