@@ -109,6 +109,7 @@ export default function WalletScreen() {
   useEffect(() => {
     NativeBridge.onBiometricUnlockRequest(performBiometricUnlock);
     NativeBridge.onSeedStored(handleSeedStored);
+    NativeBridge.onOpenNativeSettings(navigateToSettings);
   }, [performBiometricUnlock, handleSeedStored]);
 
   // Check biometric settings and authenticate if needed
