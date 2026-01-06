@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
+import SeedStorageService from './SeedStorageService';
 
 /**
  * Service for managing biometric authentication
@@ -87,6 +88,135 @@ class BiometricService {
     } else {
       return 'Biometric Authentication';
     }
+  }
+
+  // ============================================================
+  // PIN-based Biometric Unlock
+  // ============================================================
+
+  /**
+   * Authenticate with biometrics and retrieve the stored PIN
+   * This is the main unlock flow for the app
+   * @returns The stored PIN if authentication succeeds, null otherwise
+   */
+  async getPinWithBiometric(): Promise<{
+    success: boolean;
+    pin?: string;
+    error?: string;
+  }> {
+    // First check if biometric is available
+    const available = await this.isBiometricAvailable();
+    if (!available) {
+      return {
+        success: false,
+        error: 'Biometric authentication not available on this device',
+      };
+    }
+
+    // Check if biometric unlock is enabled
+    const biometricEnabled = await SeedStorageService.isBiometricEnabled();
+    if (!biometricEnabled) {
+      return {
+        success: false,
+        error: 'Biometric unlock not enabled',
+      };
+    }
+
+    // Check if PIN is stored
+    const hasPIN = await SeedStorageService.hasPinStored();
+    if (!hasPIN) {
+      return {
+        success: false,
+        error: 'No PIN stored for biometric unlock',
+      };
+    }
+
+    // Perform biometric authentication
+    const authResult = await this.authenticate('Unlock your wallet');
+    if (!authResult.success) {
+      return {
+        success: false,
+        error: authResult.error || 'Biometric authentication failed',
+      };
+    }
+
+    // Retrieve the PIN
+    const pin = await SeedStorageService.getStoredPin();
+    if (!pin) {
+      return {
+        success: false,
+        error: 'Failed to retrieve stored PIN',
+      };
+    }
+
+    return {
+      success: true,
+      pin,
+    };
+  }
+
+  /**
+   * Set up biometric unlock by storing the PIN securely
+   * @param pin The user's PIN to store
+   * @returns Success status
+   */
+  async setupBiometricUnlock(pin: string): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    try {
+      // Check if biometric is available
+      const available = await this.isBiometricAvailable();
+      if (!available) {
+        return {
+          success: false,
+          error: 'Biometric authentication not available on this device',
+        };
+      }
+
+      // Authenticate before storing (confirm user identity)
+      const authResult = await this.authenticate(
+        `Enable ${this.getBiometricName()} to unlock your wallet`
+      );
+      if (!authResult.success) {
+        return {
+          success: false,
+          error: authResult.error || 'Authentication cancelled',
+        };
+      }
+
+      // Store the PIN securely
+      await SeedStorageService.storePinSecurely(pin);
+
+      // Enable biometric unlock
+      await SeedStorageService.setBiometricEnabled(true);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to setup biometric unlock:', error);
+      return {
+        success: false,
+        error: 'Failed to set up biometric unlock',
+      };
+    }
+  }
+
+  /**
+   * Disable biometric unlock
+   */
+  async disableBiometricUnlock(): Promise<void> {
+    await SeedStorageService.setBiometricEnabled(false);
+  }
+
+  /**
+   * Check if biometric unlock is set up and ready
+   */
+  async isBiometricUnlockReady(): Promise<boolean> {
+    const available = await this.isBiometricAvailable();
+    const enabled = await SeedStorageService.isBiometricEnabled();
+    const hasPin = await SeedStorageService.hasPinStored();
+
+    return available && enabled && hasPin;
   }
 }
 
