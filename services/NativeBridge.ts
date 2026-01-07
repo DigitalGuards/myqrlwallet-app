@@ -1,7 +1,6 @@
 import { RefObject } from 'react';
 import { Alert, Share, Platform, Linking } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
-import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 
@@ -15,7 +14,6 @@ export type WebToNativeMessageType =
   | 'TX_CONFIRMED'
   | 'LOG'
   | 'OPEN_URL'                // Open external URL in device browser
-  | 'HAPTIC'                  // Trigger haptic feedback
   // Seed persistence messages
   | 'SEED_STORED'             // Web stored encrypted seed, native should backup
   | 'REQUEST_BIOMETRIC_UNLOCK'  // Web asks native to unlock with biometric
@@ -207,12 +205,6 @@ class NativeBridge {
         break;
       }
 
-      case 'HAPTIC': {
-        const style = payload?.style as string || 'success';
-        await this.handleHaptic(style);
-        break;
-      }
-
       // Seed persistence messages
       case 'SEED_STORED': {
         const address = payload?.address;
@@ -281,7 +273,7 @@ class NativeBridge {
     }
 
     try {
-      Clipboard.setString(text);
+      await Clipboard.setStringAsync(text);
       this.sendToWeb({
         type: 'CLIPBOARD_SUCCESS',
         payload: { text },
@@ -376,38 +368,6 @@ class NativeBridge {
         type: 'ERROR',
         payload: { message: 'Failed to open URL' },
       });
-    }
-  }
-
-  /**
-   * Handle haptic feedback request
-   */
-  private async handleHaptic(style: string) {
-    try {
-      switch (style) {
-        case 'success':
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          break;
-        case 'warning':
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          break;
-        case 'error':
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          break;
-        case 'light':
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          break;
-        case 'medium':
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          break;
-        case 'heavy':
-          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          break;
-        default:
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } catch (error) {
-      console.warn('[NativeBridge] Haptic feedback failed:', error);
     }
   }
 
