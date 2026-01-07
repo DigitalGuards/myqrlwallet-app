@@ -28,6 +28,7 @@ export default function WalletScreen() {
   const lastActiveUrl = useRef<string | undefined>(undefined);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
+  const hasRestoredSeeds = useRef<boolean>(false);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -191,6 +192,11 @@ export default function WalletScreen() {
 
   // Handle WEB_APP_READY message from web - safe to send data now
   const handleWebAppReady = useCallback(async () => {
+    // Prevent double execution (web app may send WEB_APP_READY multiple times)
+    if (hasRestoredSeeds.current) {
+      return;
+    }
+    hasRestoredSeeds.current = true;
     setWebAppReady(true);
 
     // Send pending unlock PIN if we have one
