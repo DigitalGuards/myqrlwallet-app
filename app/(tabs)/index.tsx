@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, useColorScheme, StatusBar, AppState, AppStateStatus, TouchableOpacity, Platform, Alert } from 'react-native';
+import { StyleSheet, View as RNView, useColorScheme, StatusBar, AppState, AppStateStatus, Alert } from 'react-native';
 // Import QRLWebView
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
@@ -11,7 +11,6 @@ import { useIsFocused } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
 import { usePathname, router } from 'expo-router';
 import Colors from '../../constants/Colors';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -193,16 +192,7 @@ export default function WalletScreen() {
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
       {isAuthorized && (
-        <>
-          <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} />
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={navigateToSettings}
-            activeOpacity={0.7}
-          >
-            <FontAwesome name="gear" size={24} color="white" />
-          </TouchableOpacity>
-        </>
+        <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} />
       )}
       <PinEntryModal
         visible={pinModalVisible}
@@ -219,24 +209,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A17',
-  },
-  settingsButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 70 : 50,
-    left: 15,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(10, 10, 23, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 999,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
 });
