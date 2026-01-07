@@ -165,36 +165,19 @@ export default function SettingsScreen() {
     );
   };
 
-  // Clear all app data (session, web localStorage, native wallet backups)
-  const clearAllData = async () => {
+  // Clear session data (not wallet seeds)
+  const clearCache = async () => {
     Alert.alert(
-      'Clear All Data',
-      'This will clear ALL app data including:\n\n• Session data\n• Web app localStorage\n• Wallet backups\n\nYou will need to re-import your wallet. Make sure you have your seed phrase backed up!\n\nContinue?',
+      'Clear Session',
+      'This will clear your current session and log you out. You will need to log in again. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear All',
+          text: 'Clear',
           style: 'destructive',
           onPress: async () => {
-            try {
-              // Clear native session data
-              await WebViewService.clearSessionData();
-
-              // Clear native wallet backups
-              await SeedStorageService.clearWallet();
-
-              // Tell web app to clear its localStorage
-              NativeBridge.sendClearWallet();
-
-              // Update state
-              setHasWallet(false);
-              setBiometricUnlockEnabled(false);
-
-              Alert.alert('Data Cleared', 'All app data has been cleared. Please restart the app.');
-            } catch (error) {
-              console.error('[Settings] Failed to clear data:', error);
-              Alert.alert('Error', 'Failed to clear some data. Please try again.');
-            }
+            await WebViewService.clearSessionData();
+            Alert.alert('Session Cleared', 'Your session has been cleared.');
           },
         },
       ]
@@ -310,10 +293,10 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Data</Text>
 
-        {/* Clear All Data Button */}
-        <TouchableOpacity style={styles.button} onPress={clearAllData}>
+        {/* Clear Session Button */}
+        <TouchableOpacity style={styles.button} onPress={clearCache}>
           <FontAwesome name="trash" size={18} color="#d32f2f" style={styles.buttonIcon} />
-          <Text style={styles.buttonTextDanger}>Clear All Data</Text>
+          <Text style={styles.buttonTextDanger}>Clear Session</Text>
         </TouchableOpacity>
       </View>
 
