@@ -232,8 +232,8 @@ export default function SettingsScreen() {
           <Switch
             value={preferences.autoLock}
             onValueChange={(value) => updatePreference('autoLock', value)}
-            trackColor={{ false: '#767577', true: '#8561c5' }}
-            thumbColor={preferences.autoLock ? '#5e35b1' : '#f4f3f4'}
+            trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+            thumbColor={preferences.autoLock ? '#ff8700' : '#888'}
           />
         </View>
         
@@ -249,8 +249,8 @@ export default function SettingsScreen() {
             <Switch
               value={preferences.biometricEnabled}
               onValueChange={handleBiometricToggle}
-              trackColor={{ false: '#767577', true: '#8561c5' }}
-              thumbColor={preferences.biometricEnabled ? '#5e35b1' : '#f4f3f4'}
+              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+              thumbColor={preferences.biometricEnabled ? '#ff8700' : '#888'}
             />
           </View>
         )}
@@ -264,8 +264,8 @@ export default function SettingsScreen() {
           <Switch
             value={preferences.notificationsEnabled}
             onValueChange={(value) => updatePreference('notificationsEnabled', value)}
-            trackColor={{ false: '#767577', true: '#8561c5' }}
-            thumbColor={preferences.notificationsEnabled ? '#5e35b1' : '#f4f3f4'}
+            trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+            thumbColor={preferences.notificationsEnabled ? '#ff8700' : '#888'}
           />
         </View>
       </View>
@@ -287,15 +287,15 @@ export default function SettingsScreen() {
               <Switch
                 value={biometricUnlockEnabled}
                 onValueChange={handleBiometricUnlockToggle}
-                trackColor={{ false: '#767577', true: '#8561c5' }}
-                thumbColor={biometricUnlockEnabled ? '#5e35b1' : '#f4f3f4'}
+                trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+                thumbColor={biometricUnlockEnabled ? '#ff8700' : '#888'}
               />
             </View>
           )}
 
           {/* Remove Wallet Button */}
           <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>
-            <FontAwesome name="warning" size={18} color="#d32f2f" style={styles.buttonIcon} />
+            <FontAwesome name="warning" size={18} color="#ff6b6b" style={styles.buttonIcon} />
             <Text style={styles.buttonTextDanger}>Remove Wallet</Text>
           </TouchableOpacity>
           <Text style={styles.warningText}>
@@ -308,8 +308,8 @@ export default function SettingsScreen() {
         <Text style={styles.sectionTitle}>Data</Text>
 
         {/* Clear Session Button */}
-        <TouchableOpacity style={styles.button} onPress={clearCache}>
-          <FontAwesome name="trash" size={18} color="#d32f2f" style={styles.buttonIcon} />
+        <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={clearCache}>
+          <FontAwesome name="trash" size={18} color="#ff6b6b" style={styles.buttonIcon} />
           <Text style={styles.buttonTextDanger}>Clear Session</Text>
         </TouchableOpacity>
       </View>
@@ -338,7 +338,7 @@ export default function SettingsScreen() {
             style={styles.linkButton} 
             onPress={() => openLink('https://theqrl.org')}
           >
-            <FontAwesome name="globe" size={18} color="#5e35b1" style={styles.buttonIcon} />
+            <FontAwesome name="globe" size={18} color="#ff8700" style={styles.buttonIcon} />
             <Text style={styles.linkText}>QRL Website</Text>
           </TouchableOpacity>
           
@@ -346,7 +346,7 @@ export default function SettingsScreen() {
             style={styles.linkButton} 
             onPress={() => openLink('https://docs.theqrl.org')}
           >
-            <FontAwesome name="book" size={18} color="#5e35b1" style={styles.buttonIcon} />
+            <FontAwesome name="book" size={18} color="#ff8700" style={styles.buttonIcon} />
             <Text style={styles.linkText}>Documentation</Text>
           </TouchableOpacity>
           
@@ -354,7 +354,7 @@ export default function SettingsScreen() {
             style={styles.linkButton} 
             onPress={() => openLink('https://github.com/theqrl')}
           >
-            <FontAwesome name="github" size={18} color="#5e35b1" style={styles.buttonIcon} />
+            <FontAwesome name="github" size={18} color="#ff8700" style={styles.buttonIcon} />
             <Text style={styles.linkText}>GitHub</Text>
           </TouchableOpacity>
         </View>
@@ -374,32 +374,25 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f7f7f7',
+    backgroundColor: '#0A0A17',
   },
   section: {
     marginBottom: 24,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+    backgroundColor: '#16161a',
+    borderRadius: 12,
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
+    borderWidth: 1,
+    borderColor: '#2a2a3a',
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 14,
+    fontWeight: '600',
     marginBottom: 16,
-    color: '#5e35b1',
+    color: '#ff8700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   settingRow: {
     flexDirection: 'row',
@@ -407,7 +400,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#2a2a3a',
   },
   settingTextContainer: {
     flex: 1,
@@ -416,38 +409,38 @@ const styles = StyleSheet.create({
   settingTitle: {
     fontSize: 16,
     marginBottom: 4,
-    color: '#333',
+    color: '#f8fafc',
   },
   settingDescription: {
     fontSize: 14,
-    color: '#666',
+    color: '#888',
   },
   button: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    borderRadius: 4,
-    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    backgroundColor: '#1e1e2e',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#2a2a3a',
   },
   buttonIcon: {
     marginRight: 8,
   },
   buttonTextDanger: {
-    color: '#d32f2f',
+    color: '#ff6b6b',
     fontSize: 16,
     fontWeight: '500',
   },
   dangerButton: {
     marginTop: 16,
-    borderColor: '#d32f2f',
-    backgroundColor: '#fff5f5',
+    borderColor: '#ff6b6b44',
+    backgroundColor: '#ff6b6b11',
   },
   warningText: {
     fontSize: 12,
-    color: '#999',
+    color: '#666',
     textAlign: 'center',
     marginTop: 8,
   },
@@ -464,18 +457,18 @@ const styles = StyleSheet.create({
   appTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#f8fafc',
     marginBottom: 5,
   },
   version: {
     fontSize: 14,
-    color: '#666',
+    color: '#888',
     marginBottom: 10,
   },
   paragraph: {
     fontSize: 14,
     lineHeight: 22,
-    color: '#444',
+    color: '#a0a0a0',
     marginBottom: 20,
     textAlign: 'center',
   },
@@ -487,11 +480,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#2a2a3a',
   },
   linkText: {
     fontSize: 16,
-    color: '#5e35b1',
+    color: '#ff8700',
   },
   backButton: {
     padding: 10,
