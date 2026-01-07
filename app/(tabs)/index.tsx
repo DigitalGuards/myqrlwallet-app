@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, useColorScheme, StatusBar, AppState, AppStateStatus, Alert } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager } from 'react-native';
 // Import QRLWebView
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
@@ -23,7 +23,6 @@ export default function WalletScreen() {
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const isFocused = useIsFocused();
-  const colorScheme = useColorScheme();
   const pathname = usePathname();
   const appState = useRef(AppState.currentState);
   const lastActiveUrl = useRef<string | undefined>(undefined);
@@ -158,11 +157,11 @@ export default function WalletScreen() {
           const promptAlreadyShown = await SeedStorageService.wasBiometricPromptShown();
 
           if (biometricAvailable && !promptAlreadyShown) {
-            // Show biometric setup prompt on next tick (after UI renders)
+            // Show biometric setup prompt after UI renders and interactions complete
             setIsAuthorized(true);
-            setTimeout(() => {
+            InteractionManager.runAfterInteractions(() => {
               promptBiometricSetup();
-            }, 500);
+            });
           } else {
             setIsAuthorized(true);
           }
@@ -205,6 +204,7 @@ export default function WalletScreen() {
     if (backups.length > 0) {
       console.log(`[WalletScreen] Restoring ${backups.length} wallet(s) from backup`);
       for (const backup of backups) {
+        console.log(` -> Restoring seed for ${backup.address}`);
         NativeBridge.sendRestoreSeed(backup.address, backup.encryptedSeed, backup.blockchain);
       }
     }
