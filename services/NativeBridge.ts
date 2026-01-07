@@ -1,5 +1,5 @@
 import { RefObject } from 'react';
-import { Alert, Share, Clipboard, Platform } from 'react-native';
+import { Alert, Share, Clipboard, Platform, Linking } from 'react-native';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 
@@ -12,6 +12,7 @@ export type WebToNativeMessageType =
   | 'SHARE'
   | 'TX_CONFIRMED'
   | 'LOG'
+  | 'OPEN_URL'                // Open external URL in device browser
   // Seed persistence messages
   | 'SEED_STORED'             // Web stored encrypted seed, native should backup
   | 'REQUEST_BIOMETRIC_UNLOCK'  // Web asks native to unlock with biometric
@@ -192,6 +193,17 @@ class NativeBridge {
         console.log('[WebView]', payload?.message);
         break;
 
+      case 'OPEN_URL': {
+        const url = payload?.url;
+        if (typeof url !== 'string') {
+          console.warn('[NativeBridge] OPEN_URL missing or invalid url');
+          this.sendToWeb({ type: 'ERROR', payload: { message: 'Invalid URL' } });
+          return;
+        }
+        await this.handleOpenUrl(url);
+        break;
+      }
+
       // Seed persistence messages
       case 'SEED_STORED': {
         const address = payload?.address;
@@ -332,6 +344,30 @@ class NativeBridge {
     console.log(`Transaction ${txType}: ${txHash}`);
     // TODO: Integrate with NotificationService when implemented
     // NotificationService.showTransactionNotification(txHash, txType);
+  }
+
+  /**
+   * Handle open URL request - opens in device's default browser
+   */
+  private async handleOpenUrl(url: string) {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        console.warn(`[NativeBridge] Cannot open URL: ${url}`);
+        this.sendToWeb({
+          type: 'ERROR',
+          payload: { message: 'Cannot open this URL' },
+        });
+      }
+    } catch (error) {
+      console.error('[NativeBridge] Error opening URL:', error);
+      this.sendToWeb({
+        type: 'ERROR',
+        payload: { message: 'Failed to open URL' },
+      });
+    }
   }
 
   /**
