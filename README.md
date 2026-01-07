@@ -125,17 +125,24 @@ myqrlwallet-app/
 
 | Message | Payload | Description |
 |---------|---------|-------------|
+| `WEB_APP_READY` | - | Web app initialized, ready for data |
 | `SCAN_QR` | - | Request native QR scanner |
 | `COPY_TO_CLIPBOARD` | `{ text }` | Copy text to clipboard |
 | `SHARE` | `{ title?, text?, url? }` | Open native share sheet |
 | `TX_CONFIRMED` | `{ txHash, type }` | Notify of confirmed transaction |
+| `STORE_SEED` | `{ address, encryptedSeed }` | Store encrypted seed in native |
+| `REQUEST_BIOMETRIC_UNLOCK` | `{ address }` | Request biometric unlock for address |
+| `OPEN_NATIVE_SETTINGS` | - | Open native settings tab |
 | `LOG` | `{ message }` | Debug logging |
 
 ### Native → Web Messages
 
 | Message | Payload | Description |
 |---------|---------|-------------|
+| `INIT_DATA` | `{ hasStoredSeed, biometricEnabled, ... }` | Initialization data on app ready |
 | `QR_RESULT` | `{ address }` | Scanned QR code data |
+| `BIOMETRIC_UNLOCK_RESULT` | `{ success, pin?, error? }` | Biometric unlock result with PIN |
+| `SEED_STORED` | `{ success, address }` | Seed storage confirmation |
 | `BIOMETRIC_SUCCESS` | `{ authenticated }` | Auth result |
 | `APP_STATE` | `{ state }` | App foregrounded/backgrounded |
 | `CLIPBOARD_SUCCESS` | `{ text }` | Clipboard operation succeeded |
@@ -184,25 +191,32 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 - [x] Clipboard and Share functionality
 - [x] Web app detection via User-Agent
 
-### Phase 2: QR Scanner
+### Phase 2: Seed Persistence & Biometric Unlock ✅
+- [x] SeedStorageService for encrypted seed storage
+- [x] PIN-based encryption/decryption
+- [x] Biometric unlock option (Face ID / Touch ID / Fingerprint)
+- [x] Settings screen with wallet management
+- [x] Web app Settings redirects to native settings tab
+
+### Phase 3: QR Scanner
 - [ ] Add expo-camera dependency
 - [ ] Create QRScannerScreen component
 - [ ] Wire up SCAN_QR message handling
 - [ ] Add scan button to web app Transfer page
 
-### Phase 3: Push Notifications
+### Phase 4: Push Notifications
 - [ ] Add expo-notifications dependency
 - [ ] Create NotificationService
 - [ ] Background polling for new transactions
 - [ ] Local notification on incoming tx
 
-### Phase 4: Offline Support
+### Phase 5: Offline Support
 - [ ] Cache account balances in AsyncStorage
 - [ ] Cache recent transaction history
 - [ ] Offline indicator in web app
 - [ ] Sync on reconnect
 
-### Phase 5: App Store Release
+### Phase 6: App Store Release
 - [ ] App Store screenshots and metadata
 - [ ] Play Store listing
 - [ ] Privacy policy and terms
