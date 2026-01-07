@@ -29,7 +29,9 @@ interface MatrixColumnProps {
 }
 
 const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
-  const translateY = useRef(new Animated.Value(-height)).current;
+  const translateY = useRef(new Animated.Value(-height * 0.5)).current;
+  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const isMounted = useRef(true);
   const [chars] = useState(() => {
     const length = Math.floor(Math.random() * 15) + 10;
     return Array.from({ length }, () =>
@@ -38,16 +40,34 @@ const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
   });
 
   useEffect(() => {
-    const animate = () => {
+    isMounted.current = true;
+
+    const startAnimation = () => {
+      if (!isMounted.current) return;
+
       translateY.setValue(-height * 0.5);
-      Animated.timing(translateY, {
+      animationRef.current = Animated.timing(translateY, {
         toValue: height,
         duration: speed,
         useNativeDriver: true,
         delay,
-      }).start(() => animate());
+      });
+
+      animationRef.current.start(({ finished }) => {
+        if (finished && isMounted.current) {
+          startAnimation();
+        }
+      });
     };
-    animate();
+
+    startAnimation();
+
+    return () => {
+      isMounted.current = false;
+      if (animationRef.current) {
+        animationRef.current.stop();
+      }
+    };
   }, [translateY, delay, speed]);
 
   return (
