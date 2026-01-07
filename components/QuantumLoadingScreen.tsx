@@ -91,8 +91,8 @@ const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
           style={[
             styles.matrixChar,
             {
-              opacity: index === 0 ? 1 : 0.3 + (index / chars.length) * 0.4,
-              color: index === 0 ? '#ff8700' : '#ff870066',
+              opacity: index === 0 ? 1 : 0.5 + (index / chars.length) * 0.4,
+              color: index === 0 ? '#ff8700' : '#ff8700aa',
             },
           ]}
         >
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10, 10, 23, 0.85)',
+    backgroundColor: 'rgba(10, 10, 23, 0.55)',
   },
   content: {
     alignItems: 'center',
