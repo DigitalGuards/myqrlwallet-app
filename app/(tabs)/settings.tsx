@@ -7,7 +7,7 @@ import NativeBridge from '../../services/NativeBridge';
 import PinEntryModal from '../../components/PinEntryModal';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 
 export default function SettingsScreen() {
@@ -26,6 +26,22 @@ export default function SettingsScreen() {
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
+  // Load wallet status - called on mount and when screen gains focus
+  const loadWalletStatus = useCallback(async () => {
+    const walletExists = await SeedStorageService.hasWallet();
+    setHasWallet(walletExists);
+
+    const biometricReady = await BiometricService.isBiometricUnlockReady();
+    setBiometricUnlockEnabled(biometricReady);
+  }, []);
+
+  // Refresh wallet status when screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      loadWalletStatus();
+    }, [loadWalletStatus])
+  );
+
   // Load user preferences on component mount
   useEffect(() => {
     async function loadPreferences() {
@@ -41,16 +57,12 @@ export default function SettingsScreen() {
         setBiometricType(types);
       }
 
-      // Check wallet and biometric unlock status
-      const walletExists = await SeedStorageService.hasWallet();
-      setHasWallet(walletExists);
-
-      const biometricReady = await BiometricService.isBiometricUnlockReady();
-      setBiometricUnlockEnabled(biometricReady);
+      // Initial wallet status check
+      await loadWalletStatus();
     }
 
     loadPreferences();
-  }, []);
+  }, [loadWalletStatus]);
 
   // Save preferences when they change
   const updatePreference = async (key: keyof UserPreferences, value: any) => {
