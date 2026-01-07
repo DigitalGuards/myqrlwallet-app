@@ -165,11 +165,11 @@ export default function SettingsScreen() {
     );
   };
 
-  // Clear all cached data
+  // Clear session data (not wallet seeds)
   const clearCache = async () => {
     Alert.alert(
-      'Clear Cache',
-      'This will clear all stored wallet data from the app. You will need to log in again. Continue?',
+      'Clear Session',
+      'This will clear your current session and log you out. You will need to log in again. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -177,7 +177,7 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             await WebViewService.clearSessionData();
-            Alert.alert('Cache Cleared', 'All cached data has been cleared.');
+            Alert.alert('Session Cleared', 'Your session has been cleared.');
           },
         },
       ]
@@ -293,10 +293,10 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Data</Text>
 
-        {/* Clear Cache Button */}
+        {/* Clear Session Button */}
         <TouchableOpacity style={styles.button} onPress={clearCache}>
           <FontAwesome name="trash" size={18} color="#d32f2f" style={styles.buttonIcon} />
-          <Text style={styles.buttonTextDanger}>Clear Cache</Text>
+          <Text style={styles.buttonTextDanger}>Clear Session</Text>
         </TouchableOpacity>
       </View>
 

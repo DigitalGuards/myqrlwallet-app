@@ -10,6 +10,10 @@ import {
   Platform,
 } from 'react-native';
 
+// PIN length constraints
+const PIN_MIN_LENGTH = 4;
+const PIN_MAX_LENGTH = 6;
+
 interface PinEntryModalProps {
   visible: boolean;
   title: string;
@@ -46,12 +50,12 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
   }, [visible]);
 
   const handleSubmit = () => {
-    if (pin.length < 4) {
-      setError('PIN must be at least 4 digits');
+    if (pin.length < PIN_MIN_LENGTH) {
+      setError(`PIN must be at least ${PIN_MIN_LENGTH} digits`);
       return;
     }
-    if (pin.length > 6) {
-      setError('PIN must be at most 6 digits');
+    if (pin.length > PIN_MAX_LENGTH) {
+      setError(`PIN must be at most ${PIN_MAX_LENGTH} digits`);
       return;
     }
     if (!/^\d+$/.test(pin)) {
@@ -87,14 +91,14 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
             style={styles.input}
             value={pin}
             onChangeText={(text) => {
-              setPin(text.replace(/[^0-9]/g, '').slice(0, 6));
+              setPin(text.replace(/[^0-9]/g, '').slice(0, PIN_MAX_LENGTH));
               setError(null);
             }}
-            placeholder="Enter PIN (4-6 digits)"
+            placeholder={`Enter PIN (${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits)`}
             placeholderTextColor="#888"
             keyboardType="number-pad"
             secureTextEntry
-            maxLength={6}
+            maxLength={PIN_MAX_LENGTH}
             autoComplete="off"
             autoCorrect={false}
             textContentType="none"
