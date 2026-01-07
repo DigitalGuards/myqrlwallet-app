@@ -77,7 +77,7 @@ type OpenNativeSettingsCallback = () => void;
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
-  private webViewRef: RefObject<WebView> | null = null;
+  private webViewRef: RefObject<WebView | null> | null = null;
   private qrScanCallback: QRScanCallback | null = null;
   private biometricUnlockCallback: BiometricUnlockCallback | null = null;
   private seedStoredCallback: SeedStoredCallback | null = null;
@@ -87,7 +87,7 @@ class NativeBridge {
   /**
    * Set the WebView reference for sending messages back to web
    */
-  setWebViewRef(ref: RefObject<WebView>) {
+  setWebViewRef(ref: RefObject<WebView | null>) {
     this.webViewRef = ref;
   }
 
