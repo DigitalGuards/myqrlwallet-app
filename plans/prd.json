@@ -20,7 +20,7 @@
       "Scan a valid QRL address QR code",
       "Verify address populates in 'Send to' field"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "qr-scanner",
@@ -31,7 +31,7 @@
       "Verify error message displayed or scanner continues",
       "App does not crash"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "biometric-unlock",

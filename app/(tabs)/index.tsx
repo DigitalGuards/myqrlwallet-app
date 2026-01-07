@@ -3,6 +3,7 @@ import { StyleSheet, View as RNView, useColorScheme, StatusBar, AppState, AppSta
 // Import QRLWebView
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
+import QRScannerModal from '../../components/QRScannerModal';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
@@ -20,6 +21,7 @@ export default function WalletScreen() {
   const [webAppReady, setWebAppReady] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
+  const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const isFocused = useIsFocused();
   const colorScheme = useColorScheme();
   const pathname = usePathname();
@@ -104,12 +106,31 @@ export default function WalletScreen() {
     );
   }, [showPinModal]);
 
+  // Handle QR scan request from web
+  const handleQRScanRequest = useCallback(() => {
+    console.log('[WalletScreen] QR scan requested');
+    setQrScannerVisible(true);
+  }, []);
+
+  // Handle QR scan result
+  const handleQRScanResult = useCallback((data: string) => {
+    console.log('[WalletScreen] QR scanned:', data);
+    // Send the scanned data to the WebView
+    NativeBridge.sendQRResult(data);
+  }, []);
+
+  // Close QR scanner
+  const handleQRScannerClose = useCallback(() => {
+    setQrScannerVisible(false);
+  }, []);
+
   // Register bridge callbacks
   useEffect(() => {
     NativeBridge.onBiometricUnlockRequest(performBiometricUnlock);
     NativeBridge.onSeedStored(handleSeedStored);
     NativeBridge.onOpenNativeSettings(navigateToSettings);
-  }, [performBiometricUnlock, handleSeedStored]);
+    NativeBridge.onQRScanRequest(handleQRScanRequest);
+  }, [performBiometricUnlock, handleSeedStored, handleQRScanRequest]);
 
   // Check biometric settings and authenticate if needed
   useEffect(() => {
@@ -200,6 +221,11 @@ export default function WalletScreen() {
         message="Enter your wallet PIN to enable biometric unlock"
         onSubmit={handlePinSubmit}
         onCancel={handlePinCancel}
+      />
+      <QRScannerModal
+        visible={qrScannerVisible}
+        onScan={handleQRScanResult}
+        onClose={handleQRScannerClose}
       />
     </RNView>
   );

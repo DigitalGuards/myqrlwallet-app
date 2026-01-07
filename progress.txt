@@ -12,3 +12,28 @@ The web app can now trigger device vibration via postMessage with:
   { type: 'HAPTIC', payload: { style: 'light' | 'medium' | 'heavy' | 'success' | 'warning' | 'error' } }
 
 No more "Unknown message type: HAPTIC" warnings in console.
+
+## 2026-01-07: QR Scanner Implementation
+
+Added native QR scanner using expo-camera for scanning wallet addresses.
+
+Changes:
+- Created QRScannerModal component (components/QRScannerModal.tsx)
+  - Full-screen camera modal with QR scanning overlay
+  - Permission handling for camera access
+  - Orange corner markers matching QRL branding
+  - Close button and instruction text
+- Integrated scanner in WalletScreen (app/(tabs)/index.tsx)
+  - Added qrScannerVisible state
+  - Registered handleQRScanRequest callback with NativeBridge
+  - Connected scan results to NativeBridge.sendQRResult()
+- Installed expo-camera package
+
+Flow:
+1. Web app sends SCAN_QR message via postMessage
+2. NativeBridge routes to qrScanCallback -> opens scanner modal
+3. User scans QR code with camera
+4. Scanner sends data via NativeBridge.sendQRResult()
+5. Web app receives QR_RESULT event with scanned address
+
+The scanner passes any scanned QR data to the web app; address validation is handled by the web layer.
