@@ -148,19 +148,35 @@ export default function SettingsScreen() {
                       // Clear native storage
                       await SeedStorageService.clearWallet();
 
-                      // Tell web app to clear its data
-                      NativeBridge.sendClearWallet();
+                      // Tell web app to clear its data and wait for confirmation
+                      const clearConfirmed = await new Promise<boolean>((resolve) => {
+                        // Set up timeout in case web app doesn't respond
+                        const timeout = setTimeout(() => {
+                          NativeBridge.offWalletCleared();
+                          resolve(false);
+                        }, 3000);
+
+                        // Listen for confirmation from web app
+                        NativeBridge.onWalletCleared(() => {
+                          clearTimeout(timeout);
+                          NativeBridge.offWalletCleared();
+                          resolve(true);
+                        });
+
+                        // Send the clear request
+                        NativeBridge.sendClearWallet();
+                      });
 
                       // Update state
                       setHasWallet(false);
                       setBiometricUnlockEnabled(false);
 
-                      // Wait a moment for the WebView to process the clear message
-                      // before navigating back
-                      setTimeout(() => {
+                      if (clearConfirmed) {
                         Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
-                        router.back();
-                      }, 500);
+                      } else {
+                        Alert.alert('Wallet Removed', 'Your wallet has been removed. Web data may need manual clearing.');
+                      }
+                      router.back();
                     } catch (error) {
                       console.error('[Settings] Failed to remove wallet:', error);
                       Alert.alert(

@@ -76,6 +76,11 @@ type WebAppReadyCallback = () => Promise<void>;
 type OpenNativeSettingsCallback = () => void;
 
 /**
+ * Callback for when web app confirms wallet data cleared
+ */
+type WalletClearedCallback = () => void;
+
+/**
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
@@ -85,6 +90,7 @@ class NativeBridge {
   private seedStoredCallback: SeedStoredCallback | null = null;
   private webAppReadyCallback: WebAppReadyCallback | null = null;
   private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
+  private walletClearedCallback: WalletClearedCallback | null = null;
 
   /**
    * Set the WebView reference for sending messages back to web
@@ -126,6 +132,20 @@ class NativeBridge {
    */
   onOpenNativeSettings(callback: OpenNativeSettingsCallback) {
     this.openNativeSettingsCallback = callback;
+  }
+
+  /**
+   * Register callback for when web app confirms wallet data cleared
+   */
+  onWalletCleared(callback: WalletClearedCallback) {
+    this.walletClearedCallback = callback;
+  }
+
+  /**
+   * Unregister wallet cleared callback
+   */
+  offWalletCleared() {
+    this.walletClearedCallback = null;
   }
 
   /**
@@ -230,6 +250,9 @@ class NativeBridge {
 
       case 'WALLET_CLEARED':
         console.log('[NativeBridge] Web confirmed wallet cleared');
+        if (this.walletClearedCallback) {
+          this.walletClearedCallback();
+        }
         break;
 
       case 'WEB_APP_READY':

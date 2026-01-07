@@ -11,8 +11,17 @@ import QuantumLoadingScreen from './QuantumLoadingScreen';
 // ============================================================
 // __DEV__ is true when running in Expo Go / dev builds, false in production
 // For Android emulator: 10.0.2.2 maps to host localhost
-// For physical device: use your computer's LAN IP (e.g., 192.168.1.x)
-const DEV_URL = 'http://10.0.2.2:5173';
+// For physical device: set EXPO_PUBLIC_DEV_URL to your computer's LAN IP (e.g., http://192.168.1.x:5173)
+const DEV_URL = process.env.EXPO_PUBLIC_DEV_URL || 'http://10.0.2.2:5173';
+
+// Extract hostname from DEV_URL for allowed domains
+const getDevHostname = (): string => {
+  try {
+    return new URL(DEV_URL).hostname;
+  } catch {
+    return '10.0.2.2';
+  }
+};
 
 // Type definitions
 interface QRLWebViewProps {
@@ -42,7 +51,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Allowed domains for security
   const ALLOWED_DOMAINS = __DEV__
-    ? ['10.0.2.2', 'localhost', '127.0.0.1']
+    ? ['10.0.2.2', 'localhost', '127.0.0.1', getDevHostname()]
     : ['qrlwallet.com', 'www.qrlwallet.com'];
 
   // Custom user agent to improve compatibility
