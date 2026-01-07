@@ -1,10 +1,35 @@
-# CLAUDE.md
+# CLAUDE.md - MyQRL Wallet Mobile App
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-MyQRL Wallet is a React Native/Expo mobile application that serves as a native wrapper for the QRL Wallet website (https://qrlwallet.com). It provides enhanced mobile UX with biometric authentication, session persistence, and native navigation.
+MyQRL Wallet is a React Native/Expo mobile application that serves as a native wrapper for the QRL Wallet website (https://qrlwallet.com). It provides enhanced mobile UX with biometric authentication, native features via JS bridge, session persistence, and push notifications.
+
+## Architecture
+
+**WebView Wrapper Pattern**: The web app (zondwebwallet-frontend) runs inside a WebView. Native features are exposed via a postMessage bridge. The web app detects native context via User-Agent string containing "MyQRLWallet".
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 Native App (Expo/React Native)              │
+│  ┌──────────────┬────────────────┬───────────────────────┐  │
+│  │ BiometricSvc │ NotificationSvc│ NativeBridge          │  │
+│  │ (existing)   │ (planned)      │ - QR Scanner          │  │
+│  │              │ - Poll for txs │ - Clipboard           │  │
+│  │              │ - Local notifs │ - Share               │  │
+│  └──────────────┴────────────────┴───────────────────────┘  │
+│                           │                                  │
+│              postMessage / onMessage                         │
+│                           │                                  │
+│  ┌────────────────────────▼─────────────────────────────┐   │
+│  │              WebView (qrlwallet.com)                 │   │
+│  │  - Detects app via User-Agent                        │   │
+│  │  - Shows app-specific UI when detected               │   │
+│  │  - Communicates via window.ReactNativeWebView        │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Development Commands
 
@@ -25,68 +50,124 @@ eas build --platform android --profile production # Build AAB for Play Store
 eas build --platform ios --profile production    # Build for App Store
 ```
 
-## Architecture Overview
+## Key Components
 
-### Core WebView Integration
-The app wraps qrlwallet.com in a native container. The main integration points are:
+### 1. QRLWebView (`components/QRLWebView.tsx`)
+Core WebView component with:
+- Renders qrlwallet.com in a native container
+- Handles native↔web message bridge via `onMessage` and `injectJavaScript`
+- Domain-restricted to qrlwallet.com only (security)
+- Custom user agent includes "MyQRLWallet" for web app detection
+- Error handling with retry functionality
+- Loading states with timeout fallbacks
+- Exposes ref for sending QR results and reloading
 
-1. **QRLWebView Component** (`components/QRLWebView.tsx`): Enhanced WebView with:
-   - Custom scrolling behavior for better mobile UX
-   - Error handling with retry functionality
-   - Loading states with timeout fallbacks (30 seconds)
-   - HTTPS-only enforcement for security
-   - Custom user agent for web compatibility
+### 2. NativeBridge (`services/NativeBridge.ts`)
+Central message router:
+- Receives messages from WebView via `handle()`
+- Routes to appropriate native features (QR, clipboard, share)
+- Sends responses back to WebView via `sendToWeb()`
+- Singleton pattern for app-wide access
 
-2. **WebViewService** (`services/WebViewService.ts`): Manages persistent storage using AsyncStorage for:
-   - Cookie persistence across app restarts
-   - Session tracking
-   - User preferences (biometric settings, auto-lock, notifications)
+### 3. BiometricService (`services/BiometricService.ts`)
+Device authentication:
+- Face ID / Touch ID / Fingerprint support
+- Optional app lock on launch
+- Uses expo-local-authentication
 
-3. **BiometricService** (`services/BiometricService.ts`): Handles device authentication using expo-local-authentication
+### 4. WebViewService (`services/WebViewService.ts`)
+Session management:
+- Cookie persistence via AsyncStorage
+- User preferences storage
+- Session tracking
 
-### Navigation Structure
-Uses Expo Router v4 with file-based routing:
-- `app/(tabs)/` - Tab navigation (though tabs are hidden via `tabBarStyle: { display: 'none' }`)
-- Main screen loads the WebView
-- Settings screen for user preferences
+### 5. NotificationService (`services/NotificationService.ts`) - PLANNED
+Push notifications:
+- Poll for new transactions in background
+- Local push notifications for incoming txs
+- Uses expo-notifications
 
-### State Management
-No global state management library - relies on:
-- AsyncStorage for persistence
-- React hooks for local state
-- Service classes for business logic
+## Bridge Message Protocol
 
-### Theme System
-Dark theme only with QRL branding colors defined in `constants/Colors.ts`:
-- Primary: #F5870A (orange)
-- Secondary: #8B959C (gray)
-- Background: #0A1929 (dark blue)
+### Web → Native Messages
+```typescript
+{ type: 'SCAN_QR' }                                    // Open native QR scanner
+{ type: 'COPY_TO_CLIPBOARD', payload: { text } }       // Copy to clipboard
+{ type: 'SHARE', payload: { title, text, url } }       // Native share sheet
+{ type: 'TX_CONFIRMED', payload: { txHash, type } }    // Transaction done
+{ type: 'LOG', payload: { message } }                  // Debug logging
+```
 
-## Important Implementation Details
+### Native → Web Messages
+```typescript
+{ type: 'QR_RESULT', payload: { address } }            // Scanned QR data
+{ type: 'BIOMETRIC_SUCCESS', payload: { authenticated } }
+{ type: 'APP_STATE', payload: { state } }              // active/background
+{ type: 'CLIPBOARD_SUCCESS', payload: { text } }
+{ type: 'SHARE_SUCCESS', payload: { action } }
+{ type: 'ERROR', payload: { message } }
+```
 
-### WebView Configuration
-- Restricts navigation to qrlwallet.com domain only
-- Injects JavaScript for enhanced scrolling on iOS
-- Custom error pages for network issues
-- Handles SSL errors gracefully
+### Message Flow Example (QR Scanning)
+1. Web app (in native) shows "Scan QR" button
+2. User taps → `sendToNative('SCAN_QR')`
+3. Native receives via `onMessage`, routes to `NativeBridge.handle()`
+4. Bridge calls `onQRScanRequest` callback → opens camera
+5. Camera scans QR → native calls `NativeBridge.sendQRResult(address)`
+6. Bridge injects JS: `window.dispatchEvent(new CustomEvent('nativeMessage', {...}))`
+7. Web app receives via `subscribeToNativeMessages()` → fills in address field
 
-### Security Considerations
-- Biometric authentication is optional but recommended
-- WebView restricted to HTTPS URLs only
-- Session data stored securely in AsyncStorage
-- Planned auto-lock feature (see `upcoming_feats.md`)
+## Integration with Frontend (zondwebwallet-frontend)
 
-### Platform-Specific Behaviors
-- iOS: Custom scroll behavior injection for better performance
-- Android: Standard WebView implementation
-- Both: Native status bar styling and safe area handling
+The web app detects native context:
+```typescript
+// In web app
+const isInNativeApp = () => navigator.userAgent.includes('MyQRLWallet')
 
-## Planned Features
+// Show app-specific UI
+{isInNativeApp() && <ScanQRButton onClick={() => sendToNative('SCAN_QR')} />}
+```
 
-The `upcoming_feats.md` file documents two major features:
+Key frontend files for bridge integration:
+- `src/utils/nativeApp.ts` - Detection and messaging utilities
+- `src/components/NativeAppBridge.tsx` - Message listener component
+- `src/env.d.ts` - TypeScript declarations for ReactNativeWebView
 
-1. **Enhanced Cache Clearing**: Full cache/cookie clearing functionality
-2. **Auto-lock with Biometric Auth**: Automatic locking after inactivity with biometric unlock
+## File Structure
+
+```
+myqrlwallet-app/
+├── app/                    # Expo Router screens
+│   ├── (tabs)/
+│   │   ├── index.tsx       # Main WebView screen
+│   │   ├── settings.tsx    # App settings
+│   │   └── _layout.tsx     # Tab layout (hidden)
+│   ├── _layout.tsx         # Root layout
+│   └── +not-found.tsx      # 404 page
+├── components/
+│   ├── QRLWebView.tsx      # Core WebView with bridge
+│   ├── Themed.tsx          # Theme-aware base components
+│   ├── ThemedText.tsx      # Themed text
+│   └── ThemedView.tsx      # Themed view
+├── services/
+│   ├── NativeBridge.ts     # Message routing
+│   ├── BiometricService.ts # Device auth
+│   └── WebViewService.ts   # Session management
+├── constants/
+│   └── Colors.ts           # Theme colors
+├── hooks/
+│   ├── useColorScheme.ts   # System theme detection
+│   └── useThemeColor.ts    # Theme color helper
+└── assets/                 # Images, fonts, icons
+```
+
+## Security Considerations
+
+- WebView restricted to HTTPS + qrlwallet.com domain only
+- Biometric auth optional but recommended
+- No sensitive data stored in app (wallet keys stay in web localStorage)
+- Session data in AsyncStorage with optional auto-clear
+- All native↔web communication via secure postMessage bridge
 
 ## Build & Deployment
 
@@ -100,9 +181,33 @@ The `upcoming_feats.md` file documents two major features:
 - Android: Supports both APK (preview) and AAB (production) formats
 - Assets: All branding assets in place (icons, splash screens)
 
-## Testing Approach
+## Planned Features
 
-Uses Jest with Expo preset. Test files should be placed alongside components with `.test.tsx` extension. Run specific tests with:
+1. **QR Scanner Integration** - Native camera for scanning addresses
+2. **Push Notifications** - Background polling + local notifications for transactions
+3. **Offline Support** - Cache balances and transaction history
+4. **Enhanced Cache Clearing** - Full cache/cookie clearing functionality
+
+## Testing
+
+Uses Jest with Expo preset:
 ```bash
-npm test -- --testNamePattern="test name"
+npm test                              # Run all tests in watch mode
+npm test -- --testNamePattern="name"  # Run specific tests
 ```
+
+## Dependencies
+
+Key native modules:
+- `react-native-webview` - WebView component
+- `expo-camera` - QR scanning (planned)
+- `expo-notifications` - Local push notifications (planned)
+- `expo-local-authentication` - Biometrics
+- `@react-native-async-storage/async-storage` - Persistence
+
+## Theme System
+
+Dark theme only with QRL branding colors defined in `constants/Colors.ts`:
+- Primary: #F5870A (orange)
+- Secondary: #8B959C (gray)
+- Background: #0A1929 (dark blue)
