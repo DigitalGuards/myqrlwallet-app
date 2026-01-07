@@ -44,3 +44,5 @@ ios/*
 # Claude Code auto-generated context files
 **/CLAUDE.md
 !/CLAUDE.md
+.claude/*
+ralph.sh

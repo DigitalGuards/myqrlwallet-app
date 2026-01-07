@@ -6,14 +6,15 @@ A React Native/Expo mobile application that wraps the [QRL Wallet website](https
 
 ### Current
 - **WebView Integration** - Renders qrlwallet.com in a native container with optimized scrolling
-- **Biometric Authentication** - Optional Face ID / Touch ID / Fingerprint protection
+- **Biometric Authentication** - Optional Face ID / Touch ID / Fingerprint protection with auto-trigger on launch
+- **QR Code Scanner** - Native camera for scanning wallet addresses
+- **Haptic Feedback** - Native device vibration for UI feedback
 - **Session Persistence** - Maintains wallet sessions across app restarts
 - **Native Bridge** - Two-way communication between web app and native features
 - **Clipboard & Share** - Native clipboard and share sheet integration
-- **Dark Theme** - QRL-branded dark theme throughout
+- **Dark Theme** - QRL-branded dark theme with quantum loading screen
 
 ### Coming Soon
-- **QR Code Scanner** - Native camera for scanning wallet addresses
 - **Push Notifications** - Alerts for incoming transactions
 - **Offline Mode** - Cached balances and transaction history
 
@@ -191,20 +192,21 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 - [x] Clipboard and Share functionality
 - [x] Web app detection via User-Agent
 
-### Phase 2: Seed Persistence & Biometric Unlock 🔄
+### Phase 2: Seed Persistence & Biometric Unlock ✅
 - [x] SeedStorageService for encrypted seed storage
 - [x] PIN-based encryption/decryption
 - [x] Biometric unlock toggle in settings (shows after wallet import)
 - [x] Settings screen with wallet management
 - [x] Web app Settings redirects to native settings tab
-- [ ] Onboarding flow prompting biometric setup
-- [ ] Web app integration to trigger STORE_SEED on import
+- [x] Biometric auto-trigger on app launch
+- [x] First-reopen prompt for biometric setup
+- [x] Web app integration to trigger STORE_SEED on import
 
-### Phase 3: QR Scanner
-- [ ] Add expo-camera dependency
-- [ ] Create QRScannerScreen component
-- [ ] Wire up SCAN_QR message handling
-- [ ] Add scan button to web app Transfer page
+### Phase 3: QR Scanner ✅
+- [x] Add expo-camera dependency
+- [x] Create QRScannerModal component
+- [x] Wire up SCAN_QR message handling
+- [x] Haptic feedback support
 
 ### Phase 4: Push Notifications
 - [ ] Add expo-notifications dependency
@@ -236,12 +238,13 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 
 | Category | Technology |
 |----------|------------|
-| Framework | React Native + Expo SDK 52 |
+| Framework | React Native + Expo SDK 54 |
 | Navigation | Expo Router v4 |
 | WebView | react-native-webview |
 | Storage | @react-native-async-storage/async-storage |
 | Biometrics | expo-local-authentication |
-| Camera | expo-camera (planned) |
+| Camera | expo-camera |
+| Haptics | expo-haptics |
 | Notifications | expo-notifications (planned) |
 
 ## Configuration
