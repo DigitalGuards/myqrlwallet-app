@@ -38,7 +38,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const webViewRef = useRef<WebView>(null);
 
   // Timeout reference to force loading to complete after a set time
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Allowed domains for security
   const ALLOWED_DOMAINS = __DEV__
@@ -80,8 +80,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         return false;
       };
 
-      BackHandler.addEventListener('hardwareBackPress', onBackPress);
-      return () => BackHandler.removeEventListener('hardwareBackPress', onBackPress);
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
     }, [])
   );
 
