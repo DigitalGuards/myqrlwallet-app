@@ -1,0 +1,14 @@
+## 2026-01-07: Haptic Feedback Implementation
+
+Added HAPTIC message handler to NativeBridge (services/NativeBridge.ts).
+
+Changes:
+- Added 'HAPTIC' to WebToNativeMessageType union
+- Imported expo-haptics module
+- Implemented handleHaptic() method supporting styles: light, medium, heavy, success, warning, error
+- Default fallback to light impact for unspecified styles
+
+The web app can now trigger device vibration via postMessage with:
+  { type: 'HAPTIC', payload: { style: 'light' | 'medium' | 'heavy' | 'success' | 'warning' | 'error' } }
+
+No more "Unknown message type: HAPTIC" warnings in console.
