@@ -1,6 +1,7 @@
 import { RefObject } from 'react';
 import { Alert, Share, Platform, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 
@@ -14,6 +15,7 @@ export type WebToNativeMessageType =
   | 'TX_CONFIRMED'
   | 'LOG'
   | 'OPEN_URL'                // Open external URL in device browser
+  | 'HAPTIC'                  // Trigger haptic feedback
   // Seed persistence messages
   | 'SEED_STORED'             // Web stored encrypted seed, native should backup
   | 'REQUEST_BIOMETRIC_UNLOCK'  // Web asks native to unlock with biometric
@@ -194,6 +196,10 @@ class NativeBridge {
         console.log('[WebView]', payload?.message);
         break;
 
+      case 'HAPTIC':
+        this.handleHaptic(payload?.style as string | undefined);
+        break;
+
       case 'OPEN_URL': {
         const url = payload?.url;
         if (typeof url !== 'string') {
@@ -345,6 +351,36 @@ class NativeBridge {
     console.log(`Transaction ${txType}: ${txHash}`);
     // TODO: Integrate with NotificationService when implemented
     // NotificationService.showTransactionNotification(txHash, txType);
+  }
+
+  /**
+   * Handle haptic feedback request
+   * Supports: light, medium, heavy, success, warning, error
+   */
+  private handleHaptic(style?: string) {
+    switch (style) {
+      case 'light':
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        break;
+      case 'medium':
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        break;
+      case 'heavy':
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        break;
+      case 'success':
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        break;
+      case 'warning':
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        break;
+      case 'error':
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        break;
+      default:
+        // Default to light impact for any unspecified style
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
   }
 
   /**
