@@ -1,5 +1,6 @@
 import { RefObject } from 'react';
-import { Alert, Share, Clipboard, Platform, Linking } from 'react-native';
+import { Alert, Share, Platform, Linking } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 
