@@ -45,7 +45,7 @@
       "Authenticate with Face/Touch ID",
       "Verify wallet is unlocked without PIN entry"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "biometric-unlock",
@@ -59,7 +59,7 @@
       "Accept prompt and authenticate",
       "Verify biometric toggle is now ON in Settings"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "seed-persistence",

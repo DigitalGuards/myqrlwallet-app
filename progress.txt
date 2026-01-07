@@ -37,3 +37,39 @@ Flow:
 5. Web app receives QR_RESULT event with scanned address
 
 The scanner passes any scanned QR data to the web app; address validation is handled by the web layer.
+
+## 2026-01-07: Biometric Unlock Auto-Trigger
+
+Implemented biometric unlock auto-trigger on app launch and first-reopen setup prompt.
+
+Changes:
+- Added biometric prompt tracking in SeedStorageService (services/SeedStorageService.ts):
+  - New BIOMETRIC_PROMPT_SHOWN_KEY constant
+  - setBiometricPromptShown() method to mark prompt as shown
+  - wasBiometricPromptShown() method to check if prompt was already displayed
+  - Clears prompt flag on wallet removal
+
+- Updated WalletScreen (app/(tabs)/index.tsx):
+  - Biometric auto-triggers on launch when wallet exists and biometric is enabled
+  - Prompt for biometric setup appears on first app reopen after wallet import
+  - handleSeedStored no longer prompts immediately (deferred to next launch)
+  - Added promptBiometricSetup() function for the setup dialog
+  - authCheck() now handles three cases:
+    1. Wallet + biometric enabled → auto-unlock with biometric
+    2. Wallet + no biometric + not prompted → show setup prompt
+    3. No wallet → authorize for web onboarding
+
+Flow for auto-trigger:
+1. App opens → authCheck() runs
+2. If wallet exists AND biometric ready → BiometricService.getPinWithBiometric()
+3. Biometric prompt appears (Face ID / Touch ID / Fingerprint)
+4. On success, PIN stored in pendingUnlockPin.current
+5. When WEB_APP_READY → sends PIN to web via NativeBridge.sendUnlockWithPin()
+
+Flow for first-reopen prompt:
+1. User imports wallet and sets PIN (seed stored in native backup)
+2. User closes app
+3. User reopens app → authCheck() detects wallet but no biometric setup
+4. If prompt not shown before → shows "Enable Biometric Unlock?" alert
+5. If user accepts → PIN modal appears → biometric setup completes
+6. Prompt flag saved so it won't appear again
