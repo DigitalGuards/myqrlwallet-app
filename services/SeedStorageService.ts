@@ -180,13 +180,18 @@ class SeedStorageService {
 
   /**
    * Update wallet metadata when seeds are added/removed
+   * Reads existing metadata and updates in-memory to avoid re-reading all backups
    */
   private async updateWalletMetadata(newAddress?: string): Promise<void> {
-    const backups = await this.getAllBackups();
-    const addresses = backups.map(b => b.address);
+    // Read existing metadata instead of re-reading all backups
+    const existingMetadata = await this.getWalletMetadata();
+    const addresses = existingMetadata?.addresses ? [...existingMetadata.addresses] : [];
 
-    if (newAddress && !addresses.includes(newAddress.toLowerCase())) {
-      addresses.push(newAddress.toLowerCase());
+    if (newAddress) {
+      const normalizedAddress = newAddress.toLowerCase();
+      if (!addresses.includes(normalizedAddress)) {
+        addresses.push(normalizedAddress);
+      }
     }
 
     const metadata: WalletMetadata = {

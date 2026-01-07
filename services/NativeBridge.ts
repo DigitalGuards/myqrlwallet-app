@@ -371,17 +371,13 @@ class NativeBridge {
   /**
    * Handle seed stored notification from web
    * Backup the encrypted seed and prompt for biometric setup if needed
+   * Note: Validation is performed in handle() before this method is called
    */
   private async handleSeedStored(
     address: string,
     encryptedSeed: string,
     blockchain: string
   ) {
-    if (!address || !encryptedSeed || !blockchain) {
-      console.warn('[NativeBridge] SEED_STORED missing required fields');
-      return;
-    }
-
     console.log(`[NativeBridge] Backing up seed for ${address}`);
 
     // Backup the encrypted seed to AsyncStorage

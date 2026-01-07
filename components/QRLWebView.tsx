@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, ActivityIndicator, BackHandler, Text, TouchableOpacity, Platform, useColorScheme, StatusBar } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import Colors from '../constants/Colors';
@@ -144,7 +144,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   };
 
   // Handle messages from the WebView
-  const handleMessage = (event: any) => {
+  const handleMessage = (event: WebViewMessageEvent) => {
     const { data } = event.nativeEvent;
 
     // Handle legacy PAGE_LOADED message
