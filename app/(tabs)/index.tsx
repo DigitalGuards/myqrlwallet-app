@@ -65,21 +65,14 @@ export default function WalletScreen() {
     setPinModalVisible(true);
   }, []);
 
-  // Handle seed stored event - prompt for biometric setup
+  // Handle seed stored event - just log for now, biometric prompt shown on next launch
   const handleSeedStored = useCallback(async (address: string) => {
-    const biometricReady = await BiometricService.isBiometricUnlockReady();
-    if (biometricReady) {
-      // Already set up, no need to prompt
-      return;
-    }
+    console.log(`[WalletScreen] Seed stored for ${address}`);
+    // Biometric setup prompt is shown on app reopen, not immediately during import
+  }, []);
 
-    const biometricAvailable = await BiometricService.isBiometricAvailable();
-    if (!biometricAvailable) {
-      // Biometric not available on device
-      return;
-    }
-
-    // Prompt user to enable biometric unlock
+  // Prompt user to enable biometric unlock
+  const promptBiometricSetup = useCallback(() => {
     Alert.alert(
       'Enable Biometric Unlock?',
       `Would you like to use ${BiometricService.getBiometricName()} to unlock your wallet? You won't need to enter your PIN each time.`,
@@ -87,6 +80,10 @@ export default function WalletScreen() {
         {
           text: 'Not Now',
           style: 'cancel',
+          onPress: async () => {
+            // Mark prompt as shown so we don't ask again
+            await SeedStorageService.setBiometricPromptShown(true);
+          },
         },
         {
           text: 'Enable',
@@ -95,6 +92,7 @@ export default function WalletScreen() {
             showPinModal(async (pin: string) => {
               const setupResult = await BiometricService.setupBiometricUnlock(pin);
               if (setupResult.success) {
+                await SeedStorageService.setBiometricPromptShown(true);
                 Alert.alert('Success', 'Biometric unlock enabled!');
               } else {
                 Alert.alert('Error', setupResult.error || 'Failed to enable biometric unlock');
@@ -153,8 +151,23 @@ export default function WalletScreen() {
             // Biometric failed, but still allow access (user can enter PIN manually)
             setIsAuthorized(true);
           }
+        } else if (hasWallet) {
+          // Wallet exists but biometric not set up
+          // Check if we should prompt for biometric setup
+          const biometricAvailable = await BiometricService.isBiometricAvailable();
+          const promptAlreadyShown = await SeedStorageService.wasBiometricPromptShown();
+
+          if (biometricAvailable && !promptAlreadyShown) {
+            // Show biometric setup prompt on next tick (after UI renders)
+            setIsAuthorized(true);
+            setTimeout(() => {
+              promptBiometricSetup();
+            }, 500);
+          } else {
+            setIsAuthorized(true);
+          }
         } else {
-          // No biometric setup or no wallet - just authorize and let web handle it
+          // No wallet - just authorize and let web handle it
           setIsAuthorized(true);
         }
       } catch (error) {
@@ -169,7 +182,7 @@ export default function WalletScreen() {
     if (isFocused) {
       authCheck();
     }
-  }, [isFocused]);
+  }, [isFocused, promptBiometricSetup]);
 
   // Handle WebView load - just mark as ready
   // Biometric auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
