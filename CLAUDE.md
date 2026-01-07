@@ -81,7 +81,14 @@ Session management:
 - User preferences storage
 - Session tracking
 
-### 5. NotificationService (`services/NotificationService.ts`) - PLANNED
+### 5. SeedStorageService (`services/SeedStorageService.ts`)
+Encrypted seed persistence:
+- Stores PIN-encrypted seeds in SecureStore
+- Associates seeds with wallet addresses
+- Enables biometric unlock flow (PIN stored separately)
+- Uses expo-secure-store for encrypted storage
+
+### 6. NotificationService (`services/NotificationService.ts`) - PLANNED
 Push notifications:
 - Poll for new transactions in background
 - Local push notifications for incoming txs
@@ -91,16 +98,23 @@ Push notifications:
 
 ### Web → Native Messages
 ```typescript
+{ type: 'WEB_APP_READY' }                              // Web app initialized
 { type: 'SCAN_QR' }                                    // Open native QR scanner
 { type: 'COPY_TO_CLIPBOARD', payload: { text } }       // Copy to clipboard
 { type: 'SHARE', payload: { title, text, url } }       // Native share sheet
 { type: 'TX_CONFIRMED', payload: { txHash, type } }    // Transaction done
+{ type: 'STORE_SEED', payload: { address, encryptedSeed } }  // Store encrypted seed
+{ type: 'REQUEST_BIOMETRIC_UNLOCK', payload: { address } }   // Request biometric unlock
+{ type: 'OPEN_NATIVE_SETTINGS' }                       // Open native settings tab
 { type: 'LOG', payload: { message } }                  // Debug logging
 ```
 
 ### Native → Web Messages
 ```typescript
+{ type: 'INIT_DATA', payload: { hasStoredSeed, biometricEnabled, ... } }  // On app ready
 { type: 'QR_RESULT', payload: { address } }            // Scanned QR data
+{ type: 'BIOMETRIC_UNLOCK_RESULT', payload: { success, pin?, error? } }   // Unlock result
+{ type: 'SEED_STORED', payload: { success, address } } // Seed storage confirmation
 { type: 'BIOMETRIC_SUCCESS', payload: { authenticated } }
 { type: 'APP_STATE', payload: { state } }              // active/background
 { type: 'CLIPBOARD_SUCCESS', payload: { text } }
@@ -140,18 +154,20 @@ myqrlwallet-app/
 ├── app/                    # Expo Router screens
 │   ├── (tabs)/
 │   │   ├── index.tsx       # Main WebView screen
-│   │   ├── settings.tsx    # App settings
+│   │   ├── settings.tsx    # App settings (wallet mgmt, biometrics)
 │   │   └── _layout.tsx     # Tab layout (hidden)
 │   ├── _layout.tsx         # Root layout
 │   └── +not-found.tsx      # 404 page
 ├── components/
 │   ├── QRLWebView.tsx      # Core WebView with bridge
+│   ├── PinEntryModal.tsx   # PIN input modal for unlock/setup
 │   ├── Themed.tsx          # Theme-aware base components
 │   ├── ThemedText.tsx      # Themed text
 │   └── ThemedView.tsx      # Themed view
 ├── services/
 │   ├── NativeBridge.ts     # Message routing
 │   ├── BiometricService.ts # Device auth
+│   ├── SeedStorageService.ts # Encrypted seed persistence
 │   └── WebViewService.ts   # Session management
 ├── constants/
 │   └── Colors.ts           # Theme colors
