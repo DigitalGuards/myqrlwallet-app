@@ -40,3 +40,7 @@ app-example
 android/*
 ios/*
 .claude/settings.local.json
+
+# Claude Code auto-generated context files
+**/CLAUDE.md
+!/CLAUDE.md
