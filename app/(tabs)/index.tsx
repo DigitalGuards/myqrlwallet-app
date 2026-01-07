@@ -192,7 +192,6 @@ export default function WalletScreen() {
 
   // Handle WEB_APP_READY message from web - safe to send data now
   const handleWebAppReady = useCallback(async () => {
-    console.log('[WalletScreen] Web app is ready, sending initialization data');
     setWebAppReady(true);
 
     // Send pending unlock PIN if we have one
@@ -203,10 +202,11 @@ export default function WalletScreen() {
 
     // Check if we need to restore any seeds
     const backups = await SeedStorageService.getAllBackups();
-    for (const backup of backups) {
-      // Send restore command for each backed up seed
-      // The web app will check if it needs it
-      NativeBridge.sendRestoreSeed(backup.address, backup.encryptedSeed, backup.blockchain);
+    if (backups.length > 0) {
+      console.log(`[WalletScreen] Restoring ${backups.length} wallet(s) from backup`);
+      for (const backup of backups) {
+        NativeBridge.sendRestoreSeed(backup.address, backup.encryptedSeed, backup.blockchain);
+      }
     }
   }, []);
 

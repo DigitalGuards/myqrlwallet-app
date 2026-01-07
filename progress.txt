@@ -38,6 +38,23 @@ Flow:
 
 The scanner passes any scanned QR data to the web app; address validation is handled by the web layer.
 
+## 2026-01-07: Clean Single-Line Seed Restoration Logging
+
+Cleaned up seed restoration logging to show a concise single-line message.
+
+Changes:
+- Updated handleWebAppReady in WalletScreen (app/(tabs)/index.tsx):
+  - Removed verbose "Web app is ready, sending initialization data" log
+  - Added conditional log that only appears when wallets exist: "[WalletScreen] Restoring N wallet(s) from backup"
+  - Log only fires when there are actually backups to restore
+- Removed redundant "[NativeBridge] Web app is ready" log from NativeBridge.ts WEB_APP_READY handler
+
+Before: Multiple logs on every app launch regardless of wallet state
+After: Single clean log only when restoration actually occurs
+
+Example output:
+  [WalletScreen] Restoring 1 wallet(s) from backup
+
 ## 2026-01-07: Biometric Unlock Auto-Trigger
 
 Implemented biometric unlock auto-trigger on app launch and first-reopen setup prompt.

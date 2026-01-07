@@ -233,7 +233,6 @@ class NativeBridge {
         break;
 
       case 'WEB_APP_READY':
-        console.log('[NativeBridge] Web app is ready');
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
         }

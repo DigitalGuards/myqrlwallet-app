@@ -92,7 +92,7 @@
       "Check console logs",
       "Verify concise log without duplicate messages"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "settings-redirect",
