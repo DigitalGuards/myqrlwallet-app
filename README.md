@@ -191,12 +191,14 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 - [x] Clipboard and Share functionality
 - [x] Web app detection via User-Agent
 
-### Phase 2: Seed Persistence & Biometric Unlock ✅
+### Phase 2: Seed Persistence & Biometric Unlock 🔄
 - [x] SeedStorageService for encrypted seed storage
 - [x] PIN-based encryption/decryption
-- [x] Biometric unlock option (Face ID / Touch ID / Fingerprint)
+- [x] Biometric unlock toggle in settings (shows after wallet import)
 - [x] Settings screen with wallet management
 - [x] Web app Settings redirects to native settings tab
+- [ ] Onboarding flow prompting biometric setup
+- [ ] Web app integration to trigger STORE_SEED on import
 
 ### Phase 3: QR Scanner
 - [ ] Add expo-camera dependency
