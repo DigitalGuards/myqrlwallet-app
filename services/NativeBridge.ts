@@ -1,6 +1,6 @@
 import { RefObject } from 'react';
 import { Alert, Share, Platform, Linking } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
+import Clipboard from '@react-native-clipboard/clipboard';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 
@@ -273,7 +273,7 @@ class NativeBridge {
     }
 
     try {
-      await Clipboard.setStringAsync(text);
+      Clipboard.setString(text);
       this.sendToWeb({
         type: 'CLIPBOARD_SUCCESS',
         payload: { text },
