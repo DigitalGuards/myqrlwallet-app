@@ -143,10 +143,12 @@ export default function SettingsScreen() {
                       setHasWallet(false);
                       setBiometricUnlockEnabled(false);
 
-                      Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
-
-                      // Navigate back to main screen
-                      router.back();
+                      // Wait a moment for the WebView to process the clear message
+                      // before navigating back
+                      setTimeout(() => {
+                        Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
+                        router.back();
+                      }, 500);
                     } catch (error) {
                       console.error('[Settings] Failed to remove wallet:', error);
                       Alert.alert(
