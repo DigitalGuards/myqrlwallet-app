@@ -6,6 +6,14 @@ import Constants from 'expo-constants';
 import Colors from '../constants/Colors';
 import NativeBridge, { BridgeMessage } from '../services/NativeBridge';
 
+// ============================================================
+// DEV MODE - Automatically detected via __DEV__ flag
+// ============================================================
+// __DEV__ is true when running in Expo Go / dev builds, false in production
+// For Android emulator: 10.0.2.2 maps to host localhost
+// For physical device: use your computer's LAN IP (e.g., 192.168.1.x)
+const DEV_URL = 'http://10.0.2.2:5173';
+
 // Type definitions
 interface QRLWebViewProps {
   uri?: string;
@@ -20,7 +28,7 @@ export interface QRLWebViewRef {
 }
 
 const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
-  uri = 'https://qrlwallet.com',
+  uri = __DEV__ ? DEV_URL : 'https://qrlwallet.com',
   userAgent,
   onQRScanRequest,
   onLoad
@@ -32,15 +40,14 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  
+
   // Timeout reference to force loading to complete after a set time
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Allowed domains for security
-  const ALLOWED_DOMAINS = [
-    'qrlwallet.com',
-    'www.qrlwallet.com'
-  ];
+  const ALLOWED_DOMAINS = __DEV__
+    ? ['10.0.2.2', 'localhost', '127.0.0.1']
+    : ['qrlwallet.com', 'www.qrlwallet.com'];
 
   // Custom user agent to improve compatibility
   const customUserAgent = userAgent || 
@@ -209,7 +216,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               ref={webViewRef}
               source={{ uri }}
               style={styles.webView}
-              originWhitelist={['https://qrlwallet.com', 'https://www.qrlwallet.com']}
+              originWhitelist={__DEV__ ? ['http://*', 'https://*'] : ['https://qrlwallet.com', 'https://www.qrlwallet.com']}
               userAgent={customUserAgent}
               onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
               javaScriptEnabled={true}
