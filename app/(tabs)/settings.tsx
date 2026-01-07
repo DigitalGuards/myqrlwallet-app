@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Image, Linking } from 'react-native';
 import WebViewService, { UserPreferences } from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
+import SeedStorageService from '../../services/SeedStorageService';
+import NativeBridge from '../../services/NativeBridge';
+import PinEntryModal from '../../components/PinEntryModal';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
@@ -18,6 +21,9 @@ export default function SettingsScreen() {
   
   const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string[]>([]);
+  const [hasWallet, setHasWallet] = useState(false);
+  const [biometricUnlockEnabled, setBiometricUnlockEnabled] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load user preferences on component mount
@@ -25,17 +31,24 @@ export default function SettingsScreen() {
     async function loadPreferences() {
       const storedPreferences = await WebViewService.getUserPreferences();
       setPreferences(storedPreferences);
-      
+
       // Check biometric availability
       const biometricAvailable = await BiometricService.isBiometricAvailable();
       setIsBiometricAvailable(biometricAvailable);
-      
+
       if (biometricAvailable) {
         const types = await BiometricService.getAvailableBiometricTypes();
         setBiometricType(types);
       }
+
+      // Check wallet and biometric unlock status
+      const walletExists = await SeedStorageService.hasWallet();
+      setHasWallet(walletExists);
+
+      const biometricReady = await BiometricService.isBiometricUnlockReady();
+      setBiometricUnlockEnabled(biometricReady);
     }
-    
+
     loadPreferences();
   }, []);
 
@@ -68,21 +81,105 @@ export default function SettingsScreen() {
     }
   };
 
-  // Clear all cached data
-  const clearCache = async () => {
+  // Handle PIN modal submission for biometric unlock setup
+  const handlePinSubmit = useCallback(async (pin: string) => {
+    setPinModalVisible(false);
+    const result = await BiometricService.setupBiometricUnlock(pin);
+    if (result.success) {
+      setBiometricUnlockEnabled(true);
+      Alert.alert('Success', 'Biometric unlock enabled!');
+    } else {
+      Alert.alert('Error', result.error || 'Failed to enable biometric unlock');
+    }
+  }, []);
+
+  // Handle PIN modal cancel
+  const handlePinCancel = useCallback(() => {
+    setPinModalVisible(false);
+  }, []);
+
+  // Handle biometric unlock toggle
+  const handleBiometricUnlockToggle = async (newValue: boolean) => {
+    if (newValue) {
+      // Enable biometric unlock - show secure PIN modal
+      setPinModalVisible(true);
+    } else {
+      // Disable biometric unlock
+      await BiometricService.disableBiometricUnlock();
+      setBiometricUnlockEnabled(false);
+      Alert.alert('Disabled', 'Biometric unlock has been disabled.');
+    }
+  };
+
+  // Remove wallet - clears all wallet data from native storage
+  const removeWallet = async () => {
     Alert.alert(
-      'Clear Cache',
-      'This will clear all stored wallet data from the app. You will need to log in again. Continue?',
+      'Remove Wallet',
+      'This will permanently delete your wallet data from this device. Your seed phrase will be removed and you will need to re-import it to access your wallet again.\n\nMake sure you have backed up your seed phrase before continuing!',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Clear', 
+        {
+          text: 'Remove Wallet',
+          style: 'destructive',
+          onPress: async () => {
+            // Second confirmation
+            Alert.alert(
+              'Are you sure?',
+              'This action cannot be undone. Your wallet will be completely removed from this device.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Yes, Remove',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      // Clear native storage
+                      await SeedStorageService.clearWallet();
+
+                      // Tell web app to clear its data
+                      NativeBridge.sendClearWallet();
+
+                      // Update state
+                      setHasWallet(false);
+                      setBiometricUnlockEnabled(false);
+
+                      Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
+
+                      // Navigate back to main screen
+                      router.back();
+                    } catch (error) {
+                      console.error('[Settings] Failed to remove wallet:', error);
+                      Alert.alert(
+                        'Error',
+                        'Failed to remove wallet. Please try again.',
+                        [{ text: 'OK' }]
+                      );
+                    }
+                  },
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
+  };
+
+  // Clear session data (not wallet seeds)
+  const clearCache = async () => {
+    Alert.alert(
+      'Clear Session',
+      'This will clear your current session and log you out. You will need to log in again. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
           style: 'destructive',
           onPress: async () => {
             await WebViewService.clearSessionData();
-            Alert.alert('Cache Cleared', 'All cached data has been cleared.');
-          }
-        }
+            Alert.alert('Session Cleared', 'Your session has been cleared.');
+          },
+        },
       ]
     );
   };
@@ -107,6 +204,7 @@ export default function SettingsScreen() {
   }, [navigation]);
 
   return (
+    <>
     <ScrollView style={styles.container}>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Security</Text>
@@ -158,13 +256,47 @@ export default function SettingsScreen() {
         </View>
       </View>
       
+      {/* Wallet Management Section - only show if wallet exists */}
+      {hasWallet && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Wallet</Text>
+
+          {/* Biometric Unlock Toggle */}
+          {isBiometricAvailable && (
+            <View style={styles.settingRow}>
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingTitle}>Biometric Unlock</Text>
+                <Text style={styles.settingDescription}>
+                  Use {BiometricService.getBiometricName()} to unlock your wallet automatically
+                </Text>
+              </View>
+              <Switch
+                value={biometricUnlockEnabled}
+                onValueChange={handleBiometricUnlockToggle}
+                trackColor={{ false: '#767577', true: '#8561c5' }}
+                thumbColor={biometricUnlockEnabled ? '#5e35b1' : '#f4f3f4'}
+              />
+            </View>
+          )}
+
+          {/* Remove Wallet Button */}
+          <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>
+            <FontAwesome name="warning" size={18} color="#d32f2f" style={styles.buttonIcon} />
+            <Text style={styles.buttonTextDanger}>Remove Wallet</Text>
+          </TouchableOpacity>
+          <Text style={styles.warningText}>
+            This will permanently delete your wallet data from this device.
+          </Text>
+        </View>
+      )}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Data</Text>
-        
-        {/* Clear Cache Button */}
+
+        {/* Clear Session Button */}
         <TouchableOpacity style={styles.button} onPress={clearCache}>
           <FontAwesome name="trash" size={18} color="#d32f2f" style={styles.buttonIcon} />
-          <Text style={styles.buttonTextDanger}>Clear Cache</Text>
+          <Text style={styles.buttonTextDanger}>Clear Session</Text>
         </TouchableOpacity>
       </View>
 
@@ -214,6 +346,14 @@ export default function SettingsScreen() {
         </View>
       </View>
     </ScrollView>
+    <PinEntryModal
+      visible={pinModalVisible}
+      title="Enter Your PIN"
+      message="Enter your wallet PIN to enable biometric unlock"
+      onSubmit={handlePinSubmit}
+      onCancel={handlePinCancel}
+    />
+    </>
   );
 }
 
@@ -285,6 +425,17 @@ const styles = StyleSheet.create({
     color: '#d32f2f',
     fontSize: 16,
     fontWeight: '500',
+  },
+  dangerButton: {
+    marginTop: 16,
+    borderColor: '#d32f2f',
+    backgroundColor: '#fff5f5',
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 8,
   },
   // About section styles
   aboutHeader: {
