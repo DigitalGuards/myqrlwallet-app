@@ -36,6 +36,9 @@ export interface QRLWebViewRef {
   reload: () => void;
 }
 
+// Minimum time to show loading screen (in ms)
+const MIN_LOADING_TIME = 3000;
+
 const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri = __DEV__ ? DEV_URL : 'https://qrlwallet.com',
   userAgent,
@@ -43,11 +46,18 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   onLoad
 }, ref) => {
   const [isLoading, setIsLoading] = useState(true);
+  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
 
+  // Track when loading started for minimum display time
+  const loadStartTime = useRef<number>(Date.now());
+  const minTimeElapsed = useRef<boolean>(false);
+  const contentLoaded = useRef<boolean>(false);
+
   // Timeout reference to force loading to complete after a set time
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const minTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Allowed domains for security
   const ALLOWED_DOMAINS = __DEV__
@@ -58,6 +68,31 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const customUserAgent = userAgent || 
     `Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 MyQRLWallet/${Constants.expoConfig?.version || '1.0.0'}`;
 
+  // Helper to check if we can hide loading screen
+  const tryHideLoadingScreen = useCallback(() => {
+    if (minTimeElapsed.current && contentLoaded.current) {
+      setShowLoadingScreen(false);
+    }
+  }, []);
+
+  // Set up minimum display time timer on mount
+  useEffect(() => {
+    loadStartTime.current = Date.now();
+    minTimeElapsed.current = false;
+    contentLoaded.current = false;
+
+    minTimeoutRef.current = setTimeout(() => {
+      minTimeElapsed.current = true;
+      tryHideLoadingScreen();
+    }, MIN_LOADING_TIME);
+
+    return () => {
+      if (minTimeoutRef.current) {
+        clearTimeout(minTimeoutRef.current);
+      }
+    };
+  }, [tryHideLoadingScreen]);
+
   // Add a safety timeout to hide spinner after a maximum time
   useEffect(() => {
     if (isLoading) {
@@ -65,6 +100,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       loadingTimeoutRef.current = setTimeout(() => {
         console.log('Loading timeout reached, forcing loading state to complete');
         setIsLoading(false);
+        contentLoaded.current = true;
+        tryHideLoadingScreen();
       }, 8000);
     } else if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current);
@@ -76,7 +113,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         clearTimeout(loadingTimeoutRef.current);
       }
     };
-  }, [isLoading]);
+  }, [isLoading, tryHideLoadingScreen]);
 
   // Handle back button press for Android
   useFocusEffect(
@@ -123,6 +160,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   const handleLoadEnd = () => {
     setIsLoading(false);
+    contentLoaded.current = true;
+    tryHideLoadingScreen();
     // Notify parent that WebView content is loaded
     if (onLoad) {
       onLoad();
@@ -133,6 +172,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     // If page has loaded completely, ensure loading indicator is hidden
     if (newNavState.loading === false) {
       setIsLoading(false);
+      contentLoaded.current = true;
+      tryHideLoadingScreen();
     }
 
     console.log(`Navigation state changed: ${newNavState.url}, loading: ${newNavState.loading}`);
@@ -250,7 +291,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               accessibilityLabel="QRL Wallet web content"
               nestedScrollEnabled={true}
             />
-            <QuantumLoadingScreen visible={isLoading} />
+            <QuantumLoadingScreen visible={showLoadingScreen} />
           </>
         )}
       </View>
