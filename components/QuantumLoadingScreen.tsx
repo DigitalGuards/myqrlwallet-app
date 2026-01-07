@@ -30,8 +30,6 @@ interface MatrixColumnProps {
 
 const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
   const translateY = useRef(new Animated.Value(-height * 0.5)).current;
-  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
-  const isMounted = useRef(true);
   const [chars] = useState(() => {
     const length = Math.floor(Math.random() * 15) + 10;
     return Array.from({ length }, () =>
@@ -40,32 +38,39 @@ const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
   });
 
   useEffect(() => {
-    isMounted.current = true;
+    let loopAnimation: Animated.CompositeAnimation | null = null;
+    let delayTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const startAnimation = () => {
-      if (!isMounted.current) return;
-
-      translateY.setValue(-height * 0.5);
-      animationRef.current = Animated.timing(translateY, {
-        toValue: height,
-        duration: speed,
-        useNativeDriver: true,
-        delay,
-      });
-
-      animationRef.current.start(({ finished }) => {
-        if (finished && isMounted.current) {
-          startAnimation();
-        }
-      });
+    // Create the looping animation
+    const createLoop = () => {
+      loopAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(translateY, {
+            toValue: height,
+            duration: speed,
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateY, {
+            toValue: -height * 0.5,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loopAnimation.start();
     };
 
-    startAnimation();
+    // Apply initial delay, then start looping
+    delayTimeout = setTimeout(() => {
+      createLoop();
+    }, delay);
 
     return () => {
-      isMounted.current = false;
-      if (animationRef.current) {
-        animationRef.current.stop();
+      if (delayTimeout) {
+        clearTimeout(delayTimeout);
+      }
+      if (loopAnimation) {
+        loopAnimation.stop();
       }
     };
   }, [translateY, delay, speed]);
