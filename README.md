@@ -1,6 +1,6 @@
-# MyQRL Wallet Mobile App
+# MyQRLWallet Mobile App
 
-A React Native/Expo mobile application that wraps the [QRL Wallet website](https://qrlwallet.com) with native enhancements. Provides a seamless mobile experience with biometric authentication, QR scanning, push notifications, and more.
+A React Native/Expo mobile application that wraps [MyQRLWallet](https://qrlwallet.com) with native enhancements. Provides a seamless mobile experience with biometric authentication, QR scanning, secure seed storage, and more.
 
 ## Features
 
@@ -230,8 +230,8 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 
 - **Domain Restriction**: WebView only loads qrlwallet.com
 - **HTTPS Only**: All connections are encrypted
-- **No Key Storage**: Wallet keys stay in web localStorage, not native
-- **Biometric Auth**: Optional device-level protection
+- **Secure Seed Storage**: Encrypted seeds stored in native SecureStore (not plain localStorage)
+- **Biometric Auth**: Optional Face ID / Touch ID protection with PIN fallback
 - **Secure Bridge**: Messages validated before processing
 
 ## Tech Stack
@@ -259,6 +259,12 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 
 - Bundle ID: `com.chiefdg.myqrlwallet`
 - Scheme: `myqrlwallet`
+
+## Related Projects
+
+- [myqrlwallet-frontend](https://github.com/DigitalGuards/myqrlwallet-frontend) - React web wallet
+- [myqrlwallet-backend](https://github.com/DigitalGuards/myqrlwallet-backend) - API server
+- [QuantaPool](https://github.com/DigitalGuards/QuantaPool) - Liquid staking protocol
 
 ## Contributing
 
