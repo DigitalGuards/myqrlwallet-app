@@ -28,10 +28,12 @@ export default function TabLayout() {
         },
         headerShown: route.name === 'settings', // Only show header on settings page
         headerStyle: {
-          height: Platform.OS === 'ios' ? 60 : 50,
           backgroundColor: '#0A0A17',
           shadowColor: 'transparent',
           elevation: 0,
+        },
+        headerLeftContainerStyle: {
+          paddingLeft: 8,
         },
         headerTitleStyle: {
           fontWeight: 'bold',
