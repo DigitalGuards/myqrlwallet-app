@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, useColorScheme, StatusBar, AppState, AppStateStatus, TouchableOpacity, Platform, Alert } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager } from 'react-native';
 // Import QRLWebView
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
+import QRScannerModal from '../../components/QRScannerModal';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
@@ -11,7 +12,6 @@ import { useIsFocused } from '@react-navigation/native';
 import { useFocusEffect } from '@react-navigation/native';
 import { usePathname, router } from 'expo-router';
 import Colors from '../../constants/Colors';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -21,13 +21,14 @@ export default function WalletScreen() {
   const [webAppReady, setWebAppReady] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
+  const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const isFocused = useIsFocused();
-  const colorScheme = useColorScheme();
   const pathname = usePathname();
   const appState = useRef(AppState.currentState);
   const lastActiveUrl = useRef<string | undefined>(undefined);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
+  const hasRestoredSeeds = useRef<boolean>(false);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -64,21 +65,14 @@ export default function WalletScreen() {
     setPinModalVisible(true);
   }, []);
 
-  // Handle seed stored event - prompt for biometric setup
+  // Handle seed stored event - just log for now, biometric prompt shown on next launch
   const handleSeedStored = useCallback(async (address: string) => {
-    const biometricReady = await BiometricService.isBiometricUnlockReady();
-    if (biometricReady) {
-      // Already set up, no need to prompt
-      return;
-    }
+    console.log(`[WalletScreen] Seed stored for ${address}`);
+    // Biometric setup prompt is shown on app reopen, not immediately during import
+  }, []);
 
-    const biometricAvailable = await BiometricService.isBiometricAvailable();
-    if (!biometricAvailable) {
-      // Biometric not available on device
-      return;
-    }
-
-    // Prompt user to enable biometric unlock
+  // Prompt user to enable biometric unlock
+  const promptBiometricSetup = useCallback(() => {
     Alert.alert(
       'Enable Biometric Unlock?',
       `Would you like to use ${BiometricService.getBiometricName()} to unlock your wallet? You won't need to enter your PIN each time.`,
@@ -86,6 +80,10 @@ export default function WalletScreen() {
         {
           text: 'Not Now',
           style: 'cancel',
+          onPress: async () => {
+            // Mark prompt as shown so we don't ask again
+            await SeedStorageService.setBiometricPromptShown(true);
+          },
         },
         {
           text: 'Enable',
@@ -94,6 +92,7 @@ export default function WalletScreen() {
             showPinModal(async (pin: string) => {
               const setupResult = await BiometricService.setupBiometricUnlock(pin);
               if (setupResult.success) {
+                await SeedStorageService.setBiometricPromptShown(true);
                 Alert.alert('Success', 'Biometric unlock enabled!');
               } else {
                 Alert.alert('Error', setupResult.error || 'Failed to enable biometric unlock');
@@ -105,12 +104,31 @@ export default function WalletScreen() {
     );
   }, [showPinModal]);
 
+  // Handle QR scan request from web
+  const handleQRScanRequest = useCallback(() => {
+    console.log('[WalletScreen] QR scan requested');
+    setQrScannerVisible(true);
+  }, []);
+
+  // Handle QR scan result
+  const handleQRScanResult = useCallback((data: string) => {
+    console.log('[WalletScreen] QR scanned:', data);
+    // Send the scanned data to the WebView
+    NativeBridge.sendQRResult(data);
+  }, []);
+
+  // Close QR scanner
+  const handleQRScannerClose = useCallback(() => {
+    setQrScannerVisible(false);
+  }, []);
+
   // Register bridge callbacks
   useEffect(() => {
     NativeBridge.onBiometricUnlockRequest(performBiometricUnlock);
     NativeBridge.onSeedStored(handleSeedStored);
     NativeBridge.onOpenNativeSettings(navigateToSettings);
-  }, [performBiometricUnlock, handleSeedStored]);
+    NativeBridge.onQRScanRequest(handleQRScanRequest);
+  }, [performBiometricUnlock, handleSeedStored, handleQRScanRequest]);
 
   // Check biometric settings and authenticate if needed
   useEffect(() => {
@@ -133,8 +151,23 @@ export default function WalletScreen() {
             // Biometric failed, but still allow access (user can enter PIN manually)
             setIsAuthorized(true);
           }
+        } else if (hasWallet) {
+          // Wallet exists but biometric not set up
+          // Check if we should prompt for biometric setup
+          const biometricAvailable = await BiometricService.isBiometricAvailable();
+          const promptAlreadyShown = await SeedStorageService.wasBiometricPromptShown();
+
+          if (biometricAvailable && !promptAlreadyShown) {
+            // Show biometric setup prompt after UI renders and interactions complete
+            setIsAuthorized(true);
+            InteractionManager.runAfterInteractions(() => {
+              promptBiometricSetup();
+            });
+          } else {
+            setIsAuthorized(true);
+          }
         } else {
-          // No biometric setup or no wallet - just authorize and let web handle it
+          // No wallet - just authorize and let web handle it
           setIsAuthorized(true);
         }
       } catch (error) {
@@ -149,7 +182,7 @@ export default function WalletScreen() {
     if (isFocused) {
       authCheck();
     }
-  }, [isFocused]);
+  }, [isFocused, promptBiometricSetup]);
 
   // Handle WebView load - just mark as ready
   // Biometric auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
@@ -159,7 +192,11 @@ export default function WalletScreen() {
 
   // Handle WEB_APP_READY message from web - safe to send data now
   const handleWebAppReady = useCallback(async () => {
-    console.log('[WalletScreen] Web app is ready, sending initialization data');
+    // Prevent double execution (web app may send WEB_APP_READY multiple times)
+    if (hasRestoredSeeds.current) {
+      return;
+    }
+    hasRestoredSeeds.current = true;
     setWebAppReady(true);
 
     // Send pending unlock PIN if we have one
@@ -170,10 +207,12 @@ export default function WalletScreen() {
 
     // Check if we need to restore any seeds
     const backups = await SeedStorageService.getAllBackups();
-    for (const backup of backups) {
-      // Send restore command for each backed up seed
-      // The web app will check if it needs it
-      NativeBridge.sendRestoreSeed(backup.address, backup.encryptedSeed, backup.blockchain);
+    if (backups.length > 0) {
+      console.log(`[WalletScreen] Restoring ${backups.length} wallet(s) from backup`);
+      for (const backup of backups) {
+        console.log(` -> Restoring seed for ${backup.address}`);
+        NativeBridge.sendRestoreSeed(backup.address, backup.encryptedSeed, backup.blockchain);
+      }
     }
   }, []);
 
@@ -193,16 +232,7 @@ export default function WalletScreen() {
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
       {isAuthorized && (
-        <>
-          <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} />
-          <TouchableOpacity
-            style={styles.settingsButton}
-            onPress={navigateToSettings}
-            activeOpacity={0.7}
-          >
-            <FontAwesome name="gear" size={24} color="white" />
-          </TouchableOpacity>
-        </>
+        <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} />
       )}
       <PinEntryModal
         visible={pinModalVisible}
@@ -210,6 +240,11 @@ export default function WalletScreen() {
         message="Enter your wallet PIN to enable biometric unlock"
         onSubmit={handlePinSubmit}
         onCancel={handlePinCancel}
+      />
+      <QRScannerModal
+        visible={qrScannerVisible}
+        onScan={handleQRScanResult}
+        onClose={handleQRScannerClose}
       />
     </RNView>
   );
@@ -219,24 +254,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A17',
-  },
-  settingsButton: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 70 : 50,
-    left: 15,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(10, 10, 23, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 999,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
 });

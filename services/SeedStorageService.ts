@@ -7,6 +7,7 @@ import * as SecureStore from 'expo-secure-store';
 const SEED_BACKUP_PREFIX = 'seed_backup_';
 const PIN_KEY = 'wallet_pin';
 const BIOMETRIC_ENABLED_KEY = 'biometric_enabled';
+const BIOMETRIC_PROMPT_SHOWN_KEY = 'biometric_prompt_shown';
 const WALLET_METADATA_KEY = 'wallet_metadata';
 
 /**
@@ -179,6 +180,27 @@ class SeedStorageService {
   }
 
   /**
+   * Set whether the biometric setup prompt has been shown
+   */
+  async setBiometricPromptShown(shown: boolean): Promise<void> {
+    await AsyncStorage.setItem(BIOMETRIC_PROMPT_SHOWN_KEY, JSON.stringify(shown));
+  }
+
+  /**
+   * Check if the biometric setup prompt has been shown
+   */
+  async wasBiometricPromptShown(): Promise<boolean> {
+    const data = await AsyncStorage.getItem(BIOMETRIC_PROMPT_SHOWN_KEY);
+    if (!data) return false;
+
+    try {
+      return JSON.parse(data) as boolean;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Update wallet metadata when seeds are added/removed
    * Reads existing metadata and updates in-memory to avoid re-reading all backups
    */
@@ -246,6 +268,9 @@ class SeedStorageService {
 
     // Clear biometric preference
     await AsyncStorage.removeItem(BIOMETRIC_ENABLED_KEY);
+
+    // Clear biometric prompt shown flag
+    await AsyncStorage.removeItem(BIOMETRIC_PROMPT_SHOWN_KEY);
 
     // Clear wallet metadata
     await AsyncStorage.removeItem(WALLET_METADATA_KEY);

@@ -1,5 +1,7 @@
 import { RefObject } from 'react';
-import { Alert, Share, Clipboard, Platform } from 'react-native';
+import { Alert, Share, Platform, Linking } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 
@@ -12,6 +14,8 @@ export type WebToNativeMessageType =
   | 'SHARE'
   | 'TX_CONFIRMED'
   | 'LOG'
+  | 'OPEN_URL'                // Open external URL in device browser
+  | 'HAPTIC'                  // Trigger haptic feedback
   // Seed persistence messages
   | 'SEED_STORED'             // Web stored encrypted seed, native should backup
   | 'REQUEST_BIOMETRIC_UNLOCK'  // Web asks native to unlock with biometric
@@ -72,20 +76,26 @@ type WebAppReadyCallback = () => Promise<void>;
 type OpenNativeSettingsCallback = () => void;
 
 /**
+ * Callback for when web app confirms wallet data cleared
+ */
+type WalletClearedCallback = () => void;
+
+/**
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
-  private webViewRef: RefObject<WebView> | null = null;
+  private webViewRef: RefObject<WebView | null> | null = null;
   private qrScanCallback: QRScanCallback | null = null;
   private biometricUnlockCallback: BiometricUnlockCallback | null = null;
   private seedStoredCallback: SeedStoredCallback | null = null;
   private webAppReadyCallback: WebAppReadyCallback | null = null;
   private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
+  private walletClearedCallback: WalletClearedCallback | null = null;
 
   /**
    * Set the WebView reference for sending messages back to web
    */
-  setWebViewRef(ref: RefObject<WebView>) {
+  setWebViewRef(ref: RefObject<WebView | null>) {
     this.webViewRef = ref;
   }
 
@@ -122,6 +132,20 @@ class NativeBridge {
    */
   onOpenNativeSettings(callback: OpenNativeSettingsCallback) {
     this.openNativeSettingsCallback = callback;
+  }
+
+  /**
+   * Register callback for when web app confirms wallet data cleared
+   */
+  onWalletCleared(callback: WalletClearedCallback) {
+    this.walletClearedCallback = callback;
+  }
+
+  /**
+   * Unregister wallet cleared callback
+   */
+  offWalletCleared() {
+    this.walletClearedCallback = null;
   }
 
   /**
@@ -192,6 +216,21 @@ class NativeBridge {
         console.log('[WebView]', payload?.message);
         break;
 
+      case 'HAPTIC':
+        this.handleHaptic(payload?.style as string | undefined);
+        break;
+
+      case 'OPEN_URL': {
+        const url = payload?.url;
+        if (typeof url !== 'string') {
+          console.warn('[NativeBridge] OPEN_URL missing or invalid url');
+          this.sendToWeb({ type: 'ERROR', payload: { message: 'Invalid URL' } });
+          return;
+        }
+        await this.handleOpenUrl(url);
+        break;
+      }
+
       // Seed persistence messages
       case 'SEED_STORED': {
         const address = payload?.address;
@@ -211,10 +250,12 @@ class NativeBridge {
 
       case 'WALLET_CLEARED':
         console.log('[NativeBridge] Web confirmed wallet cleared');
+        if (this.walletClearedCallback) {
+          this.walletClearedCallback();
+        }
         break;
 
       case 'WEB_APP_READY':
-        console.log('[NativeBridge] Web app is ready');
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
         }
@@ -260,7 +301,7 @@ class NativeBridge {
     }
 
     try {
-      Clipboard.setString(text);
+      await Clipboard.setStringAsync(text);
       this.sendToWeb({
         type: 'CLIPBOARD_SUCCESS',
         payload: { text },
@@ -332,6 +373,60 @@ class NativeBridge {
     console.log(`Transaction ${txType}: ${txHash}`);
     // TODO: Integrate with NotificationService when implemented
     // NotificationService.showTransactionNotification(txHash, txType);
+  }
+
+  /**
+   * Handle haptic feedback request
+   * Supports: light, medium, heavy, success, warning, error
+   */
+  private handleHaptic(style?: string) {
+    switch (style) {
+      case 'light':
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        break;
+      case 'medium':
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        break;
+      case 'heavy':
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        break;
+      case 'success':
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        break;
+      case 'warning':
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        break;
+      case 'error':
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        break;
+      default:
+        // Default to light impact for any unspecified style
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }
+
+  /**
+   * Handle open URL request - opens in device's default browser
+   */
+  private async handleOpenUrl(url: string) {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        console.warn(`[NativeBridge] Cannot open URL: ${url}`);
+        this.sendToWeb({
+          type: 'ERROR',
+          payload: { message: 'Cannot open this URL' },
+        });
+      }
+    } catch (error) {
+      console.error('[NativeBridge] Error opening URL:', error);
+      this.sendToWeb({
+        type: 'ERROR',
+        payload: { message: 'Failed to open URL' },
+      });
+    }
   }
 
   /**
