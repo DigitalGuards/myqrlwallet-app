@@ -4,7 +4,6 @@ import WebViewService, { UserPreferences } from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
-import PinEntryModal from '../../components/PinEntryModal';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -19,7 +18,6 @@ export default function SettingsScreen() {
   const [isDeviceLoginAvailable, setIsDeviceLoginAvailable] = useState(false);
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
-  const [pinModalVisible, setPinModalVisible] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -62,28 +60,12 @@ export default function SettingsScreen() {
     await WebViewService.saveUserPreferences(updatedPreferences);
   };
 
-  // Handle PIN modal submission for Device Login setup
-  const handlePinSubmit = useCallback(async (pin: string) => {
-    setPinModalVisible(false);
-    const result = await BiometricService.setupDeviceLogin(pin);
-    if (result.success) {
-      setDeviceLoginEnabled(true);
-      Alert.alert('Success', 'Device Login enabled!');
-    } else {
-      Alert.alert('Error', result.error || 'Failed to enable Device Login');
-    }
-  }, []);
-
-  // Handle PIN modal cancel
-  const handlePinCancel = useCallback(() => {
-    setPinModalVisible(false);
-  }, []);
-
   // Handle Device Login toggle
   const handleDeviceLoginToggle = async (newValue: boolean) => {
     if (newValue) {
-      // Enable Device Login - show secure PIN modal
-      setPinModalVisible(true);
+      // Navigate to main tab with intent to enable Device Login
+      // WebView must be active for PIN verification to work
+      router.replace('/?enableDeviceLogin=true');
     } else {
       // Disable Device Login - require device auth first
       const authResult = await BiometricService.authenticate('Authenticate to disable Device Login');
@@ -208,7 +190,6 @@ export default function SettingsScreen() {
   }, [navigation]);
 
   return (
-    <>
     <ScrollView style={styles.container}>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Security</Text>
@@ -321,14 +302,6 @@ export default function SettingsScreen() {
         </View>
       </View>
     </ScrollView>
-    <PinEntryModal
-      visible={pinModalVisible}
-      title="Enter Your PIN"
-      message="Enter your wallet PIN to enable Device Login"
-      onSubmit={handlePinSubmit}
-      onCancel={handlePinCancel}
-    />
-    </>
   );
 }
 
