@@ -7,9 +7,6 @@ const STORAGE_KEYS = {
 };
 
 export interface UserPreferences {
-  autoLock?: boolean;
-  lockTimeoutMinutes?: number;
-  biometricEnabled?: boolean;
   notificationsEnabled?: boolean;
 }
 
@@ -97,17 +94,11 @@ class WebViewService {
       
       // Default preferences
       return {
-        autoLock: true,
-        lockTimeoutMinutes: 5,
-        biometricEnabled: false,
         notificationsEnabled: true,
       };
     } catch (error) {
       console.error('Failed to get user preferences:', error);
       return {
-        autoLock: true,
-        lockTimeoutMinutes: 5,
-        biometricEnabled: false,
         notificationsEnabled: true,
       };
     }

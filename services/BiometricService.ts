@@ -1,24 +1,23 @@
-import { Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import SeedStorageService from './SeedStorageService';
+import NativeBridge from './NativeBridge';
 
 /**
- * Service for managing biometric authentication
+ * Service for managing device authentication (biometrics, PIN, pattern, passcode)
  */
 class BiometricService {
   /**
-   * Check if device supports biometric authentication
-   * @returns True if device supports biometrics
+   * Check if device supports any form of authentication (biometrics, PIN, pattern, passcode)
+   * @returns True if device has any authentication method available
    */
   async isBiometricAvailable(): Promise<boolean> {
     try {
-      const compatible = await LocalAuthentication.hasHardwareAsync();
-      if (!compatible) return false;
-
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      return enrolled;
+      const securityLevel = await LocalAuthentication.getEnrolledLevelAsync();
+      // SecurityLevel.NONE is 0, .SECRET is 1, .BIOMETRIC is 2.
+      // Any level greater than NONE means some form of authentication is enrolled.
+      return securityLevel > LocalAuthentication.SecurityLevel.NONE;
     } catch (error) {
-      console.error('Biometric availability check failed:', error);
+      console.error('Device authentication availability check failed:', error);
       return false;
     }
   }
@@ -79,19 +78,15 @@ class BiometricService {
   }
 
   /**
-   * Get user-friendly biometric type name based on device
-   * @returns User-friendly biometric name
+   * Get user-friendly name for device authentication
+   * @returns User-friendly device login name
    */
-  getBiometricName(): string {
-    if (Platform.OS === 'ios') {
-      return 'Face ID / Touch ID';
-    } else {
-      return 'Biometric Authentication';
-    }
+  getDeviceLoginName(): string {
+    return 'Device Login';
   }
 
   // ============================================================
-  // PIN-based Biometric Unlock
+  // PIN-based Device Login
   // ============================================================
 
   /**
@@ -104,21 +99,21 @@ class BiometricService {
     pin?: string;
     error?: string;
   }> {
-    // First check if biometric is available
+    // First check if device login is available
     const available = await this.isBiometricAvailable();
     if (!available) {
       return {
         success: false,
-        error: 'Biometric authentication not available on this device',
+        error: 'Device Login not available on this device',
       };
     }
 
-    // Check if biometric unlock is enabled
+    // Check if device login is enabled
     const biometricEnabled = await SeedStorageService.isBiometricEnabled();
     if (!biometricEnabled) {
       return {
         success: false,
-        error: 'Biometric unlock not enabled',
+        error: 'Device Login not enabled',
       };
     }
 
@@ -127,16 +122,16 @@ class BiometricService {
     if (!hasPIN) {
       return {
         success: false,
-        error: 'No PIN stored for biometric unlock',
+        error: 'No PIN stored for Device Login',
       };
     }
 
-    // Perform biometric authentication
+    // Perform device authentication
     const authResult = await this.authenticate('Unlock your wallet');
     if (!authResult.success) {
       return {
         success: false,
-        error: authResult.error || 'Biometric authentication failed',
+        error: authResult.error || 'Device Login failed',
       };
     }
 
@@ -156,27 +151,40 @@ class BiometricService {
   }
 
   /**
-   * Set up biometric unlock by storing the PIN securely
+   * Set up device login by storing the PIN securely
+   * Verifies PIN can decrypt the wallet seed before storing
    * @param pin The user's PIN to store
    * @returns Success status
    */
-  async setupBiometricUnlock(pin: string): Promise<{
+  async setupDeviceLogin(pin: string): Promise<{
     success: boolean;
     error?: string;
   }> {
     try {
-      // Check if biometric is available
+      // Check if device login is available
       const available = await this.isBiometricAvailable();
       if (!available) {
         return {
           success: false,
-          error: 'Biometric authentication not available on this device',
+          error: 'Device Login not available on this device',
         };
       }
 
+      // First verify the PIN with the web app (ensures it can decrypt the seed)
+      console.log('[BiometricService] Verifying PIN with web app...');
+      const verifyResult = await NativeBridge.verifyPin(pin);
+      if (!verifyResult.success) {
+        console.log('[BiometricService] PIN verification failed:', verifyResult.error);
+        return {
+          success: false,
+          error: verifyResult.error || 'Incorrect PIN',
+        };
+      }
+      console.log('[BiometricService] PIN verified successfully');
+
       // Authenticate before storing (confirm user identity)
       const authResult = await this.authenticate(
-        `Enable ${this.getBiometricName()} to unlock your wallet`
+        'Enable Device Login to unlock your wallet'
       );
       if (!authResult.success) {
         return {
@@ -188,30 +196,30 @@ class BiometricService {
       // Store the PIN securely
       await SeedStorageService.storePinSecurely(pin);
 
-      // Enable biometric unlock
+      // Enable device login
       await SeedStorageService.setBiometricEnabled(true);
 
       return { success: true };
     } catch (error) {
-      console.error('Failed to setup biometric unlock:', error);
+      console.error('Failed to setup Device Login:', error);
       return {
         success: false,
-        error: 'Failed to set up biometric unlock',
+        error: 'Failed to set up Device Login',
       };
     }
   }
 
   /**
-   * Disable biometric unlock
+   * Disable device login
    */
-  async disableBiometricUnlock(): Promise<void> {
+  async disableDeviceLogin(): Promise<void> {
     await SeedStorageService.setBiometricEnabled(false);
   }
 
   /**
-   * Check if biometric unlock is set up and ready
+   * Check if device login is set up and ready
    */
-  async isBiometricUnlockReady(): Promise<boolean> {
+  async isDeviceLoginReady(): Promise<boolean> {
     const available = await this.isBiometricAvailable();
     const enabled = await SeedStorageService.isBiometricEnabled();
     const hasPin = await SeedStorageService.hasPinStored();

@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Platform, Alert, Image, Linking } from 'react-native';
+import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Alert, Image, Linking } from 'react-native';
 import WebViewService, { UserPreferences } from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
-import PinEntryModal from '../../components/PinEntryModal';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -13,17 +12,12 @@ import { router } from 'expo-router';
 export default function SettingsScreen() {
   const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
-    autoLock: true,
-    lockTimeoutMinutes: 5,
-    biometricEnabled: false,
     notificationsEnabled: true,
   });
-  
-  const [isBiometricAvailable, setIsBiometricAvailable] = useState(false);
-  const [biometricType, setBiometricType] = useState<string[]>([]);
+
+  const [isDeviceLoginAvailable, setIsDeviceLoginAvailable] = useState(false);
   const [hasWallet, setHasWallet] = useState(false);
-  const [biometricUnlockEnabled, setBiometricUnlockEnabled] = useState(false);
-  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -31,8 +25,8 @@ export default function SettingsScreen() {
     const walletExists = await SeedStorageService.hasWallet();
     setHasWallet(walletExists);
 
-    const biometricReady = await BiometricService.isBiometricUnlockReady();
-    setBiometricUnlockEnabled(biometricReady);
+    const deviceLoginReady = await BiometricService.isDeviceLoginReady();
+    setDeviceLoginEnabled(deviceLoginReady);
   }, []);
 
   // Refresh wallet status when screen gains focus
@@ -48,14 +42,9 @@ export default function SettingsScreen() {
       const storedPreferences = await WebViewService.getUserPreferences();
       setPreferences(storedPreferences);
 
-      // Check biometric availability
-      const biometricAvailable = await BiometricService.isBiometricAvailable();
-      setIsBiometricAvailable(biometricAvailable);
-
-      if (biometricAvailable) {
-        const types = await BiometricService.getAvailableBiometricTypes();
-        setBiometricType(types);
-      }
+      // Check device login availability
+      const deviceLoginAvailable = await BiometricService.isBiometricAvailable();
+      setIsDeviceLoginAvailable(deviceLoginAvailable);
 
       // Initial wallet status check
       await loadWalletStatus();
@@ -71,55 +60,22 @@ export default function SettingsScreen() {
     await WebViewService.saveUserPreferences(updatedPreferences);
   };
 
-  // Handle biometric toggle with authentication test
-  const handleBiometricToggle = async (newValue: boolean) => {
-    if (newValue === true) {
-      // Test authentication before enabling
-      const authResult = await BiometricService.authenticate(
-        'Authenticate to enable biometric login'
-      );
-      
-      if (authResult.success) {
-        updatePreference('biometricEnabled', true);
-      } else {
-        Alert.alert(
-          'Authentication Failed',
-          'Unable to verify biometric authentication. Biometric login not enabled.',
-          [{ text: 'OK' }]
-        );
-      }
-    } else {
-      updatePreference('biometricEnabled', false);
-    }
-  };
-
-  // Handle PIN modal submission for biometric unlock setup
-  const handlePinSubmit = useCallback(async (pin: string) => {
-    setPinModalVisible(false);
-    const result = await BiometricService.setupBiometricUnlock(pin);
-    if (result.success) {
-      setBiometricUnlockEnabled(true);
-      Alert.alert('Success', 'Biometric unlock enabled!');
-    } else {
-      Alert.alert('Error', result.error || 'Failed to enable biometric unlock');
-    }
-  }, []);
-
-  // Handle PIN modal cancel
-  const handlePinCancel = useCallback(() => {
-    setPinModalVisible(false);
-  }, []);
-
-  // Handle biometric unlock toggle
-  const handleBiometricUnlockToggle = async (newValue: boolean) => {
+  // Handle Device Login toggle
+  const handleDeviceLoginToggle = async (newValue: boolean) => {
     if (newValue) {
-      // Enable biometric unlock - show secure PIN modal
-      setPinModalVisible(true);
+      // Navigate to main tab with intent to enable Device Login
+      // WebView must be active for PIN verification to work
+      router.replace('/?enableDeviceLogin=true');
     } else {
-      // Disable biometric unlock
-      await BiometricService.disableBiometricUnlock();
-      setBiometricUnlockEnabled(false);
-      Alert.alert('Disabled', 'Biometric unlock has been disabled.');
+      // Disable Device Login - require device auth first
+      const authResult = await BiometricService.authenticate('Authenticate to disable Device Login');
+      if (!authResult.success) {
+        // Auth cancelled or failed - don't disable
+        return;
+      }
+      await BiometricService.disableDeviceLogin();
+      setDeviceLoginEnabled(false);
+      Alert.alert('Disabled', 'Device Login has been disabled.');
     }
   };
 
@@ -169,7 +125,7 @@ export default function SettingsScreen() {
 
                       // Update state
                       setHasWallet(false);
-                      setBiometricUnlockEnabled(false);
+                      setDeviceLoginEnabled(false);
 
                       if (clearConfirmed) {
                         Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
@@ -234,43 +190,10 @@ export default function SettingsScreen() {
   }, [navigation]);
 
   return (
-    <>
     <ScrollView style={styles.container}>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Security</Text>
-        
-        {/* Auto Lock Setting */}
-        <View style={styles.settingRow}>
-          <View style={styles.settingTextContainer}>
-            <Text style={styles.settingTitle}>Auto-lock App</Text>
-            <Text style={styles.settingDescription}>Automatically lock the app after a period of inactivity</Text>
-          </View>
-          <Switch
-            value={preferences.autoLock}
-            onValueChange={(value) => updatePreference('autoLock', value)}
-            trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-            thumbColor={preferences.autoLock ? '#ff8700' : '#888'}
-          />
-        </View>
-        
-        {/* Biometric Authentication */}
-        {isBiometricAvailable && (
-          <View style={styles.settingRow}>
-            <View style={styles.settingTextContainer}>
-              <Text style={styles.settingTitle}>{BiometricService.getBiometricName()}</Text>
-              <Text style={styles.settingDescription}>
-                Use {biometricType.includes('facial') ? 'Face Recognition' : 'Fingerprint'} to unlock the app
-              </Text>
-            </View>
-            <Switch
-              value={preferences.biometricEnabled}
-              onValueChange={handleBiometricToggle}
-              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-              thumbColor={preferences.biometricEnabled ? '#ff8700' : '#888'}
-            />
-          </View>
-        )}
-        
+
         {/* Notifications */}
         <View style={styles.settingRow}>
           <View style={styles.settingTextContainer}>
@@ -291,20 +214,20 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Wallet</Text>
 
-          {/* Biometric Unlock Toggle */}
-          {isBiometricAvailable && (
+          {/* Device Login Toggle */}
+          {isDeviceLoginAvailable && (
             <View style={styles.settingRow}>
               <View style={styles.settingTextContainer}>
-                <Text style={styles.settingTitle}>Biometric Unlock</Text>
+                <Text style={styles.settingTitle}>Device Login</Text>
                 <Text style={styles.settingDescription}>
-                  Use {BiometricService.getBiometricName()} to unlock your wallet automatically
+                  Use Device Login to unlock your wallet automatically
                 </Text>
               </View>
               <Switch
-                value={biometricUnlockEnabled}
-                onValueChange={handleBiometricUnlockToggle}
+                value={deviceLoginEnabled}
+                onValueChange={handleDeviceLoginToggle}
                 trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-                thumbColor={biometricUnlockEnabled ? '#ff8700' : '#888'}
+                thumbColor={deviceLoginEnabled ? '#ff8700' : '#888'}
               />
             </View>
           )}
@@ -328,6 +251,9 @@ export default function SettingsScreen() {
           <FontAwesome name="trash" size={18} color="#ff6b6b" style={styles.buttonIcon} />
           <Text style={styles.buttonTextDanger}>Clear Session</Text>
         </TouchableOpacity>
+        <Text style={styles.helpText}>
+          Use this if you experience display issues or want to refresh the app state. Your wallet and Device Login settings will not be affected.
+        </Text>
       </View>
 
       {/* About Section */}
@@ -376,14 +302,6 @@ export default function SettingsScreen() {
         </View>
       </View>
     </ScrollView>
-    <PinEntryModal
-      visible={pinModalVisible}
-      title="Enter Your PIN"
-      message="Enter your wallet PIN to enable biometric unlock"
-      onSubmit={handlePinSubmit}
-      onCancel={handlePinCancel}
-    />
-    </>
   );
 }
 
@@ -459,6 +377,13 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 8,
+  },
+  helpText: {
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 18,
   },
   // About section styles
   aboutHeader: {
