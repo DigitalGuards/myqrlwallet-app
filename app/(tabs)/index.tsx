@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager } from 'react-native';
-// Import QRLWebView
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
@@ -9,37 +8,34 @@ import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
 import { useIsFocused } from '@react-navigation/native';
-import { useFocusEffect } from '@react-navigation/native';
-import { usePathname, router } from 'expo-router';
-import Colors from '../../constants/Colors';
+import { router, useLocalSearchParams } from 'expo-router';
 
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastFocusTime, setLastFocusTime] = useState(0);
   const [webViewReady, setWebViewReady] = useState(false);
   const [webAppReady, setWebAppReady] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const isFocused = useIsFocused();
-  const pathname = usePathname();
+  const params = useLocalSearchParams<{ enableDeviceLogin?: string }>();
   const appState = useRef(AppState.currentState);
-  const lastActiveUrl = useRef<string | undefined>(undefined);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
   const hasRestoredSeeds = useRef<boolean>(false);
+  const deviceLoginSetupTriggered = useRef<boolean>(false);
 
   // Navigate to settings
   const navigateToSettings = () => {
     router.push('/settings');
   };
 
-  // Handle biometric unlock and send PIN to web
-  const performBiometricUnlock = useCallback(async () => {
+  // Handle device login unlock and send PIN to web
+  const performDeviceLoginUnlock = useCallback(async () => {
     const result = await BiometricService.getPinWithBiometric();
     if (result.success && result.pin) {
-      console.log('[WalletScreen] Biometric unlock successful, sending PIN to web');
+      console.log('[WalletScreen] Device Login successful, sending PIN to web');
       NativeBridge.sendUnlockWithPin(result.pin);
     }
   }, []);
@@ -57,7 +53,13 @@ export default function WalletScreen() {
   const handlePinCancel = useCallback(() => {
     setPinModalVisible(false);
     setPendingPinAction(null);
-  }, []);
+    // If we came from Settings for Device Login, go back
+    if (params.enableDeviceLogin === 'true') {
+      router.setParams({ enableDeviceLogin: undefined });
+      deviceLoginSetupTriggered.current = false;
+      router.push('/settings');
+    }
+  }, [params.enableDeviceLogin]);
 
   // Show PIN modal with a callback
   const showPinModal = useCallback((action: (pin: string) => Promise<void>) => {
@@ -65,17 +67,17 @@ export default function WalletScreen() {
     setPinModalVisible(true);
   }, []);
 
-  // Handle seed stored event - just log for now, biometric prompt shown on next launch
+  // Handle seed stored event - just log for now, Device Login prompt shown on next launch
   const handleSeedStored = useCallback(async (address: string) => {
     console.log(`[WalletScreen] Seed stored for ${address}`);
-    // Biometric setup prompt is shown on app reopen, not immediately during import
+    // Device Login setup prompt is shown on app reopen, not immediately during import
   }, []);
 
-  // Prompt user to enable biometric unlock
-  const promptBiometricSetup = useCallback(() => {
+  // Prompt user to enable Device Login
+  const promptDeviceLoginSetup = useCallback(() => {
     Alert.alert(
-      'Enable Biometric Unlock?',
-      `Would you like to use ${BiometricService.getBiometricName()} to unlock your wallet? You won't need to enter your PIN each time.`,
+      'Enable Device Login?',
+      'Would you like to use Device Login to unlock your wallet? You won\'t need to enter your PIN each time.',
       [
         {
           text: 'Not Now',
@@ -90,12 +92,12 @@ export default function WalletScreen() {
           onPress: () => {
             // Show secure PIN modal
             showPinModal(async (pin: string) => {
-              const setupResult = await BiometricService.setupBiometricUnlock(pin);
+              const setupResult = await BiometricService.setupDeviceLogin(pin);
               if (setupResult.success) {
                 await SeedStorageService.setBiometricPromptShown(true);
-                Alert.alert('Success', 'Biometric unlock enabled!');
+                Alert.alert('Success', 'Device Login enabled!');
               } else {
-                Alert.alert('Error', setupResult.error || 'Failed to enable biometric unlock');
+                Alert.alert('Error', setupResult.error || 'Failed to enable Device Login');
               }
             });
           },
@@ -124,44 +126,44 @@ export default function WalletScreen() {
 
   // Register bridge callbacks
   useEffect(() => {
-    NativeBridge.onBiometricUnlockRequest(performBiometricUnlock);
+    NativeBridge.onBiometricUnlockRequest(performDeviceLoginUnlock);
     NativeBridge.onSeedStored(handleSeedStored);
     NativeBridge.onOpenNativeSettings(navigateToSettings);
     NativeBridge.onQRScanRequest(handleQRScanRequest);
-  }, [performBiometricUnlock, handleSeedStored, handleQRScanRequest]);
+  }, [performDeviceLoginUnlock, handleSeedStored, handleQRScanRequest]);
 
-  // Check biometric settings and authenticate if needed
+  // Check device login settings and authenticate if needed
   useEffect(() => {
     async function authCheck() {
       setIsLoading(true);
 
       try {
-        // Check if we have a stored wallet with biometric enabled
+        // Check if we have a stored wallet with Device Login enabled
         const hasWallet = await SeedStorageService.hasWallet();
-        const biometricReady = await BiometricService.isBiometricUnlockReady();
+        const deviceLoginReady = await BiometricService.isDeviceLoginReady();
 
-        if (hasWallet && biometricReady) {
-          // Perform biometric unlock and store PIN for later
+        if (hasWallet && deviceLoginReady) {
+          // Perform Device Login and store PIN for later
           const result = await BiometricService.getPinWithBiometric();
           if (result.success && result.pin) {
             // Store PIN to send when web app signals ready
             pendingUnlockPin.current = result.pin;
             setIsAuthorized(true);
           } else {
-            // Biometric failed, but still allow access (user can enter PIN manually)
+            // Device Login failed, but still allow access (user can enter PIN manually)
             setIsAuthorized(true);
           }
         } else if (hasWallet) {
-          // Wallet exists but biometric not set up
-          // Check if we should prompt for biometric setup
-          const biometricAvailable = await BiometricService.isBiometricAvailable();
+          // Wallet exists but Device Login not set up
+          // Check if we should prompt for Device Login setup
+          const deviceLoginAvailable = await BiometricService.isBiometricAvailable();
           const promptAlreadyShown = await SeedStorageService.wasBiometricPromptShown();
 
-          if (biometricAvailable && !promptAlreadyShown) {
-            // Show biometric setup prompt after UI renders and interactions complete
+          if (deviceLoginAvailable && !promptAlreadyShown) {
+            // Show Device Login setup prompt after UI renders and interactions complete
             setIsAuthorized(true);
             InteractionManager.runAfterInteractions(() => {
-              promptBiometricSetup();
+              promptDeviceLoginSetup();
             });
           } else {
             setIsAuthorized(true);
@@ -178,14 +180,31 @@ export default function WalletScreen() {
       }
     }
 
-    // Only run auth check when screen is focused
-    if (isFocused) {
+    // Only run auth check when screen is focused AND not already authorized
+    // This prevents re-authentication when navigating back from settings tab
+    if (isFocused && !isAuthorized) {
       authCheck();
     }
-  }, [isFocused, promptBiometricSetup]);
+  }, [isFocused, isAuthorized, promptDeviceLoginSetup]);
+
+  // Auto-lock app when it goes to background
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (appState.current === 'active' && (nextAppState === 'inactive' || nextAppState === 'background')) {
+        // App going to background - mark as needing re-auth
+        console.log('[WalletScreen] App going to background, requiring re-authentication');
+        setIsAuthorized(false);
+        setWebAppReady(false);
+        hasRestoredSeeds.current = false;
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   // Handle WebView load - just mark as ready
-  // Biometric auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
+  // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
   const handleWebViewLoad = useCallback(() => {
     setWebViewReady(true);
   }, []);
@@ -221,6 +240,32 @@ export default function WalletScreen() {
     NativeBridge.onWebAppReady(handleWebAppReady);
   }, [handleWebAppReady]);
 
+  // Handle Device Login setup request from Settings tab
+  useEffect(() => {
+    if (params.enableDeviceLogin === 'true' && webAppReady && !deviceLoginSetupTriggered.current) {
+      // Mark as triggered to prevent re-execution
+      deviceLoginSetupTriggered.current = true;
+
+      // Clear the param to prevent re-triggering on subsequent renders
+      router.setParams({ enableDeviceLogin: undefined });
+
+      // Show PIN modal for Device Login setup
+      showPinModal(async (pin: string) => {
+        const setupResult = await BiometricService.setupDeviceLogin(pin);
+        if (setupResult.success) {
+          Alert.alert('Success', 'Device Login enabled!', [
+            { text: 'OK', onPress: () => router.push('/settings') }
+          ]);
+        } else {
+          Alert.alert('Error', setupResult.error || 'Failed to enable Device Login', [
+            { text: 'OK', onPress: () => router.push('/settings') }
+          ]);
+        }
+        deviceLoginSetupTriggered.current = false;
+      });
+    }
+  }, [params.enableDeviceLogin, webAppReady, showPinModal]);
+
   // Update session timestamp on screen focus
   useEffect(() => {
     if (isFocused && isAuthorized) {
@@ -237,7 +282,7 @@ export default function WalletScreen() {
       <PinEntryModal
         visible={pinModalVisible}
         title="Enter Your PIN"
-        message="Enter your wallet PIN to enable biometric unlock"
+        message="Enter your wallet PIN to enable Device Login"
         onSubmit={handlePinSubmit}
         onCancel={handlePinCancel}
       />
