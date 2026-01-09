@@ -85,7 +85,12 @@ export default function SettingsScreen() {
       // Enable Device Login - show secure PIN modal
       setPinModalVisible(true);
     } else {
-      // Disable Device Login
+      // Disable Device Login - require device auth first
+      const authResult = await BiometricService.authenticate('Authenticate to disable Device Login');
+      if (!authResult.success) {
+        // Auth cancelled or failed - don't disable
+        return;
+      }
       await BiometricService.disableDeviceLogin();
       setDeviceLoginEnabled(false);
       Alert.alert('Disabled', 'Device Login has been disabled.');
