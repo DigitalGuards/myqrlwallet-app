@@ -270,6 +270,9 @@ export default function SettingsScreen() {
           <FontAwesome name="trash" size={18} color="#ff6b6b" style={styles.buttonIcon} />
           <Text style={styles.buttonTextDanger}>Clear Session</Text>
         </TouchableOpacity>
+        <Text style={styles.helpText}>
+          Use this if you experience display issues or want to refresh the app state. Your wallet and Device Login settings will not be affected.
+        </Text>
       </View>
 
       {/* About Section */}
@@ -401,6 +404,13 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 8,
+  },
+  helpText: {
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 18,
   },
   // About section styles
   aboutHeader: {
