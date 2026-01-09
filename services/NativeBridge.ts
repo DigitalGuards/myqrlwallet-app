@@ -570,7 +570,8 @@ class NativeBridge {
     return new Promise((resolve) => {
       // Prevent race condition - reject if verification already in progress
       if (this.pinVerifiedCallback) {
-        return resolve({ success: false, error: 'A PIN verification is already in progress' });
+        resolve({ success: false, error: 'A PIN verification is already in progress' });
+        return;
       }
 
       // Set up timeout
