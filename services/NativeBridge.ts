@@ -21,6 +21,7 @@ export type WebToNativeMessageType =
   | 'REQUEST_BIOMETRIC_UNLOCK'  // Web asks native to unlock with biometric
   | 'WALLET_CLEARED'          // Web confirmed it cleared localStorage
   | 'WEB_APP_READY'           // Web app is fully initialized and ready to receive data
+  | 'PIN_VERIFIED'            // Web responds to PIN verification request
   // Navigation messages
   | 'OPEN_NATIVE_SETTINGS';   // Request native app to open its settings screen
 
@@ -38,7 +39,8 @@ export type NativeToWebMessageType =
   | 'UNLOCK_WITH_PIN'         // Native sends PIN after biometric success
   | 'RESTORE_SEED'            // Native sends backup seed if localStorage empty
   | 'CLEAR_WALLET'            // Native requests web to clear wallet
-  | 'BIOMETRIC_SETUP_PROMPT'; // Native prompts user to enable biometric
+  | 'BIOMETRIC_SETUP_PROMPT'  // Native prompts user to enable biometric
+  | 'VERIFY_PIN';             // Native asks web to verify PIN can decrypt seed
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -81,6 +83,11 @@ type OpenNativeSettingsCallback = () => void;
 type WalletClearedCallback = () => void;
 
 /**
+ * Callback for PIN verification result
+ */
+type PinVerifiedCallback = (success: boolean, error?: string) => void;
+
+/**
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
@@ -91,6 +98,7 @@ class NativeBridge {
   private webAppReadyCallback: WebAppReadyCallback | null = null;
   private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
   private walletClearedCallback: WalletClearedCallback | null = null;
+  private pinVerifiedCallback: PinVerifiedCallback | null = null;
 
   /**
    * Set the WebView reference for sending messages back to web
@@ -267,6 +275,17 @@ class NativeBridge {
           this.openNativeSettingsCallback();
         }
         break;
+
+      case 'PIN_VERIFIED': {
+        const success = payload?.success === true;
+        const error = typeof payload?.error === 'string' ? payload.error : undefined;
+        console.log(`[NativeBridge] PIN verification result: ${success ? 'success' : 'failed'}`);
+        if (this.pinVerifiedCallback) {
+          this.pinVerifiedCallback(success, error);
+          this.pinVerifiedCallback = null; // Clear after use
+        }
+        break;
+      }
 
       default:
         console.warn(`Unknown message type: ${type}`);
@@ -538,6 +557,40 @@ class NativeBridge {
   sendBiometricSetupPrompt() {
     this.sendToWeb({
       type: 'BIOMETRIC_SETUP_PROMPT',
+    });
+  }
+
+  /**
+   * Request web to verify PIN can decrypt the stored seed
+   * @param pin The PIN to verify
+   * @param timeoutMs Timeout in milliseconds (default 10 seconds)
+   * @returns Promise that resolves with verification result
+   */
+  verifyPin(pin: string, timeoutMs: number = 10000): Promise<{ success: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      // Prevent race condition - reject if verification already in progress
+      if (this.pinVerifiedCallback) {
+        return resolve({ success: false, error: 'A PIN verification is already in progress' });
+      }
+
+      // Set up timeout
+      const timeout = setTimeout(() => {
+        this.pinVerifiedCallback = null;
+        resolve({ success: false, error: 'PIN verification timed out' });
+      }, timeoutMs);
+
+      // Set up callback for response
+      this.pinVerifiedCallback = (success: boolean, error?: string) => {
+        clearTimeout(timeout);
+        this.pinVerifiedCallback = null;
+        resolve({ success, error });
+      };
+
+      // Send verification request to web
+      this.sendToWeb({
+        type: 'VERIFY_PIN',
+        payload: { pin },
+      });
     });
   }
 }
