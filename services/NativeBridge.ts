@@ -568,6 +568,11 @@ class NativeBridge {
    */
   verifyPin(pin: string, timeoutMs: number = 10000): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
+      // Prevent race condition - reject if verification already in progress
+      if (this.pinVerifiedCallback) {
+        return resolve({ success: false, error: 'A PIN verification is already in progress' });
+      }
+
       // Set up timeout
       const timeout = setTimeout(() => {
         this.pinVerifiedCallback = null;
@@ -577,6 +582,7 @@ class NativeBridge {
       // Set up callback for response
       this.pinVerifiedCallback = (success: boolean, error?: string) => {
         clearTimeout(timeout);
+        this.pinVerifiedCallback = null;
         resolve({ success, error });
       };
 
