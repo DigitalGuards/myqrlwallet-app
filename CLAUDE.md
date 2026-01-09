@@ -70,10 +70,13 @@ Central message router:
 - Singleton pattern for app-wide access
 
 ### 3. BiometricService (`services/BiometricService.ts`)
-Device authentication:
-- Face ID / Touch ID / Fingerprint support
-- Optional app lock on launch
-- Uses expo-local-authentication
+Device Login authentication:
+- Supports Face ID, Touch ID, fingerprint, PIN, pattern, or passcode
+- "Device Login" branding (covers all device auth methods)
+- Auto-lock when app goes to background (standard finance app behavior)
+- PIN verification with web app before storing (prevents incorrect PIN)
+- Requires device auth to disable Device Login
+- Uses expo-local-authentication with SecurityLevel.SECRET check
 
 ### 4. WebViewService (`services/WebViewService.ts`)
 Session management:
@@ -103,22 +106,25 @@ Push notifications:
 { type: 'COPY_TO_CLIPBOARD', payload: { text } }       // Copy to clipboard
 { type: 'SHARE', payload: { title, text, url } }       // Native share sheet
 { type: 'TX_CONFIRMED', payload: { txHash, type } }    // Transaction done
-{ type: 'STORE_SEED', payload: { address, encryptedSeed } }  // Store encrypted seed
-{ type: 'REQUEST_BIOMETRIC_UNLOCK', payload: { address } }   // Request biometric unlock
+{ type: 'SEED_STORED', payload: { address, encryptedSeed, blockchain } }  // Backup seed
+{ type: 'REQUEST_BIOMETRIC_UNLOCK' }                   // Request Device Login unlock
+{ type: 'WALLET_CLEARED' }                             // Confirm wallet data cleared
+{ type: 'PIN_VERIFIED', payload: { success, error? } } // PIN verification result
 { type: 'OPEN_NATIVE_SETTINGS' }                       // Open native settings tab
 { type: 'LOG', payload: { message } }                  // Debug logging
 ```
 
 ### Native → Web Messages
 ```typescript
-{ type: 'INIT_DATA', payload: { hasStoredSeed, biometricEnabled, ... } }  // On app ready
 { type: 'QR_RESULT', payload: { address } }            // Scanned QR data
-{ type: 'BIOMETRIC_UNLOCK_RESULT', payload: { success, pin?, error? } }   // Unlock result
-{ type: 'SEED_STORED', payload: { success, address } } // Seed storage confirmation
+{ type: 'UNLOCK_WITH_PIN', payload: { pin } }          // PIN after Device Login success
+{ type: 'RESTORE_SEED', payload: { address, encryptedSeed, blockchain } }  // Restore backup
+{ type: 'CLEAR_WALLET' }                               // Request web to clear wallet
+{ type: 'VERIFY_PIN', payload: { pin } }               // Verify PIN can decrypt seed
 { type: 'BIOMETRIC_SUCCESS', payload: { authenticated } }
 { type: 'APP_STATE', payload: { state } }              // active/background
-{ type: 'CLIPBOARD_SUCCESS', payload: { text } }
-{ type: 'SHARE_SUCCESS', payload: { action } }
+{ type: 'CLIPBOARD_SUCCESS' }
+{ type: 'SHARE_SUCCESS' }
 { type: 'ERROR', payload: { message } }
 ```
 
@@ -180,9 +186,11 @@ myqrlwallet-app/
 ## Security Considerations
 
 - WebView restricted to HTTPS + qrlwallet.com domain only
-- Biometric auth optional but recommended
-- No sensitive data stored in app (wallet keys stay in web localStorage)
-- Session data in AsyncStorage with optional auto-clear
+- Device Login (biometrics/PIN/pattern) optional but recommended
+- Auto-lock when app goes to background (requires re-auth on return)
+- PIN verified with web app before storing (ensures correct PIN)
+- Device auth required to disable Device Login
+- Encrypted seeds stored in SecureStore (iOS Keychain / Android Keystore)
 - All native↔web communication via secure postMessage bridge
 
 ## Build & Deployment
@@ -197,12 +205,17 @@ myqrlwallet-app/
 - Android: Supports both APK (preview) and AAB (production) formats
 - Assets: All branding assets in place (icons, splash screens)
 
+## Implemented Features
+
+1. **QR Scanner** - Native camera for scanning addresses (expo-camera)
+2. **Device Login** - Face ID / Touch ID / PIN / pattern authentication
+3. **Auto-Lock** - App locks when backgrounded, requires re-auth on return
+4. **Seed Backup** - Encrypted seeds backed up to SecureStore
+
 ## Planned Features
 
-1. **QR Scanner Integration** - Native camera for scanning addresses
-2. **Push Notifications** - Background polling + local notifications for transactions
-3. **Offline Support** - Cache balances and transaction history
-4. **Enhanced Cache Clearing** - Full cache/cookie clearing functionality
+1. **Push Notifications** - Background polling + local notifications for transactions
+2. **Offline Support** - Cache balances and transaction history
 
 ## Testing
 
