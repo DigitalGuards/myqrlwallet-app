@@ -8,7 +8,7 @@ import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
 import { useIsFocused } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -19,10 +19,12 @@ export default function WalletScreen() {
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const isFocused = useIsFocused();
+  const params = useLocalSearchParams<{ enableDeviceLogin?: string }>();
   const appState = useRef(AppState.currentState);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
   const hasRestoredSeeds = useRef<boolean>(false);
+  const deviceLoginSetupTriggered = useRef<boolean>(false);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -51,7 +53,13 @@ export default function WalletScreen() {
   const handlePinCancel = useCallback(() => {
     setPinModalVisible(false);
     setPendingPinAction(null);
-  }, []);
+    // If we came from Settings for Device Login, go back
+    if (params.enableDeviceLogin === 'true') {
+      router.setParams({ enableDeviceLogin: undefined });
+      deviceLoginSetupTriggered.current = false;
+      router.push('/settings');
+    }
+  }, [params.enableDeviceLogin]);
 
   // Show PIN modal with a callback
   const showPinModal = useCallback((action: (pin: string) => Promise<void>) => {
@@ -231,6 +239,32 @@ export default function WalletScreen() {
   useEffect(() => {
     NativeBridge.onWebAppReady(handleWebAppReady);
   }, [handleWebAppReady]);
+
+  // Handle Device Login setup request from Settings tab
+  useEffect(() => {
+    if (params.enableDeviceLogin === 'true' && webAppReady && !deviceLoginSetupTriggered.current) {
+      // Mark as triggered to prevent re-execution
+      deviceLoginSetupTriggered.current = true;
+
+      // Clear the param to prevent re-triggering on subsequent renders
+      router.setParams({ enableDeviceLogin: undefined });
+
+      // Show PIN modal for Device Login setup
+      showPinModal(async (pin: string) => {
+        const setupResult = await BiometricService.setupDeviceLogin(pin);
+        if (setupResult.success) {
+          Alert.alert('Success', 'Device Login enabled!', [
+            { text: 'OK', onPress: () => router.push('/settings') }
+          ]);
+        } else {
+          Alert.alert('Error', setupResult.error || 'Failed to enable Device Login', [
+            { text: 'OK', onPress: () => router.push('/settings') }
+          ]);
+        }
+        deviceLoginSetupTriggered.current = false;
+      });
+    }
+  }, [params.enableDeviceLogin, webAppReady, showPinModal]);
 
   // Update session timestamp on screen focus
   useEffect(() => {
