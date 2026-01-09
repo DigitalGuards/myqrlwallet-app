@@ -6,10 +6,12 @@ A React Native/Expo mobile application that wraps [MyQRLWallet](https://qrlwalle
 
 ### Current
 - **WebView Integration** - Renders qrlwallet.com in a native container with optimized scrolling
-- **Biometric Authentication** - Optional Face ID / Touch ID / Fingerprint protection with auto-trigger on launch
+- **Device Login** - Face ID, Touch ID, fingerprint, PIN, or pattern authentication
+- **Auto-Lock** - App locks when backgrounded, requires re-auth on return (like banking apps)
+- **PIN Verification** - Verifies PIN can decrypt wallet before storing for Device Login
 - **QR Code Scanner** - Native camera for scanning wallet addresses
 - **Haptic Feedback** - Native device vibration for UI feedback
-- **Session Persistence** - Maintains wallet sessions across app restarts
+- **Secure Seed Storage** - Encrypted seeds backed up to device SecureStore
 - **Native Bridge** - Two-way communication between web app and native features
 - **Clipboard & Share** - Native clipboard and share sheet integration
 - **Dark Theme** - QRL-branded dark theme with quantum loading screen
@@ -131,8 +133,10 @@ myqrlwallet-app/
 | `COPY_TO_CLIPBOARD` | `{ text }` | Copy text to clipboard |
 | `SHARE` | `{ title?, text?, url? }` | Open native share sheet |
 | `TX_CONFIRMED` | `{ txHash, type }` | Notify of confirmed transaction |
-| `STORE_SEED` | `{ address, encryptedSeed }` | Store encrypted seed in native |
-| `REQUEST_BIOMETRIC_UNLOCK` | `{ address }` | Request biometric unlock for address |
+| `SEED_STORED` | `{ address, encryptedSeed, blockchain }` | Backup encrypted seed to native |
+| `REQUEST_BIOMETRIC_UNLOCK` | - | Request Device Login unlock |
+| `WALLET_CLEARED` | - | Confirm wallet data cleared |
+| `PIN_VERIFIED` | `{ success, error? }` | PIN verification result |
 | `OPEN_NATIVE_SETTINGS` | - | Open native settings tab |
 | `LOG` | `{ message }` | Debug logging |
 
@@ -140,14 +144,15 @@ myqrlwallet-app/
 
 | Message | Payload | Description |
 |---------|---------|-------------|
-| `INIT_DATA` | `{ hasStoredSeed, biometricEnabled, ... }` | Initialization data on app ready |
 | `QR_RESULT` | `{ address }` | Scanned QR code data |
-| `BIOMETRIC_UNLOCK_RESULT` | `{ success, pin?, error? }` | Biometric unlock result with PIN |
-| `SEED_STORED` | `{ success, address }` | Seed storage confirmation |
+| `UNLOCK_WITH_PIN` | `{ pin }` | PIN after Device Login success |
+| `RESTORE_SEED` | `{ address, encryptedSeed, blockchain }` | Restore seed from backup |
+| `CLEAR_WALLET` | - | Request web to clear wallet data |
+| `VERIFY_PIN` | `{ pin }` | Verify PIN can decrypt seed |
 | `BIOMETRIC_SUCCESS` | `{ authenticated }` | Auth result |
 | `APP_STATE` | `{ state }` | App foregrounded/backgrounded |
-| `CLIPBOARD_SUCCESS` | `{ text }` | Clipboard operation succeeded |
-| `SHARE_SUCCESS` | `{ action }` | Share completed |
+| `CLIPBOARD_SUCCESS` | - | Clipboard operation succeeded |
+| `SHARE_SUCCESS` | - | Share completed |
 | `ERROR` | `{ message }` | Error occurred |
 
 ## Building for Production
@@ -192,14 +197,16 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 - [x] Clipboard and Share functionality
 - [x] Web app detection via User-Agent
 
-### Phase 2: Seed Persistence & Biometric Unlock ✅
+### Phase 2: Seed Persistence & Device Login ✅
 - [x] SeedStorageService for encrypted seed storage
 - [x] PIN-based encryption/decryption
-- [x] Biometric unlock toggle in settings (shows after wallet import)
+- [x] Device Login toggle in settings (Face ID/Touch ID/PIN/pattern)
 - [x] Settings screen with wallet management
 - [x] Web app Settings redirects to native settings tab
-- [x] Biometric auto-trigger on app launch
-- [x] First-reopen prompt for biometric setup
+- [x] Auto-lock when app goes to background
+- [x] First-reopen prompt for Device Login setup
+- [x] PIN verification before storing (ensures correct PIN)
+- [x] Device auth required to disable Device Login
 - [x] Web app integration to trigger STORE_SEED on import
 
 ### Phase 3: QR Scanner ✅
@@ -230,8 +237,10 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 
 - **Domain Restriction**: WebView only loads qrlwallet.com
 - **HTTPS Only**: All connections are encrypted
-- **Secure Seed Storage**: Encrypted seeds stored in native SecureStore (not plain localStorage)
-- **Biometric Auth**: Optional Face ID / Touch ID protection with PIN fallback
+- **Secure Seed Storage**: Encrypted seeds stored in native SecureStore (iOS Keychain / Android Keystore)
+- **Device Login**: Optional Face ID / Touch ID / PIN / pattern protection
+- **Auto-Lock**: App locks when backgrounded, requires re-auth on return
+- **PIN Verification**: PIN verified with web app before storing (ensures correct PIN)
 - **Secure Bridge**: Messages validated before processing
 
 ## Tech Stack
