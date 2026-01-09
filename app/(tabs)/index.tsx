@@ -172,11 +172,12 @@ export default function WalletScreen() {
       }
     }
 
-    // Only run auth check when screen is focused
-    if (isFocused) {
+    // Only run auth check when screen is focused AND not already authorized
+    // This prevents re-authentication when navigating back from settings tab
+    if (isFocused && !isAuthorized) {
       authCheck();
     }
-  }, [isFocused, promptDeviceLoginSetup]);
+  }, [isFocused, isAuthorized, promptDeviceLoginSetup]);
 
   // Auto-lock app when it goes to background
   useEffect(() => {
