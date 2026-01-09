@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect, useImperativeHandle, f
 import { StyleSheet, View, BackHandler, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import NativeBridge, { BridgeMessage } from '../services/NativeBridge';
 import QuantumLoadingScreen from './QuantumLoadingScreen';
@@ -45,6 +46,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   onQRScanRequest,
   onLoad
 }, ref) => {
+  const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(true);
   const [showLoadingScreen, setShowLoadingScreen] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -242,7 +244,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   return (
     <View style={[styles.outerContainer, { backgroundColor: '#0A0A17' }]}>
       <StatusBar backgroundColor="#0A0A17" barStyle="light-content" />
-      <View style={[styles.container, { backgroundColor: '#0A0A17' }]}>
+      <View style={[styles.container, {
+        backgroundColor: '#0A0A17',
+        paddingTop: insets.top || 40,
+        paddingBottom: insets.bottom
+      }]}>
         {error ? (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>Error: {error}</Text>
@@ -307,8 +313,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden',
-    paddingTop: 40,
-    marginTop: 0,
+    // paddingTop and paddingBottom applied dynamically via useSafeAreaInsets
   },
   webView: {
     flex: 1,
