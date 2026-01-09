@@ -12,20 +12,10 @@ class BiometricService {
    */
   async isBiometricAvailable(): Promise<boolean> {
     try {
-      // Check enrolled security level - SECRET means PIN/pattern/passcode, BIOMETRIC means biometrics
       const securityLevel = await LocalAuthentication.getEnrolledLevelAsync();
-
-      // Accept any security level above NONE (includes PIN, pattern, passcode, or biometrics)
-      if (securityLevel >= LocalAuthentication.SecurityLevel.SECRET) {
-        return true;
-      }
-
-      // Fallback: check for biometric hardware and enrollment
-      const compatible = await LocalAuthentication.hasHardwareAsync();
-      if (!compatible) return false;
-
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
-      return enrolled;
+      // SecurityLevel.NONE is 0, .SECRET is 1, .BIOMETRIC is 2.
+      // Any level greater than NONE means some form of authentication is enrolled.
+      return securityLevel > LocalAuthentication.SecurityLevel.NONE;
     } catch (error) {
       console.error('Device authentication availability check failed:', error);
       return false;

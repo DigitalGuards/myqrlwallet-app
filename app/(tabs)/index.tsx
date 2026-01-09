@@ -182,7 +182,7 @@ export default function WalletScreen() {
   // Auto-lock app when it goes to background
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      if (appState.current === 'active' && nextAppState.match(/inactive|background/)) {
+      if (appState.current === 'active' && (nextAppState === 'inactive' || nextAppState === 'background')) {
         // App going to background - mark as needing re-auth
         console.log('[WalletScreen] App going to background, requiring re-authentication');
         setIsAuthorized(false);
