@@ -101,7 +101,11 @@ class NativeBridge {
   private walletClearedCallback: WalletClearedCallback | null = null;
   private pinVerifiedCallback: PinVerifiedCallback | null = null;
   private isWebAppReady: boolean = false;
-  private webAppReadyResolvers: Array<() => void> = [];
+  private webAppReadyResolvers: Array<{
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }> = [];
 
   /**
    * Set the WebView reference for sending messages back to web
@@ -147,15 +151,23 @@ class NativeBridge {
 
   /**
    * Reset web app ready state (call when app goes to background or WebView reloads)
+   * Rejects any pending waitForWebAppReady promises to prevent stale operations
    */
   resetWebAppReady() {
     this.isWebAppReady = false;
+
+    // Reject all pending promises and clear their timeouts
+    for (const resolver of this.webAppReadyResolvers) {
+      clearTimeout(resolver.timeout);
+      resolver.reject(new Error('Web app ready state was reset'));
+    }
+    this.webAppReadyResolvers = [];
   }
 
   /**
    * Wait for web app to be ready
    * @param timeoutMs Maximum time to wait (default 15 seconds)
-   * @returns Promise that resolves when ready or rejects on timeout
+   * @returns Promise that resolves when ready or rejects on timeout or reset
    */
   waitForWebAppReady(timeoutMs: number = 15000): Promise<void> {
     if (this.isWebAppReady) {
@@ -163,21 +175,20 @@ class NativeBridge {
     }
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        // Remove this resolver from the list
-        const index = this.webAppReadyResolvers.indexOf(resolveAndCleanup);
-        if (index > -1) {
-          this.webAppReadyResolvers.splice(index, 1);
-        }
-        reject(new Error('Timeout waiting for web app to be ready'));
-      }, timeoutMs);
-
-      const resolveAndCleanup = () => {
-        clearTimeout(timeout);
-        resolve();
+      const resolver = {
+        resolve,
+        reject,
+        timeout: setTimeout(() => {
+          // Remove this resolver from the list
+          const index = this.webAppReadyResolvers.indexOf(resolver);
+          if (index > -1) {
+            this.webAppReadyResolvers.splice(index, 1);
+          }
+          reject(new Error('Timeout waiting for web app to be ready'));
+        }, timeoutMs),
       };
 
-      this.webAppReadyResolvers.push(resolveAndCleanup);
+      this.webAppReadyResolvers.push(resolver);
     });
   }
 
@@ -324,7 +335,8 @@ class NativeBridge {
         // Mark web app as ready and resolve any waiting promises
         this.isWebAppReady = true;
         for (const resolver of this.webAppReadyResolvers) {
-          resolver();
+          clearTimeout(resolver.timeout);
+          resolver.resolve();
         }
         this.webAppReadyResolvers = [];
 
