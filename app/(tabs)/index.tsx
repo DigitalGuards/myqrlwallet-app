@@ -25,6 +25,7 @@ export default function WalletScreen() {
   const pendingUnlockPin = useRef<string | null>(null);
   const hasRestoredSeeds = useRef<boolean>(false);
   const deviceLoginSetupTriggered = useRef<boolean>(false);
+  const needsReauth = useRef(false);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -193,9 +194,18 @@ export default function WalletScreen() {
       if (appState.current === 'active' && (nextAppState === 'inactive' || nextAppState === 'background')) {
         // App going to background - mark as needing re-auth
         console.log('[WalletScreen] App going to background, requiring re-authentication');
-        setIsAuthorized(false);
+        needsReauth.current = true;
         setWebAppReady(false);
         hasRestoredSeeds.current = false;
+        // Reset NativeBridge's web app ready state
+        NativeBridge.resetWebAppReady();
+      } else if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
+        // App coming back from background - trigger re-auth if needed
+        if (needsReauth.current) {
+          console.log('[WalletScreen] App returning from background, triggering re-authentication');
+          needsReauth.current = false;
+          setIsAuthorized(false);
+        }
       }
       appState.current = nextAppState;
     });
@@ -241,8 +251,9 @@ export default function WalletScreen() {
   }, [handleWebAppReady]);
 
   // Handle Device Login setup request from Settings tab
+  // Note: We only need isAuthorized (WebView mounted) since verifyPin waits for web app ready internally
   useEffect(() => {
-    if (params.enableDeviceLogin === 'true' && webAppReady && !deviceLoginSetupTriggered.current) {
+    if (params.enableDeviceLogin === 'true' && isAuthorized && !deviceLoginSetupTriggered.current) {
       // Mark as triggered to prevent re-execution
       deviceLoginSetupTriggered.current = true;
 
@@ -250,6 +261,7 @@ export default function WalletScreen() {
       router.setParams({ enableDeviceLogin: undefined });
 
       // Show PIN modal for Device Login setup
+      // The PIN verification will wait for web app to be ready internally
       showPinModal(async (pin: string) => {
         const setupResult = await BiometricService.setupDeviceLogin(pin);
         if (setupResult.success) {
@@ -264,7 +276,7 @@ export default function WalletScreen() {
         deviceLoginSetupTriggered.current = false;
       });
     }
-  }, [params.enableDeviceLogin, webAppReady, showPinModal]);
+  }, [params.enableDeviceLogin, isAuthorized, showPinModal]);
 
   // Update session timestamp on screen focus
   useEffect(() => {
