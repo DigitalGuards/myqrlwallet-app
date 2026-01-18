@@ -1,4 +1,5 @@
 import * as LocalAuthentication from 'expo-local-authentication';
+import { Platform } from 'react-native';
 import SeedStorageService from './SeedStorageService';
 import NativeBridge from './NativeBridge';
 
@@ -167,6 +168,22 @@ class BiometricService {
         return {
           success: false,
           error: 'Device Login not available on this device',
+        };
+      }
+
+      // On iOS, add a small delay to allow the UI to settle after modal/keyboard dismissal
+      // This prevents timing issues with WebView JavaScript injection
+      if (Platform.OS === 'ios') {
+        console.log('[BiometricService] iOS: Waiting for UI to settle...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // Check if WebView is ready before attempting verification
+      if (!NativeBridge.isWebViewReady()) {
+        console.error('[BiometricService] WebView is not ready for PIN verification');
+        return {
+          success: false,
+          error: 'App is not ready. Please try again.',
         };
       }
 

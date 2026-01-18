@@ -157,6 +157,13 @@ class NativeBridge {
   }
 
   /**
+   * Check if WebView is ready to receive messages
+   */
+  isWebViewReady(): boolean {
+    return this.webViewRef?.current != null;
+  }
+
+  /**
    * Send a message to the WebView
    */
   sendToWeb(message: BridgeResponse) {
@@ -168,6 +175,8 @@ class NativeBridge {
         true;
       `;
       this.webViewRef.current.injectJavaScript(script);
+    } else {
+      console.warn(`[NativeBridge] Cannot send ${message.type}: WebView ref is not available`);
     }
   }
 
@@ -574,8 +583,16 @@ class NativeBridge {
         return;
       }
 
+      // Check if WebView is ready
+      if (!this.isWebViewReady()) {
+        console.error('[NativeBridge] verifyPin failed: WebView is not ready');
+        resolve({ success: false, error: 'WebView is not ready. Please try again.' });
+        return;
+      }
+
       // Set up timeout
       const timeout = setTimeout(() => {
+        console.warn('[NativeBridge] PIN verification timed out after', timeoutMs, 'ms');
         this.pinVerifiedCallback = null;
         resolve({ success: false, error: 'PIN verification timed out' });
       }, timeoutMs);
@@ -588,6 +605,7 @@ class NativeBridge {
       };
 
       // Send verification request to web
+      console.log('[NativeBridge] Sending VERIFY_PIN to web');
       this.sendToWeb({
         type: 'VERIFY_PIN',
         payload: { pin },
