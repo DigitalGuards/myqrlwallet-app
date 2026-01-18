@@ -107,15 +107,20 @@ export default function WalletScreen() {
     );
   }, [showPinModal]);
 
+  // Track if QR was successfully scanned (to know if we should send cancel on close)
+  const qrScanSuccessful = useRef(false);
+
   // Handle QR scan request from web
   const handleQRScanRequest = useCallback(() => {
     console.log('[WalletScreen] QR scan requested');
+    qrScanSuccessful.current = false;
     setQrScannerVisible(true);
   }, []);
 
   // Handle QR scan result
   const handleQRScanResult = useCallback((data: string) => {
     console.log('[WalletScreen] QR scanned:', data);
+    qrScanSuccessful.current = true;
     // Send the scanned data to the WebView
     NativeBridge.sendQRResult(data);
   }, []);
@@ -123,6 +128,11 @@ export default function WalletScreen() {
   // Close QR scanner
   const handleQRScannerClose = useCallback(() => {
     setQrScannerVisible(false);
+    // If scanner was closed without successful scan, notify web app
+    if (!qrScanSuccessful.current) {
+      console.log('[WalletScreen] QR scan cancelled');
+      NativeBridge.sendQRCancelled();
+    }
   }, []);
 
   // Register bridge callbacks

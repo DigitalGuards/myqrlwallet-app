@@ -30,6 +30,7 @@ export type WebToNativeMessageType =
  */
 export type NativeToWebMessageType =
   | 'QR_RESULT'
+  | 'QR_CANCELLED'            // User closed QR scanner without scanning
   | 'BIOMETRIC_SUCCESS'
   | 'APP_STATE'
   | 'CLIPBOARD_SUCCESS'
@@ -518,6 +519,16 @@ class NativeBridge {
     this.sendToWeb({
       type: 'QR_RESULT',
       payload: { address },
+    });
+  }
+
+  /**
+   * Send QR scan cancelled notification to WebView
+   * Called when user closes scanner without scanning
+   */
+  sendQRCancelled() {
+    this.sendToWeb({
+      type: 'QR_CANCELLED',
     });
   }
 
