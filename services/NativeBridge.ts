@@ -158,16 +158,27 @@ class NativeBridge {
 
   /**
    * Send a message to the WebView
+   * Uses a try-catch wrapper for iOS compatibility
    */
   sendToWeb(message: BridgeResponse) {
     if (this.webViewRef?.current) {
+      // Wrap in try-catch and IIFE to prevent iOS from interpreting errors as navigation
+      // The void(0) at the end ensures no return value that could trigger navigation
       const script = `
-        window.dispatchEvent(new CustomEvent('nativeMessage', {
-          detail: ${JSON.stringify(message)}
-        }));
-        true;
+        (function() {
+          try {
+            window.dispatchEvent(new CustomEvent('nativeMessage', {
+              detail: ${JSON.stringify(message)}
+            }));
+          } catch (e) {
+            console.error('[NativeBridge] Error dispatching message:', e);
+          }
+        })();
+        void(0);
       `;
       this.webViewRef.current.injectJavaScript(script);
+    } else {
+      console.warn('[NativeBridge] WebView ref not available, message not sent:', message.type);
     }
   }
 
