@@ -9,6 +9,7 @@ A React Native/Expo mobile application that wraps [MyQRLWallet](https://qrlwalle
 - **Device Login** - Face ID, Touch ID, fingerprint, PIN, or pattern authentication
 - **Auto-Lock** - App locks when backgrounded, requires re-auth on return (like banking apps)
 - **PIN Verification** - Verifies PIN can decrypt wallet before storing for Device Login
+- **Screenshot Prevention** - Block screenshots and screen recording (FLAG_SECURE on Android, secure text field on iOS)
 - **QR Code Scanner** - Native camera for scanning wallet addresses
 - **Haptic Feedback** - Native device vibration for UI feedback
 - **Secure Seed Storage** - Encrypted seeds backed up to device SecureStore
@@ -28,10 +29,10 @@ The app uses a **WebView wrapper pattern** with a JavaScript bridge for native f
 ┌─────────────────────────────────────────────────────────────┐
 │                 Native App (Expo/React Native)              │
 │  ┌──────────────┬────────────────┬───────────────────────┐  │
-│  │ BiometricSvc │ NotificationSvc│ NativeBridge          │  │
-│  │              │ (planned)      │ - QR Scanner          │  │
-│  │              │                │ - Clipboard           │  │
-│  │              │                │ - Share               │  │
+│  │ BiometricSvc │ ScreenSecurity │ NativeBridge          │  │
+│  │ - Device auth│ - Screenshot   │ - QR Scanner          │  │
+│  │ - Auto-lock  │   prevention   │ - Clipboard           │  │
+│  │              │ - FLAG_SECURE  │ - Share               │  │
 │  └──────────────┴────────────────┴───────────────────────┘  │
 │                           │                                  │
 │              postMessage / onMessage                         │
@@ -108,6 +109,8 @@ myqrlwallet-app/
 ├── services/
 │   ├── NativeBridge.ts         # Web↔Native message routing
 │   ├── BiometricService.ts     # Device authentication
+│   ├── SeedStorageService.ts   # Encrypted seed persistence
+│   ├── ScreenSecurityService.ts # Screenshot/recording prevention
 │   └── WebViewService.ts       # Session/cookie management
 │
 ├── constants/
@@ -215,19 +218,26 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 - [x] Wire up SCAN_QR message handling
 - [x] Haptic feedback support
 
-### Phase 4: Push Notifications
+### Phase 4: Screenshot Prevention ✅
+- [x] Add expo-screen-capture dependency
+- [x] Create ScreenSecurityService
+- [x] FLAG_SECURE on Android, secure text field on iOS
+- [x] Toggle in settings (disabled by default, requires wallet)
+- [x] Device auth required to remove wallet when Device Login enabled
+
+### Phase 5: Push Notifications
 - [ ] Add expo-notifications dependency
 - [ ] Create NotificationService
 - [ ] Background polling for new transactions
 - [ ] Local notification on incoming tx
 
-### Phase 5: Offline Support
+### Phase 6: Offline Support
 - [ ] Cache account balances in AsyncStorage
 - [ ] Cache recent transaction history
 - [ ] Offline indicator in web app
 - [ ] Sync on reconnect
 
-### Phase 6: App Store Release
+### Phase 7: App Store Release
 - [ ] App Store screenshots and metadata
 - [ ] Play Store listing
 - [ ] Privacy policy and terms
@@ -241,6 +251,8 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 - **Device Login**: Optional Face ID / Touch ID / PIN / pattern protection
 - **Auto-Lock**: App locks when backgrounded, requires re-auth on return
 - **PIN Verification**: PIN verified with web app before storing (ensures correct PIN)
+- **Screenshot Prevention**: Optional blocking of screenshots and screen recording (disabled by default)
+- **Wallet Removal Protection**: Device authentication required to remove wallet when Device Login is enabled
 - **Secure Bridge**: Messages validated before processing
 
 ## Tech Stack
@@ -254,6 +266,7 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 | Biometrics | expo-local-authentication |
 | Camera | expo-camera |
 | Haptics | expo-haptics |
+| Screen Security | expo-screen-capture |
 | Notifications | expo-notifications (planned) |
 
 ## Configuration
