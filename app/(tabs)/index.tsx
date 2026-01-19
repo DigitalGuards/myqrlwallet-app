@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform } from 'react-native';
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
@@ -26,6 +26,7 @@ export default function WalletScreen() {
   const hasRestoredSeeds = useRef<boolean>(false);
   const deviceLoginSetupTriggered = useRef<boolean>(false);
   const needsReauth = useRef(false);
+  const iosInactiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -198,34 +199,73 @@ export default function WalletScreen() {
     }
   }, [isFocused, isAuthorized, promptDeviceLoginSetup]);
 
+  // Helper to mark app as needing re-auth
+  const markForReauth = useCallback(() => {
+    console.log('[WalletScreen] Marking app for re-authentication');
+    needsReauth.current = true;
+    setWebAppReady(false);
+    hasRestoredSeeds.current = false;
+    NativeBridge.resetWebAppReady();
+  }, []);
+
   // Auto-lock app when it goes to background
-  // Note: On iOS, 'inactive' state can be triggered by modals, keyboards, and other UI elements
-  // We only reset auth state on actual 'background' to prevent issues with Device Login setup
+  // Platform-specific handling for iOS lifecycle quirks
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      // Only trigger re-auth when going to actual background, not just inactive
-      // This prevents issues on iOS where modals/keyboards trigger inactive state
-      if (appState.current === 'active' && nextAppState === 'background') {
-        // App going to background - mark as needing re-auth
-        console.log('[WalletScreen] App going to background, requiring re-authentication');
-        needsReauth.current = true;
-        setWebAppReady(false);
-        hasRestoredSeeds.current = false;
-        // Reset NativeBridge's web app ready state
-        NativeBridge.resetWebAppReady();
-      } else if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
-        // App coming back from background - trigger re-auth if needed
+      // Clear any pending iOS timer on state change
+      if (iosInactiveTimer.current) {
+        clearTimeout(iosInactiveTimer.current);
+        iosInactiveTimer.current = null;
+      }
+
+      // Android: straightforward background detection
+      if (Platform.OS === 'android') {
+        if (appState.current === 'active' && nextAppState === 'background') {
+          console.log('[WalletScreen] Android: App going to background');
+          markForReauth();
+        }
+      }
+
+      // iOS: handle the inactive → background ambiguity
+      // Modals/keyboards trigger 'inactive' briefly, so we use a timer to distinguish
+      if (Platform.OS === 'ios') {
+        if (appState.current === 'active' && nextAppState === 'inactive') {
+          // Start a timer - if we don't return to 'active' within 300ms,
+          // treat it as actually leaving the app
+          iosInactiveTimer.current = setTimeout(() => {
+            if (appState.current !== 'active') {
+              console.log('[WalletScreen] iOS: App left active state (via inactive)');
+              markForReauth();
+            }
+          }, 300);
+        }
+
+        // Also catch direct background (can happen on iOS 13+)
+        if (appState.current === 'active' && nextAppState === 'background') {
+          console.log('[WalletScreen] iOS: App going directly to background');
+          markForReauth();
+        }
+      }
+
+      // App coming back to active - trigger re-auth if needed
+      if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
         if (needsReauth.current) {
-          console.log('[WalletScreen] App returning from background, triggering re-authentication');
+          console.log('[WalletScreen] App returning to active, triggering re-authentication');
           needsReauth.current = false;
           setIsAuthorized(false);
         }
       }
+
       appState.current = nextAppState;
     });
 
-    return () => subscription.remove();
-  }, []);
+    return () => {
+      subscription.remove();
+      if (iosInactiveTimer.current) {
+        clearTimeout(iosInactiveTimer.current);
+      }
+    };
+  }, [markForReauth]);
 
   // Handle WebView load - just mark as ready
   // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
