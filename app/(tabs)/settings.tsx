@@ -3,6 +3,7 @@ import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Alert, Im
 import WebViewService, { UserPreferences } from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
+import ScreenSecurityService from '../../services/ScreenSecurityService';
 import NativeBridge from '../../services/NativeBridge';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
@@ -13,11 +14,13 @@ export default function SettingsScreen() {
   const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
     notificationsEnabled: true,
+    preventScreenshots: true,
   });
 
   const [isDeviceLoginAvailable, setIsDeviceLoginAvailable] = useState(false);
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
+  const [preventScreenshots, setPreventScreenshots] = useState(true);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -45,6 +48,10 @@ export default function SettingsScreen() {
       // Check device login availability
       const deviceLoginAvailable = await BiometricService.isBiometricAvailable();
       setIsDeviceLoginAvailable(deviceLoginAvailable);
+
+      // Load screenshot prevention setting
+      const screenshotPrevention = await ScreenSecurityService.isEnabled();
+      setPreventScreenshots(screenshotPrevention);
 
       // Initial wallet status check
       await loadWalletStatus();
@@ -76,6 +83,31 @@ export default function SettingsScreen() {
       await BiometricService.disableDeviceLogin();
       setDeviceLoginEnabled(false);
       Alert.alert('Disabled', 'Device Login has been disabled.');
+    }
+  };
+
+  // Handle Screenshot Prevention toggle
+  const handleScreenshotPreventionToggle = async (newValue: boolean) => {
+    if (!newValue) {
+      // Warn user about security risk when disabling
+      Alert.alert(
+        'Security Warning',
+        'Disabling screenshot prevention allows screenshots and screen recordings of your wallet. This could expose sensitive information like your balance and addresses.\n\nAre you sure you want to disable this?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Disable Anyway',
+            style: 'destructive',
+            onPress: async () => {
+              await ScreenSecurityService.setEnabled(false);
+              setPreventScreenshots(false);
+            },
+          },
+        ]
+      );
+    } else {
+      await ScreenSecurityService.setEnabled(true);
+      setPreventScreenshots(true);
     }
   };
 
@@ -191,8 +223,9 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.container}>
+      {/* General Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Security</Text>
+        <Text style={styles.sectionTitle}>General</Text>
 
         {/* Notifications */}
         <View style={styles.settingRow}>
@@ -208,29 +241,50 @@ export default function SettingsScreen() {
           />
         </View>
       </View>
-      
+
+      {/* Security Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Security</Text>
+
+        {/* Device Login Toggle - only show if wallet exists and biometrics available */}
+        {hasWallet && isDeviceLoginAvailable && (
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingTitle}>Device Login</Text>
+              <Text style={styles.settingDescription}>
+                Use Device Login to unlock your wallet automatically
+              </Text>
+            </View>
+            <Switch
+              value={deviceLoginEnabled}
+              onValueChange={handleDeviceLoginToggle}
+              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+              thumbColor={deviceLoginEnabled ? '#ff8700' : '#888'}
+            />
+          </View>
+        )}
+
+        {/* Screenshot Prevention Toggle */}
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingTitle}>Prevent Screenshots</Text>
+            <Text style={styles.settingDescription}>
+              Block screen capture and recording for security
+            </Text>
+          </View>
+          <Switch
+            value={preventScreenshots}
+            onValueChange={handleScreenshotPreventionToggle}
+            trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+            thumbColor={preventScreenshots ? '#ff8700' : '#888'}
+          />
+        </View>
+      </View>
+
       {/* Wallet Management Section - only show if wallet exists */}
       {hasWallet && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Wallet</Text>
-
-          {/* Device Login Toggle */}
-          {isDeviceLoginAvailable && (
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextContainer}>
-                <Text style={styles.settingTitle}>Device Login</Text>
-                <Text style={styles.settingDescription}>
-                  Use Device Login to unlock your wallet automatically
-                </Text>
-              </View>
-              <Switch
-                value={deviceLoginEnabled}
-                onValueChange={handleDeviceLoginToggle}
-                trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-                thumbColor={deviceLoginEnabled ? '#ff8700' : '#888'}
-              />
-            </View>
-          )}
 
           {/* Remove Wallet Button */}
           <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>

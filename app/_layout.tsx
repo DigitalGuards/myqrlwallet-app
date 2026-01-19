@@ -5,10 +5,10 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
-import { View, Platform } from 'react-native';
+import { View } from 'react-native';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
-import Colors from '../constants/Colors';
+import ScreenSecurityService from '../services/ScreenSecurityService';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -21,6 +21,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded) {
+      // Initialize screen security (screenshot prevention)
+      ScreenSecurityService.initialize();
       SplashScreen.hideAsync();
     }
   }, [loaded]);
