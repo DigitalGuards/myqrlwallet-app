@@ -10,6 +10,10 @@ import NativeBridge from '../../services/NativeBridge';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+// Time to wait before treating iOS 'inactive' state as actual backgrounding
+// iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
+const IOS_INACTIVE_TIMEOUT_MS = 300;
+
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,6 +31,8 @@ export default function WalletScreen() {
   const deviceLoginSetupTriggered = useRef<boolean>(false);
   const needsReauth = useRef(false);
   const iosInactiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track when biometric auth is showing - iOS marks app as 'inactive' during biometric prompt
+  const isAuthenticating = useRef(false);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -155,8 +161,11 @@ export default function WalletScreen() {
         const deviceLoginReady = await BiometricService.isDeviceLoginReady();
 
         if (hasWallet && deviceLoginReady) {
+          // Mark that we're showing biometric prompt - prevents iOS inactive state from triggering reauth
+          isAuthenticating.current = true;
           // Perform Device Login and store PIN for later
           const result = await BiometricService.getPinWithBiometric();
+          isAuthenticating.current = false;
           if (result.success && result.pin) {
             // Store PIN to send when web app signals ready
             pendingUnlockPin.current = result.pin;
@@ -228,28 +237,39 @@ export default function WalletScreen() {
 
       // iOS: handle the inactive → background ambiguity
       // Modals/keyboards trigger 'inactive' briefly, so we use a timer to distinguish
+      // IMPORTANT: Skip this logic when showing biometric prompt (it triggers 'inactive' on iOS)
       if (Platform.OS === 'ios') {
         if (appState.current === 'active' && nextAppState === 'inactive') {
-          // Start a timer - if we don't return to 'active' within 300ms,
-          // treat it as actually leaving the app
-          iosInactiveTimer.current = setTimeout(() => {
-            if (appState.current !== 'active') {
-              console.log('[WalletScreen] iOS: App left active state (via inactive)');
-              markForReauth();
-            }
-          }, 300);
+          // Skip if we're currently showing biometric authentication
+          if (isAuthenticating.current) {
+            console.log('[WalletScreen] iOS: Ignoring inactive state during biometric auth');
+          } else {
+            // Start a timer - if we don't return to 'active' within the timeout,
+            // treat it as actually leaving the app
+            iosInactiveTimer.current = setTimeout(() => {
+              // Check actual current state AND that we're not authenticating
+              if (AppState.currentState !== 'active' && !isAuthenticating.current) {
+                console.log('[WalletScreen] iOS: App left active state (via inactive)');
+                markForReauth();
+              }
+            }, IOS_INACTIVE_TIMEOUT_MS);
+          }
         }
 
         // Also catch direct background (can happen on iOS 13+)
         if (appState.current === 'active' && nextAppState === 'background') {
-          console.log('[WalletScreen] iOS: App going directly to background');
-          markForReauth();
+          // Only mark for reauth if not currently authenticating
+          if (!isAuthenticating.current) {
+            console.log('[WalletScreen] iOS: App going directly to background');
+            markForReauth();
+          }
         }
       }
 
       // App coming back to active - trigger re-auth if needed
+      // Skip if we're returning from biometric prompt (isAuthenticating is true)
       if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
-        if (needsReauth.current) {
+        if (needsReauth.current && !isAuthenticating.current) {
           console.log('[WalletScreen] App returning to active, triggering re-authentication');
           needsReauth.current = false;
           setIsAuthorized(false);
