@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform } from 'react-native';
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
@@ -25,6 +25,8 @@ export default function WalletScreen() {
   const pendingUnlockPin = useRef<string | null>(null);
   const hasRestoredSeeds = useRef<boolean>(false);
   const deviceLoginSetupTriggered = useRef<boolean>(false);
+  const needsReauth = useRef(false);
+  const iosInactiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -106,15 +108,20 @@ export default function WalletScreen() {
     );
   }, [showPinModal]);
 
+  // Track if QR was successfully scanned (to know if we should send cancel on close)
+  const qrScanSuccessful = useRef(false);
+
   // Handle QR scan request from web
   const handleQRScanRequest = useCallback(() => {
     console.log('[WalletScreen] QR scan requested');
+    qrScanSuccessful.current = false;
     setQrScannerVisible(true);
   }, []);
 
   // Handle QR scan result
   const handleQRScanResult = useCallback((data: string) => {
     console.log('[WalletScreen] QR scanned:', data);
+    qrScanSuccessful.current = true;
     // Send the scanned data to the WebView
     NativeBridge.sendQRResult(data);
   }, []);
@@ -122,6 +129,11 @@ export default function WalletScreen() {
   // Close QR scanner
   const handleQRScannerClose = useCallback(() => {
     setQrScannerVisible(false);
+    // If scanner was closed without successful scan, notify web app
+    if (!qrScanSuccessful.current) {
+      console.log('[WalletScreen] QR scan cancelled');
+      NativeBridge.sendQRCancelled();
+    }
   }, []);
 
   // Register bridge callbacks
@@ -187,21 +199,73 @@ export default function WalletScreen() {
     }
   }, [isFocused, isAuthorized, promptDeviceLoginSetup]);
 
+  // Helper to mark app as needing re-auth
+  const markForReauth = useCallback(() => {
+    console.log('[WalletScreen] Marking app for re-authentication');
+    needsReauth.current = true;
+    setWebAppReady(false);
+    hasRestoredSeeds.current = false;
+    NativeBridge.resetWebAppReady();
+  }, []);
+
   // Auto-lock app when it goes to background
+  // Platform-specific handling for iOS lifecycle quirks
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      if (appState.current === 'active' && (nextAppState === 'inactive' || nextAppState === 'background')) {
-        // App going to background - mark as needing re-auth
-        console.log('[WalletScreen] App going to background, requiring re-authentication');
-        setIsAuthorized(false);
-        setWebAppReady(false);
-        hasRestoredSeeds.current = false;
+      // Clear any pending iOS timer on state change
+      if (iosInactiveTimer.current) {
+        clearTimeout(iosInactiveTimer.current);
+        iosInactiveTimer.current = null;
       }
+
+      // Android: straightforward background detection
+      if (Platform.OS === 'android') {
+        if (appState.current === 'active' && nextAppState === 'background') {
+          console.log('[WalletScreen] Android: App going to background');
+          markForReauth();
+        }
+      }
+
+      // iOS: handle the inactive → background ambiguity
+      // Modals/keyboards trigger 'inactive' briefly, so we use a timer to distinguish
+      if (Platform.OS === 'ios') {
+        if (appState.current === 'active' && nextAppState === 'inactive') {
+          // Start a timer - if we don't return to 'active' within 300ms,
+          // treat it as actually leaving the app
+          iosInactiveTimer.current = setTimeout(() => {
+            if (appState.current !== 'active') {
+              console.log('[WalletScreen] iOS: App left active state (via inactive)');
+              markForReauth();
+            }
+          }, 300);
+        }
+
+        // Also catch direct background (can happen on iOS 13+)
+        if (appState.current === 'active' && nextAppState === 'background') {
+          console.log('[WalletScreen] iOS: App going directly to background');
+          markForReauth();
+        }
+      }
+
+      // App coming back to active - trigger re-auth if needed
+      if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
+        if (needsReauth.current) {
+          console.log('[WalletScreen] App returning to active, triggering re-authentication');
+          needsReauth.current = false;
+          setIsAuthorized(false);
+        }
+      }
+
       appState.current = nextAppState;
     });
 
-    return () => subscription.remove();
-  }, []);
+    return () => {
+      subscription.remove();
+      if (iosInactiveTimer.current) {
+        clearTimeout(iosInactiveTimer.current);
+      }
+    };
+  }, [markForReauth]);
 
   // Handle WebView load - just mark as ready
   // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
@@ -241,8 +305,9 @@ export default function WalletScreen() {
   }, [handleWebAppReady]);
 
   // Handle Device Login setup request from Settings tab
+  // Note: We only need isAuthorized (WebView mounted) since verifyPin waits for web app ready internally
   useEffect(() => {
-    if (params.enableDeviceLogin === 'true' && webAppReady && !deviceLoginSetupTriggered.current) {
+    if (params.enableDeviceLogin === 'true' && isAuthorized && !deviceLoginSetupTriggered.current) {
       // Mark as triggered to prevent re-execution
       deviceLoginSetupTriggered.current = true;
 
@@ -250,6 +315,7 @@ export default function WalletScreen() {
       router.setParams({ enableDeviceLogin: undefined });
 
       // Show PIN modal for Device Login setup
+      // The PIN verification will wait for web app to be ready internally
       showPinModal(async (pin: string) => {
         const setupResult = await BiometricService.setupDeviceLogin(pin);
         if (setupResult.success) {
@@ -264,7 +330,7 @@ export default function WalletScreen() {
         deviceLoginSetupTriggered.current = false;
       });
     }
-  }, [params.enableDeviceLogin, webAppReady, showPinModal]);
+  }, [params.enableDeviceLogin, isAuthorized, showPinModal]);
 
   // Update session timestamp on screen focus
   useEffect(() => {
