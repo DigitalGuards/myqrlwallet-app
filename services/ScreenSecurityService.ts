@@ -1,11 +1,12 @@
+import * as ScreenCapture from 'expo-screen-capture';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SETTING_KEY = '@MyQRLWallet:preventScreenshots';
 
 /**
  * Service for managing screenshot and screen recording prevention.
- * NOTE: Screenshot prevention is currently disabled pending library compatibility.
- * This service maintains the setting but doesn't actually prevent screenshots.
+ * Uses expo-screen-capture which implements FLAG_SECURE on Android
+ * and secure text field technique on iOS.
  */
 class ScreenSecurityService {
   private initialized = false;
@@ -16,8 +17,13 @@ class ScreenSecurityService {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
+
+    const enabled = await this.isEnabled();
+    if (enabled) {
+      await this.enable();
+    }
     this.initialized = true;
-    console.log('[ScreenSecurity] Initialized (prevention disabled - library not available)');
+    console.log('[ScreenSecurity] Initialized, prevention:', enabled ? 'enabled' : 'disabled');
   }
 
   /**
@@ -41,8 +47,12 @@ class ScreenSecurityService {
   async setEnabled(enabled: boolean): Promise<void> {
     try {
       await AsyncStorage.setItem(SETTING_KEY, String(enabled));
+      if (enabled) {
+        await this.enable();
+      } else {
+        await this.disable();
+      }
       console.log('[ScreenSecurity] Setting updated:', enabled ? 'enabled' : 'disabled');
-      // NOTE: Actual prevention is disabled pending library compatibility
     } catch (error) {
       console.error('[ScreenSecurity] Failed to save setting:', error);
       throw error;
@@ -51,18 +61,21 @@ class ScreenSecurityService {
 
   /**
    * Enable screenshot and screen recording prevention.
-   * NOTE: Currently a no-op pending library compatibility.
+   * - Android: Uses FLAG_SECURE - screenshots show black, recording blocked
+   * - iOS: Uses secure text field technique to prevent capture
    */
-  enable(): void {
-    console.log('[ScreenSecurity] Prevention requested (not available)');
+  async enable(): Promise<void> {
+    await ScreenCapture.preventScreenCaptureAsync();
+    console.log('[ScreenSecurity] Prevention enabled');
   }
 
   /**
    * Disable screenshot and screen recording prevention.
-   * NOTE: Currently a no-op pending library compatibility.
+   * User should be warned this is a security risk.
    */
   async disable(): Promise<void> {
-    console.log('[ScreenSecurity] Prevention disable requested (not available)');
+    await ScreenCapture.allowScreenCaptureAsync();
+    console.log('[ScreenSecurity] Prevention disabled');
   }
 }
 
