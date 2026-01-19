@@ -28,16 +28,16 @@ class ScreenSecurityService {
 
   /**
    * Check if screenshot prevention is currently enabled in settings.
-   * Defaults to true (enabled) for security.
+   * Defaults to false (disabled) - user must explicitly enable after creating/importing a wallet.
    */
   async isEnabled(): Promise<boolean> {
     try {
       const value = await AsyncStorage.getItem(SETTING_KEY);
-      // Default to true (enabled) for wallet security
-      return value !== 'false';
+      // Default to false - user must explicitly enable
+      return value === 'true';
     } catch (error) {
       console.error('[ScreenSecurity] Failed to read setting:', error);
-      return true; // Default to enabled on error
+      return false; // Default to disabled on error
     }
   }
 
