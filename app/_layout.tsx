@@ -22,7 +22,13 @@ export default function RootLayout() {
   useEffect(() => {
     if (loaded) {
       // Initialize screen security (screenshot prevention)
-      ScreenSecurityService.initialize();
+      (async () => {
+        try {
+          await ScreenSecurityService.initialize();
+        } catch (error) {
+          console.error('Failed to initialize screen security:', error);
+        }
+      })();
       SplashScreen.hideAsync();
     }
   }, [loaded]);

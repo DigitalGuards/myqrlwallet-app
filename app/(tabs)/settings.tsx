@@ -14,7 +14,6 @@ export default function SettingsScreen() {
   const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
     notificationsEnabled: true,
-    preventScreenshots: true,
   });
 
   const [isDeviceLoginAvailable, setIsDeviceLoginAvailable] = useState(false);
@@ -99,15 +98,25 @@ export default function SettingsScreen() {
             text: 'Disable Anyway',
             style: 'destructive',
             onPress: async () => {
-              await ScreenSecurityService.setEnabled(false);
-              setPreventScreenshots(false);
+              try {
+                await ScreenSecurityService.setEnabled(false);
+                setPreventScreenshots(false);
+              } catch (error) {
+                console.error('Failed to disable screenshot prevention:', error);
+                Alert.alert('Error', 'Could not disable screenshot prevention. Please try again.');
+              }
             },
           },
         ]
       );
     } else {
-      await ScreenSecurityService.setEnabled(true);
-      setPreventScreenshots(true);
+      try {
+        await ScreenSecurityService.setEnabled(true);
+        setPreventScreenshots(true);
+      } catch (error) {
+        console.error('Failed to enable screenshot prevention:', error);
+        Alert.alert('Error', 'Could not enable screenshot prevention. Please try again.');
+      }
     }
   };
 
