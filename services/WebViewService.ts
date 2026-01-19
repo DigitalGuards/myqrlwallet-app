@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
 
 export interface UserPreferences {
   notificationsEnabled?: boolean;
+  preventScreenshots?: boolean;
 }
 
 /**
@@ -95,11 +96,13 @@ class WebViewService {
       // Default preferences
       return {
         notificationsEnabled: true,
+        preventScreenshots: true,
       };
     } catch (error) {
       console.error('Failed to get user preferences:', error);
       return {
         notificationsEnabled: true,
+        preventScreenshots: true,
       };
     }
   }
