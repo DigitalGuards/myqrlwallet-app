@@ -182,10 +182,7 @@ class NativeBridge {
         reject,
         timeout: setTimeout(() => {
           // Remove this resolver from the list
-          const index = this.webAppReadyResolvers.indexOf(resolver);
-          if (index > -1) {
-            this.webAppReadyResolvers.splice(index, 1);
-          }
+          this.webAppReadyResolvers = this.webAppReadyResolvers.filter(r => r !== resolver);
           reject(new Error('Timeout waiting for web app to be ready'));
         }, timeoutMs),
       };
