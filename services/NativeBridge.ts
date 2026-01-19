@@ -150,20 +150,31 @@ class NativeBridge {
   }
 
   /**
+   * Flush all pending web app ready resolvers
+   * @param action 'resolve' to fulfill promises, 'reject' to reject with error
+   * @param error Error message when rejecting (ignored for resolve)
+   */
+  private flushWebAppReadyResolvers(action: 'resolve' | 'reject', error?: string) {
+    // Iterate over a copy to prevent concurrent modification issues
+    const resolvers = this.webAppReadyResolvers;
+    this.webAppReadyResolvers = [];
+    for (const resolver of resolvers) {
+      clearTimeout(resolver.timeout);
+      if (action === 'resolve') {
+        resolver.resolve();
+      } else {
+        resolver.reject(new Error(error || 'Web app ready state was reset'));
+      }
+    }
+  }
+
+  /**
    * Reset web app ready state (call when app goes to background or WebView reloads)
    * Rejects any pending waitForWebAppReady promises to prevent stale operations
    */
   resetWebAppReady() {
     this.isWebAppReady = false;
-
-    // Reject all pending promises and clear their timeouts
-    // Iterate over a copy to prevent concurrent modification issues
-    const resolversToReject = this.webAppReadyResolvers;
-    this.webAppReadyResolvers = [];
-    for (const resolver of resolversToReject) {
-      clearTimeout(resolver.timeout);
-      resolver.reject(new Error('Web app ready state was reset'));
-    }
+    this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
   }
 
   /**
@@ -332,14 +343,8 @@ class NativeBridge {
 
       case 'WEB_APP_READY':
         // Mark web app as ready and resolve any waiting promises
-        // Iterate over a copy to prevent concurrent modification issues
         this.isWebAppReady = true;
-        const resolversToResolve = this.webAppReadyResolvers;
-        this.webAppReadyResolvers = [];
-        for (const resolver of resolversToResolve) {
-          clearTimeout(resolver.timeout);
-          resolver.resolve();
-        }
+        this.flushWebAppReadyResolvers('resolve');
 
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();

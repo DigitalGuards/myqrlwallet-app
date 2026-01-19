@@ -10,6 +10,10 @@ import NativeBridge from '../../services/NativeBridge';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+// Time to wait before treating iOS 'inactive' state as actual backgrounding
+// iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
+const IOS_INACTIVE_TIMEOUT_MS = 300;
+
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -240,7 +244,7 @@ export default function WalletScreen() {
           if (isAuthenticating.current) {
             console.log('[WalletScreen] iOS: Ignoring inactive state during biometric auth');
           } else {
-            // Start a timer - if we don't return to 'active' within 300ms,
+            // Start a timer - if we don't return to 'active' within the timeout,
             // treat it as actually leaving the app
             iosInactiveTimer.current = setTimeout(() => {
               // Check actual current state AND that we're not authenticating
@@ -248,7 +252,7 @@ export default function WalletScreen() {
                 console.log('[WalletScreen] iOS: App left active state (via inactive)');
                 markForReauth();
               }
-            }, 300);
+            }, IOS_INACTIVE_TIMEOUT_MS);
           }
         }
 
