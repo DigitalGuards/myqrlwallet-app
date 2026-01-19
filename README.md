@@ -18,6 +18,9 @@ A React Native/Expo mobile application that wraps [MyQRLWallet](https://qrlwalle
 - **Dark Theme** - QRL-branded dark theme with quantum loading screen
 
 ### Coming Soon
+- **Paste Button** - Quick paste next to QR scan in transfer field
+- **Address Book** - Save and manage frequently used addresses
+- **Cloud Backup** - Encrypted wallet backup to iCloud/Google Drive
 - **Push Notifications** - Alerts for incoming transactions
 - **Offline Mode** - Cached balances and transaction history
 
@@ -225,19 +228,38 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 - [x] Toggle in settings (disabled by default, requires wallet)
 - [x] Device auth required to remove wallet when Device Login enabled
 
-### Phase 5: Push Notifications
+### Phase 5: UX Enhancements
+- [ ] Add paste button next to QR scan in transfer "To" field
+- [ ] Quick clipboard paste via native bridge
+- [ ] Visual feedback on paste action
+
+### Phase 6: Address Book
+- [ ] Create AddressBookService for persistent storage
+- [ ] Store contacts alongside wallet data in SecureStore
+- [ ] Add/edit/delete address entries with labels
+- [ ] Address picker in transfer screen
+- [ ] Import addresses from transaction history
+
+### Phase 7: Cloud Backup
+- [ ] iCloud backup integration (iOS)
+- [ ] Google Cloud/Drive backup integration (Android)
+- [ ] Encrypted wallet export to cloud storage
+- [ ] Restore from cloud backup on new device
+- [ ] Backup status indicator in settings
+
+### Phase 8: Push Notifications
 - [ ] Add expo-notifications dependency
 - [ ] Create NotificationService
 - [ ] Background polling for new transactions
 - [ ] Local notification on incoming tx
 
-### Phase 6: Offline Support
+### Phase 9: Offline Support
 - [ ] Cache account balances in AsyncStorage
 - [ ] Cache recent transaction history
 - [ ] Offline indicator in web app
 - [ ] Sync on reconnect
 
-### Phase 7: App Store Release
+### Phase 10: App Store Release
 - [ ] App Store screenshots and metadata
 - [ ] Play Store listing
 - [ ] Privacy policy and terms
