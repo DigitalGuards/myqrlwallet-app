@@ -48,7 +48,13 @@
         }
       ],
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow MyQRLWallet to use Face ID to secure your wallet."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
