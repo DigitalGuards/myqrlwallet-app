@@ -30,6 +30,7 @@ export type WebToNativeMessageType =
  */
 export type NativeToWebMessageType =
   | 'QR_RESULT'
+  | 'QR_CANCELLED'            // User closed QR scanner without scanning
   | 'BIOMETRIC_SUCCESS'
   | 'APP_STATE'
   | 'CLIPBOARD_SUCCESS'
@@ -99,6 +100,12 @@ class NativeBridge {
   private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
   private walletClearedCallback: WalletClearedCallback | null = null;
   private pinVerifiedCallback: PinVerifiedCallback | null = null;
+  private isWebAppReady: boolean = false;
+  private webAppReadyResolvers: Array<{
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }> = [];
 
   /**
    * Set the WebView reference for sending messages back to web
@@ -136,6 +143,66 @@ class NativeBridge {
   }
 
   /**
+   * Check if web app is ready
+   */
+  getIsWebAppReady(): boolean {
+    return this.isWebAppReady;
+  }
+
+  /**
+   * Flush all pending web app ready resolvers
+   * @param action 'resolve' to fulfill promises, 'reject' to reject with error
+   * @param error Error message when rejecting (ignored for resolve)
+   */
+  private flushWebAppReadyResolvers(action: 'resolve' | 'reject', error?: string) {
+    // Iterate over a copy to prevent concurrent modification issues
+    const resolvers = this.webAppReadyResolvers;
+    this.webAppReadyResolvers = [];
+    for (const resolver of resolvers) {
+      clearTimeout(resolver.timeout);
+      if (action === 'resolve') {
+        resolver.resolve();
+      } else {
+        resolver.reject(new Error(error || 'Web app ready state was reset'));
+      }
+    }
+  }
+
+  /**
+   * Reset web app ready state (call when app goes to background or WebView reloads)
+   * Rejects any pending waitForWebAppReady promises to prevent stale operations
+   */
+  resetWebAppReady() {
+    this.isWebAppReady = false;
+    this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
+  }
+
+  /**
+   * Wait for web app to be ready
+   * @param timeoutMs Maximum time to wait (default 15 seconds)
+   * @returns Promise that resolves when ready or rejects on timeout or reset
+   */
+  waitForWebAppReady(timeoutMs: number = 15000): Promise<void> {
+    if (this.isWebAppReady) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const resolver = {
+        resolve,
+        reject,
+        timeout: setTimeout(() => {
+          // Remove this resolver from the list
+          this.webAppReadyResolvers = this.webAppReadyResolvers.filter(r => r !== resolver);
+          reject(new Error('Timeout waiting for web app to be ready'));
+        }, timeoutMs),
+      };
+
+      this.webAppReadyResolvers.push(resolver);
+    });
+  }
+
+  /**
    * Register callback for when native settings should be opened
    */
   onOpenNativeSettings(callback: OpenNativeSettingsCallback) {
@@ -158,16 +225,27 @@ class NativeBridge {
 
   /**
    * Send a message to the WebView
+   * Uses a try-catch wrapper for iOS compatibility
    */
   sendToWeb(message: BridgeResponse) {
     if (this.webViewRef?.current) {
+      // Wrap in try-catch and IIFE to prevent iOS from interpreting errors as navigation
+      // The void(0) at the end ensures no return value that could trigger navigation
       const script = `
-        window.dispatchEvent(new CustomEvent('nativeMessage', {
-          detail: ${JSON.stringify(message)}
-        }));
-        true;
+        (function() {
+          try {
+            window.dispatchEvent(new CustomEvent('nativeMessage', {
+              detail: ${JSON.stringify(message)}
+            }));
+          } catch (e) {
+            console.error('[NativeBridge] Error dispatching message:', e);
+          }
+        })();
+        void(0);
       `;
       this.webViewRef.current.injectJavaScript(script);
+    } else {
+      console.warn('[NativeBridge] WebView ref not available, message not sent:', message.type);
     }
   }
 
@@ -264,6 +342,10 @@ class NativeBridge {
         break;
 
       case 'WEB_APP_READY':
+        // Mark web app as ready and resolve any waiting promises
+        this.isWebAppReady = true;
+        this.flushWebAppReadyResolvers('resolve');
+
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
         }
@@ -459,6 +541,16 @@ class NativeBridge {
   }
 
   /**
+   * Send QR scan cancelled notification to WebView
+   * Called when user closes scanner without scanning
+   */
+  sendQRCancelled() {
+    this.sendToWeb({
+      type: 'QR_CANCELLED',
+    });
+  }
+
+  /**
    * Send app state change to WebView
    */
   sendAppState(state: 'active' | 'background' | 'inactive') {
@@ -562,18 +654,28 @@ class NativeBridge {
 
   /**
    * Request web to verify PIN can decrypt the stored seed
+   * Waits for web app to be ready before sending the request
    * @param pin The PIN to verify
-   * @param timeoutMs Timeout in milliseconds (default 10 seconds)
+   * @param timeoutMs Timeout in milliseconds for verification (default 10 seconds)
    * @returns Promise that resolves with verification result
    */
-  verifyPin(pin: string, timeoutMs: number = 10000): Promise<{ success: boolean; error?: string }> {
-    return new Promise((resolve) => {
-      // Prevent race condition - reject if verification already in progress
-      if (this.pinVerifiedCallback) {
-        resolve({ success: false, error: 'A PIN verification is already in progress' });
-        return;
-      }
+  async verifyPin(pin: string, timeoutMs: number = 10000): Promise<{ success: boolean; error?: string }> {
+    // Prevent race condition - reject if verification already in progress
+    if (this.pinVerifiedCallback) {
+      return { success: false, error: 'A PIN verification is already in progress' };
+    }
 
+    // Wait for web app to be ready first (with its own timeout)
+    try {
+      console.log('[NativeBridge] Waiting for web app to be ready before PIN verification...');
+      await this.waitForWebAppReady();
+      console.log('[NativeBridge] Web app is ready, proceeding with PIN verification');
+    } catch (error) {
+      console.error('[NativeBridge] Web app not ready for PIN verification:', error);
+      return { success: false, error: 'Web app not ready. Please try again.' };
+    }
+
+    return new Promise((resolve) => {
       // Set up timeout
       const timeout = setTimeout(() => {
         this.pinVerifiedCallback = null;
