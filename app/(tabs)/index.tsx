@@ -233,7 +233,8 @@ export default function WalletScreen() {
           // Start a timer - if we don't return to 'active' within 300ms,
           // treat it as actually leaving the app
           iosInactiveTimer.current = setTimeout(() => {
-            if (appState.current !== 'active') {
+            // Check actual current state, not our ref (which was already updated)
+            if (AppState.currentState !== 'active') {
               console.log('[WalletScreen] iOS: App left active state (via inactive)');
               markForReauth();
             }
