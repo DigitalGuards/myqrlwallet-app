@@ -65,15 +65,11 @@ class ScreenSecurityService {
    * - iOS: Uses hidden secure text field technique to prevent capture
    */
   enable(): void {
-    try {
-      RNScreenshotPrevent.enabled(true);
-      if (Platform.OS === 'ios') {
-        RNScreenshotPrevent.enableSecureView();
-      }
-      console.log('[ScreenSecurity] Prevention enabled');
-    } catch (error) {
-      console.error('[ScreenSecurity] Failed to enable:', error);
+    RNScreenshotPrevent.enabled(true);
+    if (Platform.OS === 'ios') {
+      RNScreenshotPrevent.enableSecureView();
     }
+    console.log('[ScreenSecurity] Prevention enabled');
   }
 
   /**
@@ -81,15 +77,11 @@ class ScreenSecurityService {
    * User should be warned this is a security risk.
    */
   disable(): void {
-    try {
-      RNScreenshotPrevent.enabled(false);
-      if (Platform.OS === 'ios') {
-        RNScreenshotPrevent.disableSecureView();
-      }
-      console.log('[ScreenSecurity] Prevention disabled');
-    } catch (error) {
-      console.error('[ScreenSecurity] Failed to disable:', error);
+    RNScreenshotPrevent.enabled(false);
+    if (Platform.OS === 'ios') {
+      RNScreenshotPrevent.disableSecureView();
     }
+    console.log('[ScreenSecurity] Prevention disabled');
   }
 }
 
