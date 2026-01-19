@@ -157,11 +157,13 @@ class NativeBridge {
     this.isWebAppReady = false;
 
     // Reject all pending promises and clear their timeouts
-    for (const resolver of this.webAppReadyResolvers) {
+    // Iterate over a copy to prevent concurrent modification issues
+    const resolversToReject = this.webAppReadyResolvers;
+    this.webAppReadyResolvers = [];
+    for (const resolver of resolversToReject) {
       clearTimeout(resolver.timeout);
       resolver.reject(new Error('Web app ready state was reset'));
     }
-    this.webAppReadyResolvers = [];
   }
 
   /**
@@ -333,12 +335,14 @@ class NativeBridge {
 
       case 'WEB_APP_READY':
         // Mark web app as ready and resolve any waiting promises
+        // Iterate over a copy to prevent concurrent modification issues
         this.isWebAppReady = true;
-        for (const resolver of this.webAppReadyResolvers) {
+        const resolversToResolve = this.webAppReadyResolvers;
+        this.webAppReadyResolvers = [];
+        for (const resolver of resolversToResolve) {
           clearTimeout(resolver.timeout);
           resolver.resolve();
         }
-        this.webAppReadyResolvers = [];
 
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
@@ -662,7 +666,7 @@ class NativeBridge {
     // Wait for web app to be ready first (with its own timeout)
     try {
       console.log('[NativeBridge] Waiting for web app to be ready before PIN verification...');
-      await this.waitForWebAppReady(15000);
+      await this.waitForWebAppReady();
       console.log('[NativeBridge] Web app is ready, proceeding with PIN verification');
     } catch (error) {
       console.error('[NativeBridge] Web app not ready for PIN verification:', error);
