@@ -1,12 +1,11 @@
-import RNScreenshotPrevent from 'react-native-screenshot-prevent';
-import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SETTING_KEY = '@MyQRLWallet:preventScreenshots';
 
 /**
  * Service for managing screenshot and screen recording prevention.
- * Uses FLAG_SECURE on Android and secure text field technique on iOS.
+ * NOTE: Screenshot prevention is currently disabled pending library compatibility.
+ * This service maintains the setting but doesn't actually prevent screenshots.
  */
 class ScreenSecurityService {
   private initialized = false;
@@ -17,13 +16,8 @@ class ScreenSecurityService {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
-
-    const enabled = await this.isEnabled();
-    if (enabled) {
-      this.enable();
-    }
     this.initialized = true;
-    console.log('[ScreenSecurity] Initialized, prevention:', enabled ? 'enabled' : 'disabled');
+    console.log('[ScreenSecurity] Initialized (prevention disabled - library not available)');
   }
 
   /**
@@ -47,12 +41,8 @@ class ScreenSecurityService {
   async setEnabled(enabled: boolean): Promise<void> {
     try {
       await AsyncStorage.setItem(SETTING_KEY, String(enabled));
-      if (enabled) {
-        this.enable();
-      } else {
-        this.disable();
-      }
       console.log('[ScreenSecurity] Setting updated:', enabled ? 'enabled' : 'disabled');
+      // NOTE: Actual prevention is disabled pending library compatibility
     } catch (error) {
       console.error('[ScreenSecurity] Failed to save setting:', error);
       throw error;
@@ -61,27 +51,18 @@ class ScreenSecurityService {
 
   /**
    * Enable screenshot and screen recording prevention.
-   * - Android: Uses FLAG_SECURE - screenshots show black, recording blocked at OS level
-   * - iOS: Uses hidden secure text field technique to prevent capture
+   * NOTE: Currently a no-op pending library compatibility.
    */
   enable(): void {
-    RNScreenshotPrevent.enabled(true);
-    if (Platform.OS === 'ios') {
-      RNScreenshotPrevent.enableSecureView();
-    }
-    console.log('[ScreenSecurity] Prevention enabled');
+    console.log('[ScreenSecurity] Prevention requested (not available)');
   }
 
   /**
    * Disable screenshot and screen recording prevention.
-   * User should be warned this is a security risk.
+   * NOTE: Currently a no-op pending library compatibility.
    */
-  disable(): void {
-    RNScreenshotPrevent.enabled(false);
-    if (Platform.OS === 'ios') {
-      RNScreenshotPrevent.disableSecureView();
-    }
-    console.log('[ScreenSecurity] Prevention disabled');
+  async disable(): Promise<void> {
+    console.log('[ScreenSecurity] Prevention disable requested (not available)');
   }
 }
 
