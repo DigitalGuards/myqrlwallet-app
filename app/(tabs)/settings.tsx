@@ -19,7 +19,7 @@ export default function SettingsScreen() {
   const [isDeviceLoginAvailable, setIsDeviceLoginAvailable] = useState(false);
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
-  const [preventScreenshots, setPreventScreenshots] = useState(true);
+  const [preventScreenshots, setPreventScreenshots] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -273,21 +273,23 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Screenshot Prevention Toggle */}
-        <View style={styles.settingRow}>
-          <View style={styles.settingTextContainer}>
-            <Text style={styles.settingTitle}>Prevent Screenshots</Text>
-            <Text style={styles.settingDescription}>
-              Block screen capture and recording for security
-            </Text>
+        {/* Screenshot Prevention Toggle - only show if wallet exists */}
+        {hasWallet && (
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingTitle}>Prevent Screenshots</Text>
+              <Text style={styles.settingDescription}>
+                Block screen capture and recording for security
+              </Text>
+            </View>
+            <Switch
+              value={preventScreenshots}
+              onValueChange={handleScreenshotPreventionToggle}
+              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+              thumbColor={preventScreenshots ? '#ff8700' : '#888'}
+            />
           </View>
-          <Switch
-            value={preventScreenshots}
-            onValueChange={handleScreenshotPreventionToggle}
-            trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-            thumbColor={preventScreenshots ? '#ff8700' : '#888'}
-          />
-        </View>
+        )}
       </View>
 
       {/* Wallet Management Section - only show if wallet exists */}
