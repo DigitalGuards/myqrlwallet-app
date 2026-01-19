@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 import { View } from 'react-native';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
+import ScreenSecurityService from '../services/ScreenSecurityService';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -20,6 +21,14 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded) {
+      // Initialize screen security (screenshot prevention)
+      (async () => {
+        try {
+          await ScreenSecurityService.initialize();
+        } catch (error) {
+          console.error('Failed to initialize screen security:', error);
+        }
+      })();
       SplashScreen.hideAsync();
     }
   }, [loaded]);
