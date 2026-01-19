@@ -122,6 +122,15 @@ export default function SettingsScreen() {
 
   // Remove wallet - clears all wallet data from native storage
   const removeWallet = async () => {
+    // If Device Login is enabled, require authentication first
+    if (deviceLoginEnabled) {
+      const authResult = await BiometricService.authenticate('Authenticate to remove wallet');
+      if (!authResult.success) {
+        // Auth cancelled or failed - don't proceed
+        return;
+      }
+    }
+
     Alert.alert(
       'Remove Wallet',
       'This will permanently delete your wallet data from this device. Your seed phrase will be removed and you will need to re-import it to access your wallet again.\n\nMake sure you have backed up your seed phrase before continuing!',
@@ -173,7 +182,6 @@ export default function SettingsScreen() {
                       } else {
                         Alert.alert('Wallet Removed', 'Your wallet has been removed. Web data may need manual clearing.');
                       }
-                      router.back();
                     } catch (error) {
                       console.error('[Settings] Failed to remove wallet:', error);
                       Alert.alert(
@@ -254,6 +262,13 @@ export default function SettingsScreen() {
       {/* Security Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Security</Text>
+
+        {/* Show message when no wallet exists */}
+        {!hasWallet && (
+          <Text style={styles.noWalletText}>
+            Import or create a wallet to access security settings
+          </Text>
+        )}
 
         {/* Device Login Toggle - only show if wallet exists and biometrics available */}
         {hasWallet && isDeviceLoginAvailable && (
@@ -442,6 +457,13 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 8,
+  },
+  noWalletText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingVertical: 8,
   },
   helpText: {
     fontSize: 12,
