@@ -8,7 +8,7 @@ MyQRL Wallet is a React Native/Expo mobile application that serves as a native w
 
 ## Architecture
 
-**WebView Wrapper Pattern**: The web app (zondwebwallet-frontend) runs inside a WebView. Native features are exposed via a postMessage bridge. The web app detects native context via User-Agent string containing "MyQRLWallet".
+**WebView Wrapper Pattern**: The web app (myqrlwallet-frontend) runs inside a WebView. Native features are exposed via a postMessage bridge. The web app detects native context via User-Agent string containing "MyQRLWallet".
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -145,7 +145,7 @@ Push notifications:
 6. Bridge injects JS: `window.dispatchEvent(new CustomEvent('nativeMessage', {...}))`
 7. Web app receives via `subscribeToNativeMessages()` → fills in address field
 
-## Integration with Frontend (zondwebwallet-frontend)
+## Integration with Frontend (myqrlwallet-frontend)
 
 The web app detects native context:
 ```typescript
