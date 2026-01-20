@@ -342,11 +342,10 @@ export default function SettingsScreen() {
         
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../../assets/images/myqrlwallet/icon.png')}
+            source={require('../../assets/images/myqrlwallet/mqrlwallet.png')}
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.appTitle}>MyQRLWallet</Text>
           <Text style={styles.version}>Version {appVersion}</Text>
         </View>
         
@@ -478,15 +477,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   logo: {
-    width: 80,
-    height: 80,
+    width: 200,
+    height: 56,
     marginBottom: 10,
-  },
-  appTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#f8fafc',
-    marginBottom: 5,
   },
   version: {
     fontSize: 14,

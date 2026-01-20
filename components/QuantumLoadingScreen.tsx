@@ -220,13 +220,12 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible }) 
           ]}
         >
           <Image
-            source={require('../assets/images/myqrlwallet/adaptive-icon.png')}
+            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
             style={styles.logo}
             resizeMode="contain"
           />
         </Animated.View>
 
-        <Text style={styles.title}>MyQRLWallet</Text>
         <Text style={styles.subtitle}>Post-Quantum Secure</Text>
 
         <View style={styles.messageContainer}>
@@ -305,15 +304,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   logo: {
-    width: 120,
-    height: 120,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 8,
-    letterSpacing: 1,
+    width: 280,
+    height: 80,
   },
   subtitle: {
     fontSize: 16,

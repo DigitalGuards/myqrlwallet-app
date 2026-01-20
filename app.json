@@ -20,8 +20,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/myqrlwallet/applogo.png",
-        "backgroundColor": "#000000"
+        "foregroundImage": "./assets/images/myqrlwallet/adaptive-icon.png",
+        "backgroundImage": "./assets/images/myqrlwallet/adaptive-icon-background.png"
       },
       "package": "com.chiefdg.myqrlwallet",
       "versionCode": 1,
@@ -42,7 +42,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/myqrlwallet/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 300,
           "resizeMode": "contain",
           "backgroundColor": "#0c0e10"
         }
