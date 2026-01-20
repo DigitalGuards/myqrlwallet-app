@@ -60,7 +60,7 @@ export default function SettingsScreen() {
   }, [loadWalletStatus]);
 
   // Save preferences when they change
-  const updatePreference = async (key: keyof UserPreferences, value: any) => {
+  const updatePreference = async (key: keyof UserPreferences, value: boolean) => {
     const updatedPreferences = { ...preferences, [key]: value };
     setPreferences(updatedPreferences);
     await WebViewService.saveUserPreferences(updatedPreferences);
