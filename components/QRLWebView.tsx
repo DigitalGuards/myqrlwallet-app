@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import NativeBridge, { BridgeMessage } from '../services/NativeBridge';
+import Logger from '../services/Logger';
 import QuantumLoadingScreen from './QuantumLoadingScreen';
 
 // ============================================================
@@ -100,7 +101,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     if (isLoading) {
       // Set a 8-second maximum loading time
       loadingTimeoutRef.current = setTimeout(() => {
-        console.log('Loading timeout reached, forcing loading state to complete');
+        Logger.warn('QRLWebView', 'Loading timeout reached (8s), forcing load complete');
         setIsLoading(false);
         contentLoaded.current = true;
         tryHideLoadingScreen();
@@ -170,18 +171,17 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     }
   };
 
-  const handleNavigationStateChange = (newNavState: any) => {
+  const handleNavigationStateChange = (newNavState: { url: string; loading: boolean }) => {
+    Logger.debug('QRLWebView', 'Navigation state changed', { url: newNavState.url, loading: newNavState.loading });
     // If page has loaded completely, ensure loading indicator is hidden
     if (newNavState.loading === false) {
       setIsLoading(false);
       contentLoaded.current = true;
       tryHideLoadingScreen();
     }
-
-    console.log(`Navigation state changed: ${newNavState.url}, loading: ${newNavState.loading}`);
   };
 
-  const handleError = (syntheticEvent: any) => {
+  const handleError = (syntheticEvent: { nativeEvent: { description?: string } }) => {
     const { nativeEvent } = syntheticEvent;
     setError(nativeEvent.description || 'Failed to load QRL Wallet');
     setIsLoading(false);
@@ -201,7 +201,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
     // Handle legacy PAGE_LOADED message
     if (data === 'PAGE_LOADED') {
-      console.log('Page fully loaded message received');
+      Logger.debug('QRLWebView', 'Legacy PAGE_LOADED message received');
       setIsLoading(false);
       return;
     }
@@ -209,11 +209,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     // Try to parse as JSON bridge message
     try {
       const message: BridgeMessage = JSON.parse(data);
-      console.log('[Bridge] Received:', message.type);
+      Logger.debug('QRLWebView', 'Bridge message received', message.type);
       NativeBridge.handle(message);
     } catch {
-      // Not a JSON message, log for debugging
-      console.log(`[WebView] Message: ${data}`);
+      // Not a JSON message - ignore
     }
   };
 
@@ -222,23 +221,22 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     try {
       const urlObj = new URL(url);
       return ALLOWED_DOMAINS.includes(urlObj.hostname);
-    } catch (error) {
-      console.error('Invalid URL:', url);
+    } catch {
       return false;
     }
   };
 
   // Handle navigation requests
-  const onShouldStartLoadWithRequest = (request: any): boolean => {
+  const onShouldStartLoadWithRequest = (request: { url: string }): boolean => {
     const { url } = request;
-    
-    // Allow initial load and allowed domains
-    if (isUrlAllowed(url)) {
-      return true;
+    const allowed = isUrlAllowed(url);
+
+    if (!allowed) {
+      Logger.warn('QRLWebView', 'Blocked navigation to disallowed URL', url);
     }
-    
-    console.warn('Blocked navigation to unauthorized domain:', url);
-    return false;
+
+    // Allow initial load and allowed domains
+    return allowed;
   };
 
   return (
