@@ -231,7 +231,7 @@ export default function WalletScreen() {
     needsReauth.current = true;
     hasRestoredSeeds.current = false;
     backgroundedAt.current = Date.now();
-    NativeBridge.resetWebAppReady();
+    // Don't reset web app ready - WebView is always mounted (off-screen) and maintains state
   }, []);
 
   // Auto-lock app when it goes to background
@@ -382,6 +382,11 @@ export default function WalletScreen() {
     }
   }, [isFocused, isAuthorized]);
 
+  // Log WebView visibility changes
+  useEffect(() => {
+    Logger.debug('WalletScreen', `WebView visibility changed: isAuthorized=${isAuthorized}, webViewRef=${webViewRef.current ? 'exists' : 'null'}`);
+  }, [isAuthorized]);
+
   return (
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
@@ -414,9 +419,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   webViewHidden: {
+    // Keep WebView functional but invisible - 0x0 size can prevent JS execution
+    flex: 1,
     position: 'absolute',
-    width: 0,
-    height: 0,
-    opacity: 0,
+    left: -9999,
+    top: -9999,
   },
 });
