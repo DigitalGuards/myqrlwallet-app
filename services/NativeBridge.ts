@@ -173,6 +173,7 @@ class NativeBridge {
    * Rejects any pending waitForWebAppReady promises to prevent stale operations
    */
   resetWebAppReady() {
+    console.log('[NativeBridge] Resetting web app ready state');
     this.isWebAppReady = false;
     this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
   }
@@ -183,9 +184,12 @@ class NativeBridge {
    * @returns Promise that resolves when ready or rejects on timeout or reset
    */
   waitForWebAppReady(timeoutMs: number = 15000): Promise<void> {
+    console.log(`[NativeBridge] waitForWebAppReady called, isWebAppReady=${this.isWebAppReady}`);
     if (this.isWebAppReady) {
+      console.log('[NativeBridge] Web app already ready, resolving immediately');
       return Promise.resolve();
     }
+    console.log(`[NativeBridge] Web app not ready, waiting up to ${timeoutMs}ms`);
 
     return new Promise((resolve, reject) => {
       const resolver = {
@@ -343,6 +347,7 @@ class NativeBridge {
 
       case 'WEB_APP_READY':
         // Mark web app as ready and resolve any waiting promises
+        console.log('[NativeBridge] WEB_APP_READY received, setting isWebAppReady=true');
         this.isWebAppReady = true;
         this.flushWebAppReadyResolvers('resolve');
 
@@ -638,6 +643,7 @@ class NativeBridge {
    * Request web to clear all wallet data (from native settings)
    */
   sendClearWallet() {
+    console.log(`[NativeBridge] sendClearWallet called, webViewRef=${this.webViewRef?.current ? 'exists' : 'null'}, isWebAppReady=${this.isWebAppReady}`);
     this.sendToWeb({
       type: 'CLEAR_WALLET',
     });
