@@ -46,3 +46,4 @@ ios/*
 !/CLAUDE.md
 .claude/*
 ralph.sh
+.env

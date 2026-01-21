@@ -37,10 +37,17 @@ export default function WalletScreen() {
   const isAuthenticating = useRef(false);
   // Track when app went to background for loading screen threshold
   const backgroundedAt = useRef<number | null>(null);
+  // Track when intentionally navigating to settings - iOS triggers background/foreground cycle on tab switch
+  const navigatingToSettings = useRef(false);
 
   // Navigate to settings
   const navigateToSettings = () => {
+    navigatingToSettings.current = true;
     router.push('/settings');
+    // Reset after navigation settles
+    setTimeout(() => {
+      navigatingToSettings.current = false;
+    }, 1000);
   };
 
   // Handle device login unlock and send PIN to web
@@ -211,6 +218,11 @@ export default function WalletScreen() {
 
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
+    // Skip if intentionally navigating to settings - iOS triggers background/foreground on tab switch
+    if (navigatingToSettings.current) {
+      Logger.debug('WalletScreen', 'Skipping re-auth mark - navigating to settings');
+      return;
+    }
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
     needsReauth.current = true;
     hasRestoredSeeds.current = false;
