@@ -385,9 +385,10 @@ export default function WalletScreen() {
   return (
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
-      {isAuthorized && (
+      {/* Always render WebView to keep ref available for bridge messages, but hide when not authorized */}
+      <RNView style={isAuthorized ? styles.webViewVisible : styles.webViewHidden}>
         <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} skipLoadingScreen={skipLoadingScreen} />
-      )}
+      </RNView>
       <PinEntryModal
         visible={pinModalVisible}
         title="Enter Your PIN"
@@ -408,5 +409,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A17',
+  },
+  webViewVisible: {
+    flex: 1,
+  },
+  webViewHidden: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
   },
 });
