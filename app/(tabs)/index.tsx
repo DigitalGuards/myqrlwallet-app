@@ -15,11 +15,15 @@ import { router, useLocalSearchParams } from 'expo-router';
 // iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
 const IOS_INACTIVE_TIMEOUT_MS = 300;
 
+// Time threshold for showing loading screen (5 minutes in ms)
+const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;
+
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
+  const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
   const isFocused = useIsFocused();
   const params = useLocalSearchParams<{ enableDeviceLogin?: string }>();
   const appState = useRef(AppState.currentState);
@@ -31,6 +35,8 @@ export default function WalletScreen() {
   const iosInactiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track when biometric auth is showing - iOS marks app as 'inactive' during biometric prompt
   const isAuthenticating = useRef(false);
+  // Track when app went to background for loading screen threshold
+  const backgroundedAt = useRef<number | null>(null);
 
   // Navigate to settings
   const navigateToSettings = () => {
@@ -208,6 +214,7 @@ export default function WalletScreen() {
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
     needsReauth.current = true;
     hasRestoredSeeds.current = false;
+    backgroundedAt.current = Date.now();
     NativeBridge.resetWebAppReady();
   }, []);
 
@@ -261,6 +268,15 @@ export default function WalletScreen() {
         if (needsReauth.current && !isAuthenticating.current) {
           Logger.debug('WalletScreen', 'App foregrounded, triggering re-auth');
           needsReauth.current = false;
+
+          // Check if we should skip loading screen (backgrounded less than 5 minutes)
+          const timeSinceBackground = backgroundedAt.current
+            ? Date.now() - backgroundedAt.current
+            : Infinity;
+          const shouldSkipLoading = timeSinceBackground < LOADING_SCREEN_THRESHOLD_MS;
+          Logger.debug('WalletScreen', `Time since background: ${timeSinceBackground}ms, skip loading: ${shouldSkipLoading}`);
+          setSkipLoadingScreen(shouldSkipLoading);
+
           setIsAuthorized(false);
         }
       }
@@ -354,7 +370,7 @@ export default function WalletScreen() {
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
       {isAuthorized && (
-        <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} />
+        <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} skipLoadingScreen={skipLoadingScreen} />
       )}
       <PinEntryModal
         visible={pinModalVisible}
