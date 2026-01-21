@@ -43,15 +43,15 @@ export default function WalletScreen() {
 
   // Navigate to settings
   const navigateToSettings = useCallback(() => {
-    Logger.debug('WalletScreen', `navigateToSettings called, module flag BEFORE=${isNavigatingToSettings}`);
+    Logger.debug('WalletScreen', `navigateToSettings called, setting flag`);
     isNavigatingToSettings = true;
-    Logger.debug('WalletScreen', `navigateToSettings set flag, module flag AFTER=${isNavigatingToSettings}`);
     router.push('/settings');
-    // Reset after navigation settles
+    // Reset after navigation and any app state transitions settle
+    // iOS can take 3+ seconds for background/foreground cycle during tab switch
     setTimeout(() => {
       Logger.debug('WalletScreen', 'Resetting isNavigatingToSettings flag');
       isNavigatingToSettings = false;
-    }, 2000);  // Increased to 2 seconds
+    }, 10000);  // 10 seconds to be safe
   }, []);
 
   // Handle device login unlock and send PIN to web
@@ -223,7 +223,6 @@ export default function WalletScreen() {
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     // Skip if intentionally navigating to settings - iOS triggers background/foreground on tab switch
-    Logger.debug('WalletScreen', `markForReauth called, isNavigatingToSettings=${isNavigatingToSettings}`);
     if (isNavigatingToSettings) {
       Logger.debug('WalletScreen', 'Skipping re-auth mark - navigating to settings');
       return;
