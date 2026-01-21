@@ -8,16 +8,16 @@ MyQRL Wallet is a React Native/Expo mobile application that serves as a native w
 
 ## Architecture
 
-**WebView Wrapper Pattern**: The web app (zondwebwallet-frontend) runs inside a WebView. Native features are exposed via a postMessage bridge. The web app detects native context via User-Agent string containing "MyQRLWallet".
+**WebView Wrapper Pattern**: The web app (myqrlwallet-frontend) runs inside a WebView. Native features are exposed via a postMessage bridge. The web app detects native context via User-Agent string containing "MyQRLWallet".
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                 Native App (Expo/React Native)              │
 │  ┌──────────────┬────────────────┬───────────────────────┐  │
-│  │ BiometricSvc │ NotificationSvc│ NativeBridge          │  │
-│  │ (existing)   │ (planned)      │ - QR Scanner          │  │
-│  │              │ - Poll for txs │ - Clipboard           │  │
-│  │              │ - Local notifs │ - Share               │  │
+│  │ BiometricSvc │ ScreenSecurity │ NativeBridge          │  │
+│  │ - Device auth│ - Screenshot   │ - QR Scanner          │  │
+│  │ - Auto-lock  │   prevention   │ - Clipboard           │  │
+│  │              │ - FLAG_SECURE  │ - Share               │  │
 │  └──────────────┴────────────────┴───────────────────────┘  │
 │                           │                                  │
 │              postMessage / onMessage                         │
@@ -91,7 +91,15 @@ Encrypted seed persistence:
 - Enables biometric unlock flow (PIN stored separately)
 - Uses expo-secure-store for encrypted storage
 
-### 6. NotificationService (`services/NotificationService.ts`) - PLANNED
+### 6. ScreenSecurityService (`services/ScreenSecurityService.ts`)
+Screenshot and screen recording prevention:
+- Uses expo-screen-capture module
+- FLAG_SECURE on Android - screenshots show black, recording blocked
+- Secure text field technique on iOS - prevents screen capture
+- Disabled by default - user must explicitly enable after importing wallet
+- Persists setting via AsyncStorage
+
+### 7. NotificationService (`services/NotificationService.ts`) - PLANNED
 Push notifications:
 - Poll for new transactions in background
 - Local push notifications for incoming txs
@@ -137,7 +145,7 @@ Push notifications:
 6. Bridge injects JS: `window.dispatchEvent(new CustomEvent('nativeMessage', {...}))`
 7. Web app receives via `subscribeToNativeMessages()` → fills in address field
 
-## Integration with Frontend (zondwebwallet-frontend)
+## Integration with Frontend (myqrlwallet-frontend)
 
 The web app detects native context:
 ```typescript
@@ -174,6 +182,7 @@ myqrlwallet-app/
 │   ├── NativeBridge.ts     # Message routing
 │   ├── BiometricService.ts # Device auth
 │   ├── SeedStorageService.ts # Encrypted seed persistence
+│   ├── ScreenSecurityService.ts # Screenshot/recording prevention
 │   └── WebViewService.ts   # Session management
 ├── constants/
 │   └── Colors.ts           # Theme colors
@@ -190,6 +199,8 @@ myqrlwallet-app/
 - Auto-lock when app goes to background (requires re-auth on return)
 - PIN verified with web app before storing (ensures correct PIN)
 - Device auth required to disable Device Login
+- Device auth required to remove wallet when Device Login is enabled
+- Screenshot prevention available (disabled by default, user must enable)
 - Encrypted seeds stored in SecureStore (iOS Keychain / Android Keystore)
 - All native↔web communication via secure postMessage bridge
 
@@ -211,6 +222,8 @@ myqrlwallet-app/
 2. **Device Login** - Face ID / Touch ID / PIN / pattern authentication
 3. **Auto-Lock** - App locks when backgrounded, requires re-auth on return
 4. **Seed Backup** - Encrypted seeds backed up to SecureStore
+5. **Screenshot Prevention** - Block screenshots/recordings (expo-screen-capture)
+6. **Wallet Removal Protection** - Device auth required when Device Login enabled
 
 ## Planned Features
 
@@ -229,10 +242,13 @@ npm test -- --testNamePattern="name"  # Run specific tests
 
 Key native modules:
 - `react-native-webview` - WebView component
-- `expo-camera` - QR scanning (planned)
-- `expo-notifications` - Local push notifications (planned)
+- `expo-camera` - QR scanning
 - `expo-local-authentication` - Biometrics
+- `expo-screen-capture` - Screenshot/recording prevention
+- `expo-haptics` - Haptic feedback
+- `expo-secure-store` - Encrypted storage
 - `@react-native-async-storage/async-storage` - Persistence
+- `expo-notifications` - Local push notifications (planned)
 
 ## Theme System
 

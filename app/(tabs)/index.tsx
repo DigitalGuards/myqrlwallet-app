@@ -7,6 +7,7 @@ import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
+import Logger from '../../services/Logger';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 
@@ -16,9 +17,6 @@ const IOS_INACTIVE_TIMEOUT_MS = 300;
 
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [webViewReady, setWebViewReady] = useState(false);
-  const [webAppReady, setWebAppReady] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
@@ -41,10 +39,13 @@ export default function WalletScreen() {
 
   // Handle device login unlock and send PIN to web
   const performDeviceLoginUnlock = useCallback(async () => {
+    Logger.debug('WalletScreen', 'Device Login unlock requested');
     const result = await BiometricService.getPinWithBiometric();
     if (result.success && result.pin) {
-      console.log('[WalletScreen] Device Login successful, sending PIN to web');
+      Logger.debug('WalletScreen', 'Device Login succeeded, sending PIN to web');
       NativeBridge.sendUnlockWithPin(result.pin);
+    } else {
+      Logger.debug('WalletScreen', 'Device Login failed or cancelled', result.error);
     }
   }, []);
 
@@ -75,9 +76,8 @@ export default function WalletScreen() {
     setPinModalVisible(true);
   }, []);
 
-  // Handle seed stored event - just log for now, Device Login prompt shown on next launch
-  const handleSeedStored = useCallback(async (address: string) => {
-    console.log(`[WalletScreen] Seed stored for ${address}`);
+  // Handle seed stored event - Device Login prompt shown on next launch
+  const handleSeedStored = useCallback(async (_address: string) => {
     // Device Login setup prompt is shown on app reopen, not immediately during import
   }, []);
 
@@ -119,14 +119,14 @@ export default function WalletScreen() {
 
   // Handle QR scan request from web
   const handleQRScanRequest = useCallback(() => {
-    console.log('[WalletScreen] QR scan requested');
+    Logger.debug('WalletScreen', 'QR scan requested from web');
     qrScanSuccessful.current = false;
     setQrScannerVisible(true);
   }, []);
 
   // Handle QR scan result
   const handleQRScanResult = useCallback((data: string) => {
-    console.log('[WalletScreen] QR scanned:', data);
+    Logger.debug('WalletScreen', 'QR scan completed', data);
     qrScanSuccessful.current = true;
     // Send the scanned data to the WebView
     NativeBridge.sendQRResult(data);
@@ -137,7 +137,7 @@ export default function WalletScreen() {
     setQrScannerVisible(false);
     // If scanner was closed without successful scan, notify web app
     if (!qrScanSuccessful.current) {
-      console.log('[WalletScreen] QR scan cancelled');
+      Logger.debug('WalletScreen', 'QR scan cancelled by user');
       NativeBridge.sendQRCancelled();
     }
   }, []);
@@ -153,8 +153,6 @@ export default function WalletScreen() {
   // Check device login settings and authenticate if needed
   useEffect(() => {
     async function authCheck() {
-      setIsLoading(true);
-
       try {
         // Check if we have a stored wallet with Device Login enabled
         const hasWallet = await SeedStorageService.hasWallet();
@@ -193,11 +191,8 @@ export default function WalletScreen() {
           // No wallet - just authorize and let web handle it
           setIsAuthorized(true);
         }
-      } catch (error) {
-        console.error('Authentication error:', error);
+      } catch {
         setIsAuthorized(true); // Fallback to authorized on error
-      } finally {
-        setIsLoading(false);
       }
     }
 
@@ -210,9 +205,8 @@ export default function WalletScreen() {
 
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
-    console.log('[WalletScreen] Marking app for re-authentication');
+    Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
     needsReauth.current = true;
-    setWebAppReady(false);
     hasRestoredSeeds.current = false;
     NativeBridge.resetWebAppReady();
   }, []);
@@ -230,7 +224,6 @@ export default function WalletScreen() {
       // Android: straightforward background detection
       if (Platform.OS === 'android') {
         if (appState.current === 'active' && nextAppState === 'background') {
-          console.log('[WalletScreen] Android: App going to background');
           markForReauth();
         }
       }
@@ -241,15 +234,12 @@ export default function WalletScreen() {
       if (Platform.OS === 'ios') {
         if (appState.current === 'active' && nextAppState === 'inactive') {
           // Skip if we're currently showing biometric authentication
-          if (isAuthenticating.current) {
-            console.log('[WalletScreen] iOS: Ignoring inactive state during biometric auth');
-          } else {
+          if (!isAuthenticating.current) {
             // Start a timer - if we don't return to 'active' within the timeout,
             // treat it as actually leaving the app
             iosInactiveTimer.current = setTimeout(() => {
               // Check actual current state AND that we're not authenticating
               if (AppState.currentState !== 'active' && !isAuthenticating.current) {
-                console.log('[WalletScreen] iOS: App left active state (via inactive)');
                 markForReauth();
               }
             }, IOS_INACTIVE_TIMEOUT_MS);
@@ -260,7 +250,6 @@ export default function WalletScreen() {
         if (appState.current === 'active' && nextAppState === 'background') {
           // Only mark for reauth if not currently authenticating
           if (!isAuthenticating.current) {
-            console.log('[WalletScreen] iOS: App going directly to background');
             markForReauth();
           }
         }
@@ -270,7 +259,7 @@ export default function WalletScreen() {
       // Skip if we're returning from biometric prompt (isAuthenticating is true)
       if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
         if (needsReauth.current && !isAuthenticating.current) {
-          console.log('[WalletScreen] App returning to active, triggering re-authentication');
+          Logger.debug('WalletScreen', 'App foregrounded, triggering re-auth');
           needsReauth.current = false;
           setIsAuthorized(false);
         }
@@ -287,23 +276,26 @@ export default function WalletScreen() {
     };
   }, [markForReauth]);
 
-  // Handle WebView load - just mark as ready
+  // Handle WebView load
   // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
   const handleWebViewLoad = useCallback(() => {
-    setWebViewReady(true);
+    // WebView content loaded - web app will signal WEB_APP_READY when fully initialized
   }, []);
 
   // Handle WEB_APP_READY message from web - safe to send data now
   const handleWebAppReady = useCallback(async () => {
+    Logger.debug('WalletScreen', 'Web app ready signal received');
+
     // Prevent double execution (web app may send WEB_APP_READY multiple times)
     if (hasRestoredSeeds.current) {
+      Logger.debug('WalletScreen', 'Seeds already restored, skipping');
       return;
     }
     hasRestoredSeeds.current = true;
-    setWebAppReady(true);
 
     // Send pending unlock PIN if we have one
     if (pendingUnlockPin.current) {
+      Logger.debug('WalletScreen', 'Sending pending unlock PIN to web');
       NativeBridge.sendUnlockWithPin(pendingUnlockPin.current);
       pendingUnlockPin.current = null;
     }
@@ -311,9 +303,8 @@ export default function WalletScreen() {
     // Check if we need to restore any seeds
     const backups = await SeedStorageService.getAllBackups();
     if (backups.length > 0) {
-      console.log(`[WalletScreen] Restoring ${backups.length} wallet(s) from backup`);
+      Logger.debug('WalletScreen', `Restoring ${backups.length} seed backup(s)`);
       for (const backup of backups) {
-        console.log(` -> Restoring seed for ${backup.address}`);
         NativeBridge.sendRestoreSeed(backup.address, backup.encryptedSeed, backup.blockchain);
       }
     }
