@@ -3,6 +3,7 @@ import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Alert, Im
 import WebViewService, { UserPreferences } from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
+import ScreenSecurityService from '../../services/ScreenSecurityService';
 import NativeBridge from '../../services/NativeBridge';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
@@ -18,6 +19,7 @@ export default function SettingsScreen() {
   const [isDeviceLoginAvailable, setIsDeviceLoginAvailable] = useState(false);
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
+  const [preventScreenshots, setPreventScreenshots] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -46,6 +48,10 @@ export default function SettingsScreen() {
       const deviceLoginAvailable = await BiometricService.isBiometricAvailable();
       setIsDeviceLoginAvailable(deviceLoginAvailable);
 
+      // Load screenshot prevention setting
+      const screenshotPrevention = await ScreenSecurityService.isEnabled();
+      setPreventScreenshots(screenshotPrevention);
+
       // Initial wallet status check
       await loadWalletStatus();
     }
@@ -54,7 +60,7 @@ export default function SettingsScreen() {
   }, [loadWalletStatus]);
 
   // Save preferences when they change
-  const updatePreference = async (key: keyof UserPreferences, value: any) => {
+  const updatePreference = async (key: keyof UserPreferences, value: boolean) => {
     const updatedPreferences = { ...preferences, [key]: value };
     setPreferences(updatedPreferences);
     await WebViewService.saveUserPreferences(updatedPreferences);
@@ -79,8 +85,52 @@ export default function SettingsScreen() {
     }
   };
 
+  // Handle Screenshot Prevention toggle
+  const handleScreenshotPreventionToggle = async (newValue: boolean) => {
+    if (!newValue) {
+      // Warn user about security risk when disabling
+      Alert.alert(
+        'Security Warning',
+        'Disabling screenshot prevention allows screenshots and screen recordings of your wallet. This could expose sensitive information like your balance and addresses.\n\nAre you sure you want to disable this?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Disable Anyway',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await ScreenSecurityService.setEnabled(false);
+                setPreventScreenshots(false);
+              } catch (error) {
+                console.error('Failed to disable screenshot prevention:', error);
+                Alert.alert('Error', 'Could not disable screenshot prevention. Please try again.');
+              }
+            },
+          },
+        ]
+      );
+    } else {
+      try {
+        await ScreenSecurityService.setEnabled(true);
+        setPreventScreenshots(true);
+      } catch (error) {
+        console.error('Failed to enable screenshot prevention:', error);
+        Alert.alert('Error', 'Could not enable screenshot prevention. Please try again.');
+      }
+    }
+  };
+
   // Remove wallet - clears all wallet data from native storage
   const removeWallet = async () => {
+    // If Device Login is enabled, require authentication first
+    if (deviceLoginEnabled) {
+      const authResult = await BiometricService.authenticate('Authenticate to remove wallet');
+      if (!authResult.success) {
+        // Auth cancelled or failed - don't proceed
+        return;
+      }
+    }
+
     Alert.alert(
       'Remove Wallet',
       'This will permanently delete your wallet data from this device. Your seed phrase will be removed and you will need to re-import it to access your wallet again.\n\nMake sure you have backed up your seed phrase before continuing!',
@@ -132,7 +182,6 @@ export default function SettingsScreen() {
                       } else {
                         Alert.alert('Wallet Removed', 'Your wallet has been removed. Web data may need manual clearing.');
                       }
-                      router.back();
                     } catch (error) {
                       console.error('[Settings] Failed to remove wallet:', error);
                       Alert.alert(
@@ -191,8 +240,9 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.container}>
+      {/* General Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Security</Text>
+        <Text style={styles.sectionTitle}>General</Text>
 
         {/* Notifications */}
         <View style={styles.settingRow}>
@@ -208,29 +258,59 @@ export default function SettingsScreen() {
           />
         </View>
       </View>
-      
+
+      {/* Security Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Security</Text>
+
+        {/* Show message when no wallet exists */}
+        {!hasWallet && (
+          <Text style={styles.noWalletText}>
+            Import or create a wallet to access security settings
+          </Text>
+        )}
+
+        {/* Device Login Toggle - only show if wallet exists and biometrics available */}
+        {hasWallet && isDeviceLoginAvailable && (
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingTitle}>Device Login</Text>
+              <Text style={styles.settingDescription}>
+                Use Device Login to unlock your wallet automatically
+              </Text>
+            </View>
+            <Switch
+              value={deviceLoginEnabled}
+              onValueChange={handleDeviceLoginToggle}
+              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+              thumbColor={deviceLoginEnabled ? '#ff8700' : '#888'}
+            />
+          </View>
+        )}
+
+        {/* Screenshot Prevention Toggle - only show if wallet exists */}
+        {hasWallet && (
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingTitle}>Prevent Screenshots</Text>
+              <Text style={styles.settingDescription}>
+                Block screen capture and recording for security
+              </Text>
+            </View>
+            <Switch
+              value={preventScreenshots}
+              onValueChange={handleScreenshotPreventionToggle}
+              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
+              thumbColor={preventScreenshots ? '#ff8700' : '#888'}
+            />
+          </View>
+        )}
+      </View>
+
       {/* Wallet Management Section - only show if wallet exists */}
       {hasWallet && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Wallet</Text>
-
-          {/* Device Login Toggle */}
-          {isDeviceLoginAvailable && (
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextContainer}>
-                <Text style={styles.settingTitle}>Device Login</Text>
-                <Text style={styles.settingDescription}>
-                  Use Device Login to unlock your wallet automatically
-                </Text>
-              </View>
-              <Switch
-                value={deviceLoginEnabled}
-                onValueChange={handleDeviceLoginToggle}
-                trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-                thumbColor={deviceLoginEnabled ? '#ff8700' : '#888'}
-              />
-            </View>
-          )}
 
           {/* Remove Wallet Button */}
           <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>
@@ -262,11 +342,10 @@ export default function SettingsScreen() {
         
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../../assets/images/myqrlwallet/icon.png')}
+            source={require('../../assets/images/myqrlwallet/mqrlwallet.png')}
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.appTitle}>MyQRLWallet</Text>
           <Text style={styles.version}>Version {appVersion}</Text>
         </View>
         
@@ -378,6 +457,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
+  noWalletText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingVertical: 8,
+  },
   helpText: {
     fontSize: 12,
     color: '#888',
@@ -391,15 +477,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   logo: {
-    width: 80,
-    height: 80,
+    width: 200,
+    height: 56,
     marginBottom: 10,
-  },
-  appTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#f8fafc',
-    marginBottom: 5,
   },
   version: {
     fontSize: 14,

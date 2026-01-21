@@ -1,27 +1,34 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
-import { View, Platform } from 'react-native';
+import { View } from 'react-native';
 
-import { useColorScheme } from '@/hooks/useColorScheme';
-import Colors from '../constants/Colors';
+import ScreenSecurityService from '../services/ScreenSecurityService';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
 
   useEffect(() => {
     if (loaded) {
-      SplashScreen.hideAsync();
+      (async () => {
+        // Initialize screen security (screenshot prevention)
+        try {
+          await ScreenSecurityService.initialize();
+        } catch (error) {
+          console.error('Failed to initialize screen security:', error);
+        }
+        // Hide splash only after security is initialized
+        await SplashScreen.hideAsync();
+      })();
     }
   }, [loaded]);
 
@@ -29,19 +36,7 @@ export default function RootLayout() {
     return null;
   }
 
-  // Create custom theme based on our Colors
-  const customLightTheme = {
-    ...DefaultTheme,
-    colors: {
-      ...DefaultTheme.colors,
-      primary: '#ff8700', // QRL Orange
-      background: '#0A0A17', // Dark navy
-      card: '#0A0A17',
-      text: '#FFFFFF',
-      border: '#0A0A17',
-    },
-  };
-
+  // Create custom dark theme based on QRL colors
   const customDarkTheme = {
     ...DarkTheme,
     colors: {
