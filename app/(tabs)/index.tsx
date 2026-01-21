@@ -41,14 +41,15 @@ export default function WalletScreen() {
   const navigatingToSettings = useRef(false);
 
   // Navigate to settings
-  const navigateToSettings = () => {
+  const navigateToSettings = useCallback(() => {
+    Logger.debug('WalletScreen', 'navigateToSettings called, setting flag');
     navigatingToSettings.current = true;
     router.push('/settings');
     // Reset after navigation settles
     setTimeout(() => {
       navigatingToSettings.current = false;
     }, 1000);
-  };
+  }, []);
 
   // Handle device login unlock and send PIN to web
   const performDeviceLoginUnlock = useCallback(async () => {
@@ -161,7 +162,7 @@ export default function WalletScreen() {
     NativeBridge.onSeedStored(handleSeedStored);
     NativeBridge.onOpenNativeSettings(navigateToSettings);
     NativeBridge.onQRScanRequest(handleQRScanRequest);
-  }, [performDeviceLoginUnlock, handleSeedStored, handleQRScanRequest]);
+  }, [performDeviceLoginUnlock, handleSeedStored, handleQRScanRequest, navigateToSettings]);
 
   // Check device login settings and authenticate if needed
   useEffect(() => {
@@ -219,6 +220,7 @@ export default function WalletScreen() {
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     // Skip if intentionally navigating to settings - iOS triggers background/foreground on tab switch
+    Logger.debug('WalletScreen', `markForReauth called, navigatingToSettings=${navigatingToSettings.current}`);
     if (navigatingToSettings.current) {
       Logger.debug('WalletScreen', 'Skipping re-auth mark - navigating to settings');
       return;
