@@ -18,6 +18,9 @@ const IOS_INACTIVE_TIMEOUT_MS = 300;
 // Time threshold for showing loading screen (5 minutes in ms)
 const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;
 
+// Module-level flag to track settings navigation (avoids React closure issues)
+let isNavigatingToSettings = false;
+
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
@@ -37,18 +40,18 @@ export default function WalletScreen() {
   const isAuthenticating = useRef(false);
   // Track when app went to background for loading screen threshold
   const backgroundedAt = useRef<number | null>(null);
-  // Track when intentionally navigating to settings - iOS triggers background/foreground cycle on tab switch
-  const navigatingToSettings = useRef(false);
 
   // Navigate to settings
   const navigateToSettings = useCallback(() => {
-    Logger.debug('WalletScreen', 'navigateToSettings called, setting flag');
-    navigatingToSettings.current = true;
+    Logger.debug('WalletScreen', `navigateToSettings called, module flag BEFORE=${isNavigatingToSettings}`);
+    isNavigatingToSettings = true;
+    Logger.debug('WalletScreen', `navigateToSettings set flag, module flag AFTER=${isNavigatingToSettings}`);
     router.push('/settings');
     // Reset after navigation settles
     setTimeout(() => {
-      navigatingToSettings.current = false;
-    }, 1000);
+      Logger.debug('WalletScreen', 'Resetting isNavigatingToSettings flag');
+      isNavigatingToSettings = false;
+    }, 2000);  // Increased to 2 seconds
   }, []);
 
   // Handle device login unlock and send PIN to web
@@ -220,8 +223,8 @@ export default function WalletScreen() {
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     // Skip if intentionally navigating to settings - iOS triggers background/foreground on tab switch
-    Logger.debug('WalletScreen', `markForReauth called, navigatingToSettings=${navigatingToSettings.current}`);
-    if (navigatingToSettings.current) {
+    Logger.debug('WalletScreen', `markForReauth called, isNavigatingToSettings=${isNavigatingToSettings}`);
+    if (isNavigatingToSettings) {
       Logger.debug('WalletScreen', 'Skipping re-auth mark - navigating to settings');
       return;
     }
