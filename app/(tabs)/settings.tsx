@@ -141,7 +141,12 @@ export default function SettingsScreen() {
     const result = await BiometricService.changePin(currentPin, newPin);
 
     if (result.success) {
-      Alert.alert('Success', 'Your PIN has been changed successfully.');
+      // If there's an error message, it's a warning about a partial success
+      if (result.error) {
+        Alert.alert('Warning', result.error);
+      } else {
+        Alert.alert('Success', 'Your PIN has been changed successfully.');
+      }
     } else {
       Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.');
     }

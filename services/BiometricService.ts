@@ -254,16 +254,24 @@ class BiometricService {
       }
 
       // Update SecureStore with the new PIN
-      console.log('[BiometricService] Web confirmed PIN change, updating SecureStore...');
-      await SeedStorageService.storePinSecurely(newPin);
-      console.log('[BiometricService] PIN changed successfully');
+      try {
+        console.log('[BiometricService] Web confirmed PIN change, updating SecureStore...');
+        await SeedStorageService.storePinSecurely(newPin);
+        console.log('[BiometricService] PIN changed successfully');
+      } catch (storageError) {
+        console.error('[BiometricService] Failed to store new PIN for biometrics:', storageError);
+        return {
+          success: true, // The PIN change was successful on the web side
+          error: 'PIN changed, but failed to update for Device Login. Please disable and re-enable Device Login in settings to resolve this.',
+        };
+      }
 
       return { success: true };
     } catch (error) {
       console.error('[BiometricService] Failed to change PIN:', error);
       return {
         success: false,
-        error: 'Failed to change PIN',
+        error: 'An unexpected error occurred while changing your PIN.',
       };
     }
   }
