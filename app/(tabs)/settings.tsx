@@ -132,22 +132,22 @@ export default function SettingsScreen() {
     }
 
     Alert.alert(
-      'Remove Wallet',
-      'This will permanently delete your wallet data from this device. Your seed phrase will be removed and you will need to re-import it to access your wallet again.\n\nMake sure you have backed up your seed phrase before continuing!',
+      'Remove All Wallets',
+      'This will permanently delete ALL imported wallets from this device. Device Login will be disabled and you will need to re-import each wallet to access them again.\n\nMake sure you have backed up your seed phrases before continuing!',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove Wallet',
+          text: 'Remove All',
           style: 'destructive',
           onPress: async () => {
             // Second confirmation
             Alert.alert(
-              'Are you sure?',
-              'This action cannot be undone. Your wallet will be completely removed from this device.',
+              'Delete All Wallets?',
+              'ALL wallet data will be permanently removed. This action cannot be undone.',
               [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                  text: 'Yes, Remove',
+                  text: 'Yes, Delete All',
                   style: 'destructive',
                   onPress: async () => {
                     try {
@@ -315,10 +315,10 @@ export default function SettingsScreen() {
           {/* Remove Wallet Button */}
           <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>
             <FontAwesome name="warning" size={18} color="#ff6b6b" style={styles.buttonIcon} />
-            <Text style={styles.buttonTextDanger}>Remove Wallet</Text>
+            <Text style={styles.buttonTextDanger}>Remove All Wallets</Text>
           </TouchableOpacity>
           <Text style={styles.warningText}>
-            This will permanently delete your wallet data from this device.
+            This will permanently delete ALL wallets and disable Device Login.
           </Text>
         </View>
       )}
