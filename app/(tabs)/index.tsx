@@ -365,9 +365,9 @@ export default function WalletScreen() {
       // Show loading overlay
       setProcessingMessage('Enabling Device Login...');
 
-      // Execute the queued Device Login setup after a short delay
-      // The delay gives the WebView time to become fully active after navigation
-      setTimeout(async () => {
+      // Execute the queued Device Login setup after interactions complete
+      // InteractionManager ensures animations/transitions are done before executing
+      InteractionManager.runAfterInteractions(async () => {
         Logger.debug('WalletScreen', 'Executing queued Device Login setup');
         const result = await BiometricService.executePendingDeviceLoginSetup();
 
@@ -385,7 +385,7 @@ export default function WalletScreen() {
         }
 
         deviceLoginSetupTriggered.current = false;
-      }, 500); // 500ms delay for WebView to become active
+      });
     }
   }, [params.enableDeviceLogin, isAuthorized]);
 
@@ -403,9 +403,9 @@ export default function WalletScreen() {
       // Show loading overlay
       setProcessingMessage('Changing PIN...');
 
-      // Execute the queued PIN change after a short delay
-      // The delay gives the WebView time to become fully active after navigation
-      setTimeout(async () => {
+      // Execute the queued PIN change after interactions complete
+      // InteractionManager ensures animations/transitions are done before executing
+      InteractionManager.runAfterInteractions(async () => {
         Logger.debug('WalletScreen', 'Executing queued PIN change');
         const result = await BiometricService.executePendingPinChange();
 
@@ -430,7 +430,7 @@ export default function WalletScreen() {
         }
 
         pinChangeTriggered = false;
-      }, 500); // 500ms delay for WebView to become active
+      });
     }
   }, [params.changePin, isAuthorized]);
 
