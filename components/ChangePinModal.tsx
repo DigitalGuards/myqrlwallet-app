@@ -46,9 +46,10 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({
       setConfirmPin('');
       setError(null);
       // Focus first input with small delay
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
         currentPinRef.current?.focus();
       }, 100);
+      return () => clearTimeout(timerId);
     }
   }, [visible]);
 
@@ -100,10 +101,6 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({
   };
 
   const handleCancel = () => {
-    setCurrentPin('');
-    setNewPin('');
-    setConfirmPin('');
-    setError(null);
     onCancel();
   };
 
@@ -182,7 +179,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({
               autoCorrect={false}
               textContentType="none"
               returnKeyType="done"
-              onSubmitEditing={isFormValid() ? handleSubmit : undefined}
+              onSubmitEditing={handleSubmit}
             />
 
             {error && <Text style={styles.error}>{error}</Text>}
@@ -201,7 +198,6 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({
                   !isFormValid() && styles.submitButtonDisabled,
                 ]}
                 onPress={handleSubmit}
-                disabled={!isFormValid()}
               >
                 <Text
                   style={[
