@@ -16,6 +16,8 @@ interface PinChangeRequest {
 class BiometricService {
   // In-memory queue for PIN change (used during navigation from Settings to WebView tab)
   private pendingPinChange: PinChangeRequest | null = null;
+  // In-memory queue for Device Login setup (used during navigation from Settings to WebView tab)
+  private pendingDeviceLoginPin: string | null = null;
   /**
    * Check if device supports any form of authentication (biometrics, PIN, pattern, passcode)
    * @returns True if device has any authentication method available
@@ -286,6 +288,54 @@ class BiometricService {
    */
   clearPendingPinChange(): void {
     this.pendingPinChange = null;
+  }
+
+  // ============================================================
+  // Device Login Setup Queue (for navigation-based execution)
+  // ============================================================
+  // Same pattern as PIN change - queue on Settings, execute on WebView tab.
+
+  /**
+   * Queue a Device Login setup request for execution after navigation
+   * Call this from Settings, then navigate to index with ?enableDeviceLogin=true
+   * @param pin The PIN to verify and store for Device Login
+   */
+  queueDeviceLoginSetup(pin: string): void {
+    this.pendingDeviceLoginPin = pin;
+  }
+
+  /**
+   * Check if there's a pending Device Login setup request
+   */
+  hasPendingDeviceLoginSetup(): boolean {
+    return this.pendingDeviceLoginPin !== null;
+  }
+
+  /**
+   * Execute the queued Device Login setup request
+   * Call this from index.tsx when enableDeviceLogin param is detected
+   * @returns Result of the setup operation
+   */
+  async executePendingDeviceLoginSetup(): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    if (!this.pendingDeviceLoginPin) {
+      return { success: false, error: 'No Device Login setup request queued' };
+    }
+
+    const pin = this.pendingDeviceLoginPin;
+    this.pendingDeviceLoginPin = null; // Clear immediately to prevent re-execution
+
+    return this.setupDeviceLogin(pin);
+  }
+
+  /**
+   * Clear any pending Device Login setup request
+   * Call this if the operation is cancelled
+   */
+  clearPendingDeviceLoginSetup(): void {
+    this.pendingDeviceLoginPin = null;
   }
 
   /**
