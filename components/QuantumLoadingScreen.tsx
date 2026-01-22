@@ -154,17 +154,17 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible, cu
       }),
     ]).start();
 
-    // Subtle pulse animation
+    // Subtle pulse animation (very subtle - just 2% scale change)
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(logoScale, {
-          toValue: 1.05,
-          duration: 1500,
+          toValue: 1.02,
+          duration: 2000,
           useNativeDriver: true,
         }),
         Animated.timing(logoScale, {
           toValue: 1,
-          duration: 1500,
+          duration: 2000,
           useNativeDriver: true,
         }),
       ])

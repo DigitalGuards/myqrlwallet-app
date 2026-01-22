@@ -353,32 +353,41 @@ export default function WalletScreen() {
   }, [handleWebAppReady]);
 
   // Handle Device Login setup request from Settings tab
-  // Note: We only need isAuthorized (WebView mounted) since verifyPin waits for web app ready internally
+  // WebView must be active (on this tab) for the JS bridge to process messages reliably
   useEffect(() => {
     if (params.enableDeviceLogin === 'true' && isAuthorized && !deviceLoginSetupTriggered.current) {
       // Mark as triggered to prevent re-execution
       deviceLoginSetupTriggered.current = true;
 
-      // Clear the param to prevent re-triggering on subsequent renders
-      router.setParams({ enableDeviceLogin: undefined });
+      // Clear the param AFTER marking as triggered to prevent race conditions
+      setTimeout(() => router.setParams({ enableDeviceLogin: undefined }), 0);
 
-      // Show PIN modal for Device Login setup
-      // The PIN verification will wait for web app to be ready internally
-      showPinModal(async (pin: string) => {
-        const setupResult = await BiometricService.setupDeviceLogin(pin);
-        if (setupResult.success) {
+      // Show loading overlay
+      setProcessingMessage('Enabling Device Login...');
+
+      // Execute the queued Device Login setup after a short delay
+      // The delay gives the WebView time to become fully active after navigation
+      setTimeout(async () => {
+        Logger.debug('WalletScreen', 'Executing queued Device Login setup');
+        const result = await BiometricService.executePendingDeviceLoginSetup();
+
+        // Hide loading overlay
+        setProcessingMessage(null);
+
+        if (result.success) {
           Alert.alert('Success', 'Device Login enabled!', [
             { text: 'OK', onPress: () => router.push('/settings') }
           ]);
         } else {
-          Alert.alert('Error', setupResult.error || 'Failed to enable Device Login', [
+          Alert.alert('Error', result.error || 'Failed to enable Device Login', [
             { text: 'OK', onPress: () => router.push('/settings') }
           ]);
         }
+
         deviceLoginSetupTriggered.current = false;
-      });
+      }, 500); // 500ms delay for WebView to become active
     }
-  }, [params.enableDeviceLogin, isAuthorized, showPinModal]);
+  }, [params.enableDeviceLogin, isAuthorized]);
 
   // Handle PIN change request from Settings tab
   // WebView must be active (on this tab) for the JS bridge to process messages reliably

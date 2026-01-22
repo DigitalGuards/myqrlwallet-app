@@ -10,6 +10,7 @@ import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { ChangePinModal } from '../../components/ChangePinModal';
+import { PinEntryModal } from '../../components/PinEntryModal';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -22,6 +23,7 @@ export default function SettingsScreen() {
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
   const [preventScreenshots, setPreventScreenshots] = useState(false);
   const [showChangePinModal, setShowChangePinModal] = useState(false);
+  const [showDeviceLoginPinModal, setShowDeviceLoginPinModal] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -71,9 +73,8 @@ export default function SettingsScreen() {
   // Handle Device Login toggle
   const handleDeviceLoginToggle = async (newValue: boolean) => {
     if (newValue) {
-      // Navigate to main tab with intent to enable Device Login
-      // WebView must be active for PIN verification to work
-      router.replace('/?enableDeviceLogin=true');
+      // Show PIN modal - user enters their wallet PIN to enable Device Login
+      setShowDeviceLoginPinModal(true);
     } else {
       // Disable Device Login - require device auth first
       const authResult = await BiometricService.authenticate('Authenticate to disable Device Login');
@@ -85,6 +86,23 @@ export default function SettingsScreen() {
       setDeviceLoginEnabled(false);
       Alert.alert('Disabled', 'Device Login has been disabled.');
     }
+  };
+
+  // Handle Device Login PIN modal submission
+  const handleDeviceLoginPinSubmit = (pin: string) => {
+    setShowDeviceLoginPinModal(false);
+
+    // Queue the setup request
+    BiometricService.queueDeviceLoginSetup(pin);
+
+    // Navigate to main tab - WebView must be active for PIN verification
+    router.replace('/?enableDeviceLogin=true');
+  };
+
+  // Handle Device Login PIN modal cancel
+  const handleDeviceLoginPinCancel = () => {
+    setShowDeviceLoginPinModal(false);
+    // Toggle stays OFF since we haven't enabled yet
   };
 
   // Handle Screenshot Prevention toggle
@@ -315,14 +333,6 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Change PIN Button - available when user has a wallet (PIN exists for seed encryption) */}
-        {hasWallet && (
-          <TouchableOpacity style={[styles.button, styles.primaryButton]} onPress={handleChangePinPress}>
-            <FontAwesome name="lock" size={18} color="#fff" style={styles.buttonIcon} />
-            <Text style={styles.buttonTextPrimary}>Change PIN</Text>
-          </TouchableOpacity>
-        )}
-
         {/* Screenshot Prevention Toggle - only show if wallet exists */}
         {hasWallet && (
           <View style={styles.settingRow}>
@@ -339,6 +349,14 @@ export default function SettingsScreen() {
               thumbColor={preventScreenshots ? '#ff8700' : '#888'}
             />
           </View>
+        )}
+
+        {/* Change PIN Button - available when user has a wallet (PIN exists for seed encryption) */}
+        {hasWallet && (
+          <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleChangePinPress}>
+            <FontAwesome name="lock" size={18} color="#ff8700" style={styles.buttonIcon} />
+            <Text style={styles.buttonTextSecondary}>Change PIN</Text>
+          </TouchableOpacity>
         )}
       </View>
 
@@ -422,6 +440,15 @@ export default function SettingsScreen() {
         onSubmit={handleChangePinSubmit}
         onCancel={() => setShowChangePinModal(false)}
       />
+
+      {/* Device Login PIN Modal */}
+      <PinEntryModal
+        visible={showDeviceLoginPinModal}
+        title="Enable Device Login"
+        message="Enter your wallet PIN to enable Device Login"
+        onSubmit={handleDeviceLoginPinSubmit}
+        onCancel={handleDeviceLoginPinCancel}
+      />
     </ScrollView>
   );
 }
@@ -493,13 +520,13 @@ const styles = StyleSheet.create({
     borderColor: '#ff6b6b44',
     backgroundColor: '#ff6b6b11',
   },
-  primaryButton: {
+  secondaryButton: {
     marginTop: 16,
-    borderColor: '#ff8700',
-    backgroundColor: '#ff8700',
+    borderColor: '#ff870044',
+    backgroundColor: '#ff870011',
   },
-  buttonTextPrimary: {
-    color: '#fff',
+  buttonTextSecondary: {
+    color: '#ff8700',
     fontSize: 16,
     fontWeight: '500',
   },
