@@ -729,10 +729,10 @@ class NativeBridge {
    * Waits for web app to be ready before sending the request
    * @param oldPin The current PIN to verify
    * @param newPin The new PIN to encrypt seeds with
-   * @param timeoutMs Timeout in milliseconds for change operation (default 15 seconds)
+   * @param timeoutMs Timeout in milliseconds for change operation (default 30 seconds)
    * @returns Promise that resolves with change result
    */
-  async changePin(oldPin: string, newPin: string, timeoutMs: number = 15000): Promise<{ success: boolean; error?: string }> {
+  async changePin(oldPin: string, newPin: string, timeoutMs: number = 30000): Promise<{ success: boolean; error?: string }> {
     // Prevent race condition - reject if change already in progress
     if (this.pinChangedCallback) {
       return { success: false, error: 'A PIN change is already in progress' };
