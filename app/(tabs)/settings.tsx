@@ -315,8 +315,8 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Change PIN Button - only show when Device Login is enabled */}
-        {deviceLoginEnabled && (
+        {/* Change PIN Button - available when user has a wallet (PIN exists for seed encryption) */}
+        {hasWallet && (
           <TouchableOpacity style={[styles.button, styles.primaryButton]} onPress={handleChangePinPress}>
             <FontAwesome name="lock" size={18} color="#fff" style={styles.buttonIcon} />
             <Text style={styles.buttonTextPrimary}>Change PIN</Text>
