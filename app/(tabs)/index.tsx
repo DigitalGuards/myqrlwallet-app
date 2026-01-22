@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform, ActivityIndicator, Text } from 'react-native';
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
@@ -30,6 +30,7 @@ export default function WalletScreen() {
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const isFocused = useIsFocused();
   const params = useLocalSearchParams<{ enableDeviceLogin?: string; changePin?: string }>();
   const appState = useRef(AppState.currentState);
@@ -388,11 +389,17 @@ export default function WalletScreen() {
       // Clear the param to prevent re-triggering on subsequent renders
       router.setParams({ changePin: undefined });
 
+      // Show loading overlay
+      setProcessingMessage('Changing PIN...');
+
       // Execute the queued PIN change
       // The PIN change was already queued in BiometricService before navigation
       (async () => {
         Logger.debug('WalletScreen', 'Executing queued PIN change');
         const result = await BiometricService.executePendingPinChange();
+
+        // Hide loading overlay
+        setProcessingMessage(null);
 
         if (result.success) {
           // If there's an error message, it's a warning about a partial success
@@ -447,6 +454,15 @@ export default function WalletScreen() {
         onScan={handleQRScanResult}
         onClose={handleQRScannerClose}
       />
+      {/* Processing overlay - shown during operations like PIN change */}
+      {processingMessage && (
+        <RNView style={styles.processingOverlay}>
+          <RNView style={styles.processingContent}>
+            <ActivityIndicator size="large" color="#ff8700" />
+            <Text style={styles.processingText}>{processingMessage}</Text>
+          </RNView>
+        </RNView>
+      )}
     </RNView>
   );
 }
@@ -465,5 +481,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: -9999,
     top: -9999,
+  },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0A0A17',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  processingContent: {
+    alignItems: 'center',
+    gap: 16,
+  },
+  processingText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
