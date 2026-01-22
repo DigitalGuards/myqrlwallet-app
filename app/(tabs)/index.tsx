@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform, ActivityIndicator, Text } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform } from 'react-native';
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
+import QuantumLoadingScreen from '../../components/QuantumLoadingScreen';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
@@ -386,15 +387,16 @@ export default function WalletScreen() {
       // Mark as triggered to prevent re-execution
       pinChangeTriggered = true;
 
-      // Clear the param to prevent re-triggering on subsequent renders
-      router.setParams({ changePin: undefined });
+      // Clear the param AFTER marking as triggered to prevent race conditions
+      // Use setTimeout to avoid clearing during this render cycle
+      setTimeout(() => router.setParams({ changePin: undefined }), 0);
 
       // Show loading overlay
       setProcessingMessage('Changing PIN...');
 
-      // Execute the queued PIN change
-      // The PIN change was already queued in BiometricService before navigation
-      (async () => {
+      // Execute the queued PIN change after a short delay
+      // The delay gives the WebView time to become fully active after navigation
+      setTimeout(async () => {
         Logger.debug('WalletScreen', 'Executing queued PIN change');
         const result = await BiometricService.executePendingPinChange();
 
@@ -419,7 +421,7 @@ export default function WalletScreen() {
         }
 
         pinChangeTriggered = false;
-      })();
+      }, 500); // 500ms delay for WebView to become active
     }
   }, [params.changePin, isAuthorized]);
 
@@ -455,14 +457,10 @@ export default function WalletScreen() {
         onClose={handleQRScannerClose}
       />
       {/* Processing overlay - shown during operations like PIN change */}
-      {processingMessage && (
-        <RNView style={styles.processingOverlay}>
-          <RNView style={styles.processingContent}>
-            <ActivityIndicator size="large" color="#ff8700" />
-            <Text style={styles.processingText}>{processingMessage}</Text>
-          </RNView>
-        </RNView>
-      )}
+      <QuantumLoadingScreen
+        visible={!!processingMessage}
+        customMessage={processingMessage || undefined}
+      />
     </RNView>
   );
 }
@@ -481,20 +479,5 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: -9999,
     top: -9999,
-  },
-  processingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0A0A17',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  processingContent: {
-    alignItems: 'center',
-    gap: 16,
-  },
-  processingText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
   },
 });
