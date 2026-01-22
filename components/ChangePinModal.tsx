@@ -76,24 +76,28 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({
     // Validate current PIN
     if (!isValidPin(currentPin)) {
       setError(`Current PIN must be ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`);
+      currentPinRef.current?.focus();
       return;
     }
 
     // Validate new PIN
     if (!isValidPin(newPin)) {
       setError(`New PIN must be ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`);
+      newPinRef.current?.focus();
       return;
     }
 
     // Check PINs match
     if (newPin !== confirmPin) {
       setError('New PINs do not match');
+      confirmPinRef.current?.focus();
       return;
     }
 
     // Check new PIN is different
     if (newPin === currentPin) {
       setError('New PIN must be different from current PIN');
+      newPinRef.current?.focus();
       return;
     }
 
@@ -304,5 +308,3 @@ const styles = StyleSheet.create({
     color: '#888',
   },
 });
-
-export default ChangePinModal;
