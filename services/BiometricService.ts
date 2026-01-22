@@ -226,6 +226,47 @@ class BiometricService {
 
     return available && enabled && hasPin;
   }
+
+  /**
+   * Change the wallet PIN
+   * Sends CHANGE_PIN message to web app to re-encrypt all seeds
+   * Updates SecureStore with new PIN on success
+   * @param oldPin The current PIN
+   * @param newPin The new PIN to set
+   * @returns Success status and optional error message
+   */
+  async changePin(oldPin: string, newPin: string): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    try {
+      console.log('[BiometricService] Requesting PIN change via web app...');
+
+      // Send CHANGE_PIN to web and wait for PIN_CHANGED response
+      const result = await NativeBridge.changePin(oldPin, newPin);
+
+      if (!result.success) {
+        console.log('[BiometricService] PIN change failed:', result.error);
+        return {
+          success: false,
+          error: result.error || 'Failed to change PIN',
+        };
+      }
+
+      // Update SecureStore with the new PIN
+      console.log('[BiometricService] Web confirmed PIN change, updating SecureStore...');
+      await SeedStorageService.storePinSecurely(newPin);
+      console.log('[BiometricService] PIN changed successfully');
+
+      return { success: true };
+    } catch (error) {
+      console.error('[BiometricService] Failed to change PIN:', error);
+      return {
+        success: false,
+        error: 'Failed to change PIN',
+      };
+    }
+  }
 }
 
 export default new BiometricService(); 
