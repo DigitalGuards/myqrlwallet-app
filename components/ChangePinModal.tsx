@@ -116,7 +116,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({
       onRequestClose={handleCancel}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
       >
         <ScrollView
