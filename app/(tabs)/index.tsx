@@ -11,6 +11,9 @@ import Logger from '../../services/Logger';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+// Track if PIN change is in progress (avoids React closure issues)
+let pinChangeTriggered = false;
+
 // Time to wait before treating iOS 'inactive' state as actual backgrounding
 // iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
 const IOS_INACTIVE_TIMEOUT_MS = 300;
@@ -28,7 +31,7 @@ export default function WalletScreen() {
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
   const isFocused = useIsFocused();
-  const params = useLocalSearchParams<{ enableDeviceLogin?: string }>();
+  const params = useLocalSearchParams<{ enableDeviceLogin?: string; changePin?: string }>();
   const appState = useRef(AppState.currentState);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
@@ -374,6 +377,44 @@ export default function WalletScreen() {
       });
     }
   }, [params.enableDeviceLogin, isAuthorized, showPinModal]);
+
+  // Handle PIN change request from Settings tab
+  // WebView must be active (on this tab) for the JS bridge to process messages reliably
+  useEffect(() => {
+    if (params.changePin === 'true' && isAuthorized && !pinChangeTriggered) {
+      // Mark as triggered to prevent re-execution
+      pinChangeTriggered = true;
+
+      // Clear the param to prevent re-triggering on subsequent renders
+      router.setParams({ changePin: undefined });
+
+      // Execute the queued PIN change
+      // The PIN change was already queued in BiometricService before navigation
+      (async () => {
+        Logger.debug('WalletScreen', 'Executing queued PIN change');
+        const result = await BiometricService.executePendingPinChange();
+
+        if (result.success) {
+          // If there's an error message, it's a warning about a partial success
+          if (result.error) {
+            Alert.alert('Warning', result.error, [
+              { text: 'OK', onPress: () => router.push('/settings') }
+            ]);
+          } else {
+            Alert.alert('Success', 'Your PIN has been changed successfully.', [
+              { text: 'OK', onPress: () => router.push('/settings') }
+            ]);
+          }
+        } else {
+          Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.', [
+            { text: 'OK', onPress: () => router.push('/settings') }
+          ]);
+        }
+
+        pinChangeTriggered = false;
+      })();
+    }
+  }, [params.changePin, isAuthorized]);
 
   // Update session timestamp on screen focus
   useEffect(() => {
