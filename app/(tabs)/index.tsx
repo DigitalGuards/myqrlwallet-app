@@ -3,6 +3,7 @@ import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert,
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
+import QuantumLoadingScreen from '../../components/QuantumLoadingScreen';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
@@ -10,6 +11,9 @@ import NativeBridge from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
+
+// Track if PIN change is in progress (avoids React closure issues)
+let pinChangeTriggered = false;
 
 // Time to wait before treating iOS 'inactive' state as actual backgrounding
 // iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
@@ -27,8 +31,9 @@ export default function WalletScreen() {
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const isFocused = useIsFocused();
-  const params = useLocalSearchParams<{ enableDeviceLogin?: string }>();
+  const params = useLocalSearchParams<{ enableDeviceLogin?: string; changePin?: string }>();
   const appState = useRef(AppState.currentState);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
@@ -375,6 +380,51 @@ export default function WalletScreen() {
     }
   }, [params.enableDeviceLogin, isAuthorized, showPinModal]);
 
+  // Handle PIN change request from Settings tab
+  // WebView must be active (on this tab) for the JS bridge to process messages reliably
+  useEffect(() => {
+    if (params.changePin === 'true' && isAuthorized && !pinChangeTriggered) {
+      // Mark as triggered to prevent re-execution
+      pinChangeTriggered = true;
+
+      // Clear the param AFTER marking as triggered to prevent race conditions
+      // Use setTimeout to avoid clearing during this render cycle
+      setTimeout(() => router.setParams({ changePin: undefined }), 0);
+
+      // Show loading overlay
+      setProcessingMessage('Changing PIN...');
+
+      // Execute the queued PIN change after a short delay
+      // The delay gives the WebView time to become fully active after navigation
+      setTimeout(async () => {
+        Logger.debug('WalletScreen', 'Executing queued PIN change');
+        const result = await BiometricService.executePendingPinChange();
+
+        // Hide loading overlay
+        setProcessingMessage(null);
+
+        if (result.success) {
+          // If there's an error message, it's a warning about a partial success
+          if (result.error) {
+            Alert.alert('Warning', result.error, [
+              { text: 'OK', onPress: () => router.push('/settings') }
+            ]);
+          } else {
+            Alert.alert('Success', 'Your PIN has been changed successfully.', [
+              { text: 'OK', onPress: () => router.push('/settings') }
+            ]);
+          }
+        } else {
+          Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.', [
+            { text: 'OK', onPress: () => router.push('/settings') }
+          ]);
+        }
+
+        pinChangeTriggered = false;
+      }, 500); // 500ms delay for WebView to become active
+    }
+  }, [params.changePin, isAuthorized]);
+
   // Update session timestamp on screen focus
   useEffect(() => {
     if (isFocused && isAuthorized) {
@@ -405,6 +455,11 @@ export default function WalletScreen() {
         visible={qrScannerVisible}
         onScan={handleQRScanResult}
         onClose={handleQRScannerClose}
+      />
+      {/* Processing overlay - shown during operations like PIN change */}
+      <QuantumLoadingScreen
+        visible={!!processingMessage}
+        customMessage={processingMessage || undefined}
       />
     </RNView>
   );

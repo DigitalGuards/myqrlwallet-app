@@ -3,9 +3,19 @@ import SeedStorageService from './SeedStorageService';
 import NativeBridge from './NativeBridge';
 
 /**
+ * Queued PIN change request (stored in memory for navigation between screens)
+ */
+interface PinChangeRequest {
+  oldPin: string;
+  newPin: string;
+}
+
+/**
  * Service for managing device authentication (biometrics, PIN, pattern, passcode)
  */
 class BiometricService {
+  // In-memory queue for PIN change (used during navigation from Settings to WebView tab)
+  private pendingPinChange: PinChangeRequest | null = null;
   /**
    * Check if device supports any form of authentication (biometrics, PIN, pattern, passcode)
    * @returns True if device has any authentication method available
@@ -225,6 +235,106 @@ class BiometricService {
     const hasPin = await SeedStorageService.hasPinStored();
 
     return available && enabled && hasPin;
+  }
+
+  // ============================================================
+  // PIN Change Queue (for navigation-based execution)
+  // ============================================================
+  // WebView JavaScript execution is throttled when Settings tab is active.
+  // To execute PIN change reliably, we queue the request and navigate to
+  // the WebView tab, which activates the WebView and processes the message.
+
+  /**
+   * Queue a PIN change request for execution after navigation
+   * Call this from Settings, then navigate to index with ?changePin=true
+   * @param oldPin The current PIN
+   * @param newPin The new PIN to set
+   */
+  queuePinChange(oldPin: string, newPin: string): void {
+    this.pendingPinChange = { oldPin, newPin };
+  }
+
+  /**
+   * Check if there's a pending PIN change request
+   */
+  hasPendingPinChange(): boolean {
+    return this.pendingPinChange !== null;
+  }
+
+  /**
+   * Execute the queued PIN change request
+   * Call this from index.tsx when changePin param is detected
+   * @returns Result of the PIN change operation
+   */
+  async executePendingPinChange(): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    if (!this.pendingPinChange) {
+      return { success: false, error: 'No PIN change request queued' };
+    }
+
+    const { oldPin, newPin } = this.pendingPinChange;
+    this.pendingPinChange = null; // Clear immediately to prevent re-execution
+
+    return this.changePin(oldPin, newPin);
+  }
+
+  /**
+   * Clear any pending PIN change request
+   * Call this if the operation is cancelled
+   */
+  clearPendingPinChange(): void {
+    this.pendingPinChange = null;
+  }
+
+  /**
+   * Change the wallet PIN
+   * Sends CHANGE_PIN message to web app to re-encrypt all seeds
+   * Updates SecureStore with new PIN on success
+   * @param oldPin The current PIN
+   * @param newPin The new PIN to set
+   * @returns Success status and optional error message
+   */
+  async changePin(oldPin: string, newPin: string): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    try {
+      console.log('[BiometricService] Requesting PIN change via web app...');
+
+      // Send CHANGE_PIN to web and wait for PIN_CHANGED response
+      const result = await NativeBridge.changePin(oldPin, newPin);
+
+      if (!result.success) {
+        console.log('[BiometricService] PIN change failed:', result.error);
+        return {
+          success: false,
+          error: result.error || 'Failed to change PIN',
+        };
+      }
+
+      // Update SecureStore with the new PIN
+      try {
+        console.log('[BiometricService] Web confirmed PIN change, updating SecureStore...');
+        await SeedStorageService.storePinSecurely(newPin);
+        console.log('[BiometricService] PIN changed successfully');
+      } catch (storageError) {
+        console.error('[BiometricService] Failed to store new PIN for biometrics:', storageError);
+        return {
+          success: true, // The PIN change was successful on the web side
+          error: 'PIN changed, but failed to update for Device Login. Please disable and re-enable Device Login in settings to resolve this.',
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('[BiometricService] Failed to change PIN:', error);
+      return {
+        success: false,
+        error: 'An unexpected error occurred while changing your PIN.',
+      };
+    }
   }
 }
 
