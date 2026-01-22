@@ -9,6 +9,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
+import { ChangePinModal } from '../../components/ChangePinModal';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -20,6 +21,7 @@ export default function SettingsScreen() {
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
   const [preventScreenshots, setPreventScreenshots] = useState(false);
+  const [showChangePinModal, setShowChangePinModal] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -117,6 +119,31 @@ export default function SettingsScreen() {
         console.error('Failed to enable screenshot prevention:', error);
         Alert.alert('Error', 'Could not enable screenshot prevention. Please try again.');
       }
+    }
+  };
+
+  // Handle Change PIN button press
+  const handleChangePinPress = async () => {
+    // Require biometric authentication first
+    const authResult = await BiometricService.authenticate('Authenticate to change PIN');
+    if (!authResult.success) {
+      // Auth cancelled or failed - don't show modal
+      return;
+    }
+    // Show the Change PIN modal after successful auth
+    setShowChangePinModal(true);
+  };
+
+  // Handle Change PIN modal submission
+  const handleChangePinSubmit = async (currentPin: string, newPin: string) => {
+    setShowChangePinModal(false);
+
+    const result = await BiometricService.changePin(currentPin, newPin);
+
+    if (result.success) {
+      Alert.alert('Success', 'Your PIN has been changed successfully.');
+    } else {
+      Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.');
     }
   };
 
@@ -288,6 +315,14 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* Change PIN Button - only show when Device Login is enabled */}
+        {deviceLoginEnabled && (
+          <TouchableOpacity style={[styles.button, styles.primaryButton]} onPress={handleChangePinPress}>
+            <FontAwesome name="lock" size={18} color="#fff" style={styles.buttonIcon} />
+            <Text style={styles.buttonTextPrimary}>Change PIN</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Screenshot Prevention Toggle - only show if wallet exists */}
         {hasWallet && (
           <View style={styles.settingRow}>
@@ -380,6 +415,13 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Change PIN Modal */}
+      <ChangePinModal
+        visible={showChangePinModal}
+        onSubmit={handleChangePinSubmit}
+        onCancel={() => setShowChangePinModal(false)}
+      />
     </ScrollView>
   );
 }
@@ -450,6 +492,16 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderColor: '#ff6b6b44',
     backgroundColor: '#ff6b6b11',
+  },
+  primaryButton: {
+    marginTop: 16,
+    borderColor: '#ff8700',
+    backgroundColor: '#ff8700',
+  },
+  buttonTextPrimary: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
   },
   warningText: {
     fontSize: 12,
