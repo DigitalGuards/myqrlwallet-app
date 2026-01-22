@@ -9,6 +9,7 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
+import { ChangePinModal } from '../../components/ChangePinModal';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -20,6 +21,7 @@ export default function SettingsScreen() {
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
   const [preventScreenshots, setPreventScreenshots] = useState(false);
+  const [showChangePinModal, setShowChangePinModal] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -120,6 +122,31 @@ export default function SettingsScreen() {
     }
   };
 
+  // Handle Change PIN button press
+  const handleChangePinPress = async () => {
+    // Require biometric authentication first
+    const authResult = await BiometricService.authenticate('Authenticate to change PIN');
+    if (!authResult.success) {
+      // Auth cancelled or failed - don't show modal
+      return;
+    }
+    // Show the Change PIN modal after successful auth
+    setShowChangePinModal(true);
+  };
+
+  // Handle Change PIN modal submission
+  // Queue the PIN change and navigate to WebView tab for execution
+  // This is necessary because WebView JS execution is throttled when Settings tab is active
+  const handleChangePinSubmit = (currentPin: string, newPin: string) => {
+    setShowChangePinModal(false);
+
+    // Queue the PIN change request
+    BiometricService.queuePinChange(currentPin, newPin);
+
+    // Navigate to main tab - WebView must be active for PIN change to work
+    router.replace('/?changePin=true');
+  };
+
   // Remove wallet - clears all wallet data from native storage
   const removeWallet = async () => {
     // If Device Login is enabled, require authentication first
@@ -132,22 +159,22 @@ export default function SettingsScreen() {
     }
 
     Alert.alert(
-      'Remove Wallet',
-      'This will permanently delete your wallet data from this device. Your seed phrase will be removed and you will need to re-import it to access your wallet again.\n\nMake sure you have backed up your seed phrase before continuing!',
+      'Remove All Wallets',
+      'This will permanently delete ALL imported wallets from this device. Device Login will be disabled and you will need to re-import each wallet to access them again.\n\nMake sure you have backed up your seed phrases before continuing!',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove Wallet',
+          text: 'Remove All',
           style: 'destructive',
           onPress: async () => {
             // Second confirmation
             Alert.alert(
-              'Are you sure?',
-              'This action cannot be undone. Your wallet will be completely removed from this device.',
+              'Delete All Wallets?',
+              'ALL wallet data will be permanently removed. This action cannot be undone.',
               [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                  text: 'Yes, Remove',
+                  text: 'Yes, Delete All',
                   style: 'destructive',
                   onPress: async () => {
                     try {
@@ -288,6 +315,14 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* Change PIN Button - available when user has a wallet (PIN exists for seed encryption) */}
+        {hasWallet && (
+          <TouchableOpacity style={[styles.button, styles.primaryButton]} onPress={handleChangePinPress}>
+            <FontAwesome name="lock" size={18} color="#fff" style={styles.buttonIcon} />
+            <Text style={styles.buttonTextPrimary}>Change PIN</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Screenshot Prevention Toggle - only show if wallet exists */}
         {hasWallet && (
           <View style={styles.settingRow}>
@@ -315,10 +350,10 @@ export default function SettingsScreen() {
           {/* Remove Wallet Button */}
           <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>
             <FontAwesome name="warning" size={18} color="#ff6b6b" style={styles.buttonIcon} />
-            <Text style={styles.buttonTextDanger}>Remove Wallet</Text>
+            <Text style={styles.buttonTextDanger}>Remove All Wallets</Text>
           </TouchableOpacity>
           <Text style={styles.warningText}>
-            This will permanently delete your wallet data from this device.
+            This will permanently delete ALL wallets and disable Device Login.
           </Text>
         </View>
       )}
@@ -380,6 +415,13 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Change PIN Modal */}
+      <ChangePinModal
+        visible={showChangePinModal}
+        onSubmit={handleChangePinSubmit}
+        onCancel={() => setShowChangePinModal(false)}
+      />
     </ScrollView>
   );
 }
@@ -450,6 +492,16 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderColor: '#ff6b6b44',
     backgroundColor: '#ff6b6b11',
+  },
+  primaryButton: {
+    marginTop: 16,
+    borderColor: '#ff8700',
+    backgroundColor: '#ff8700',
+  },
+  buttonTextPrimary: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
   },
   warningText: {
     fontSize: 12,

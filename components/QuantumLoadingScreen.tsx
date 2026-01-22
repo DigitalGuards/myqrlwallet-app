@@ -105,9 +105,10 @@ const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
 
 interface QuantumLoadingScreenProps {
   visible: boolean;
+  customMessage?: string; // When set, display this instead of cycling messages
 }
 
-const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible }) => {
+const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible, customMessage }) => {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const logoScale = useRef(new Animated.Value(0.8)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
@@ -125,14 +126,14 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible }) 
     return cols;
   });
 
-  // Cycle through loading messages
+  // Cycle through loading messages (skip if customMessage is provided)
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || customMessage) return;
     const interval = setInterval(() => {
       setMessageIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
     }, 2500);
     return () => clearInterval(interval);
-  }, [visible]);
+  }, [visible, customMessage]);
 
   // Logo animation
   useEffect(() => {
@@ -230,7 +231,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible }) 
 
         <View style={styles.messageContainer}>
           <Text style={styles.loadingMessage}>
-            {LOADING_MESSAGES[messageIndex]}
+            {customMessage || LOADING_MESSAGES[messageIndex]}
           </Text>
         </View>
 
