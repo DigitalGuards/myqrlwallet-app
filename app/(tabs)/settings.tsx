@@ -135,21 +135,16 @@ export default function SettingsScreen() {
   };
 
   // Handle Change PIN modal submission
-  const handleChangePinSubmit = async (currentPin: string, newPin: string) => {
+  // Queue the PIN change and navigate to WebView tab for execution
+  // This is necessary because WebView JS execution is throttled when Settings tab is active
+  const handleChangePinSubmit = (currentPin: string, newPin: string) => {
     setShowChangePinModal(false);
 
-    const result = await BiometricService.changePin(currentPin, newPin);
+    // Queue the PIN change request
+    BiometricService.queuePinChange(currentPin, newPin);
 
-    if (result.success) {
-      // If there's an error message, it's a warning about a partial success
-      if (result.error) {
-        Alert.alert('Warning', result.error);
-      } else {
-        Alert.alert('Success', 'Your PIN has been changed successfully.');
-      }
-    } else {
-      Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.');
-    }
+    // Navigate to main tab - WebView must be active for PIN change to work
+    router.replace('/?changePin=true');
   };
 
   // Remove wallet - clears all wallet data from native storage
