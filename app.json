@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chiefdg.myqrlwallet",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSFaceIDUsageDescription": "This app uses Face ID to secure your wallet access.",
@@ -24,7 +24,7 @@
         "backgroundImage": "./assets/images/myqrlwallet/adaptive-icon-background.png"
       },
       "package": "com.chiefdg.myqrlwallet",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "USE_FINGERPRINT",
         "USE_BIOMETRIC",
