@@ -9,6 +9,9 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
+import { ChangePinModal } from '../../components/ChangePinModal';
+import { PinEntryModal } from '../../components/PinEntryModal';
+import Logger from '../../services/Logger';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -20,6 +23,8 @@ export default function SettingsScreen() {
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
   const [preventScreenshots, setPreventScreenshots] = useState(false);
+  const [showChangePinModal, setShowChangePinModal] = useState(false);
+  const [showDeviceLoginPinModal, setShowDeviceLoginPinModal] = useState(false);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -69,9 +74,8 @@ export default function SettingsScreen() {
   // Handle Device Login toggle
   const handleDeviceLoginToggle = async (newValue: boolean) => {
     if (newValue) {
-      // Navigate to main tab with intent to enable Device Login
-      // WebView must be active for PIN verification to work
-      router.replace('/?enableDeviceLogin=true');
+      // Show PIN modal - user enters their wallet PIN to enable Device Login
+      setShowDeviceLoginPinModal(true);
     } else {
       // Disable Device Login - require device auth first
       const authResult = await BiometricService.authenticate('Authenticate to disable Device Login');
@@ -83,6 +87,23 @@ export default function SettingsScreen() {
       setDeviceLoginEnabled(false);
       Alert.alert('Disabled', 'Device Login has been disabled.');
     }
+  };
+
+  // Handle Device Login PIN modal submission
+  const handleDeviceLoginPinSubmit = (pin: string) => {
+    setShowDeviceLoginPinModal(false);
+
+    // Queue the setup request
+    BiometricService.queueDeviceLoginSetup(pin);
+
+    // Navigate to main tab - WebView must be active for PIN verification
+    router.replace('/?enableDeviceLogin=true');
+  };
+
+  // Handle Device Login PIN modal cancel
+  const handleDeviceLoginPinCancel = () => {
+    setShowDeviceLoginPinModal(false);
+    // Toggle stays OFF since we haven't enabled yet
   };
 
   // Handle Screenshot Prevention toggle
@@ -102,7 +123,7 @@ export default function SettingsScreen() {
                 await ScreenSecurityService.setEnabled(false);
                 setPreventScreenshots(false);
               } catch (error) {
-                console.error('Failed to disable screenshot prevention:', error);
+                Logger.error('Settings', 'Failed to disable screenshot prevention:', error);
                 Alert.alert('Error', 'Could not disable screenshot prevention. Please try again.');
               }
             },
@@ -114,10 +135,35 @@ export default function SettingsScreen() {
         await ScreenSecurityService.setEnabled(true);
         setPreventScreenshots(true);
       } catch (error) {
-        console.error('Failed to enable screenshot prevention:', error);
+        Logger.error('Settings', 'Failed to enable screenshot prevention:', error);
         Alert.alert('Error', 'Could not enable screenshot prevention. Please try again.');
       }
     }
+  };
+
+  // Handle Change PIN button press
+  const handleChangePinPress = async () => {
+    // Require biometric authentication first
+    const authResult = await BiometricService.authenticate('Authenticate to change PIN');
+    if (!authResult.success) {
+      // Auth cancelled or failed - don't show modal
+      return;
+    }
+    // Show the Change PIN modal after successful auth
+    setShowChangePinModal(true);
+  };
+
+  // Handle Change PIN modal submission
+  // Queue the PIN change and navigate to WebView tab for execution
+  // This is necessary because WebView JS execution is throttled when Settings tab is active
+  const handleChangePinSubmit = (currentPin: string, newPin: string) => {
+    setShowChangePinModal(false);
+
+    // Queue the PIN change request
+    BiometricService.queuePinChange(currentPin, newPin);
+
+    // Navigate to main tab - WebView must be active for PIN change to work
+    router.replace('/?changePin=true');
   };
 
   // Remove wallet - clears all wallet data from native storage
@@ -132,22 +178,22 @@ export default function SettingsScreen() {
     }
 
     Alert.alert(
-      'Remove Wallet',
-      'This will permanently delete your wallet data from this device. Your seed phrase will be removed and you will need to re-import it to access your wallet again.\n\nMake sure you have backed up your seed phrase before continuing!',
+      'Remove All Wallets',
+      'This will permanently delete ALL imported wallets from this device. Device Login will be disabled and you will need to re-import each wallet to access them again.\n\nMake sure you have backed up your seed phrases before continuing!',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove Wallet',
+          text: 'Remove All',
           style: 'destructive',
           onPress: async () => {
             // Second confirmation
             Alert.alert(
-              'Are you sure?',
-              'This action cannot be undone. Your wallet will be completely removed from this device.',
+              'Delete All Wallets?',
+              'ALL wallet data will be permanently removed. This action cannot be undone.',
               [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                  text: 'Yes, Remove',
+                  text: 'Yes, Delete All',
                   style: 'destructive',
                   onPress: async () => {
                     try {
@@ -183,7 +229,7 @@ export default function SettingsScreen() {
                         Alert.alert('Wallet Removed', 'Your wallet has been removed. Web data may need manual clearing.');
                       }
                     } catch (error) {
-                      console.error('[Settings] Failed to remove wallet:', error);
+                      Logger.error('Settings', 'Failed to remove wallet:', error);
                       Alert.alert(
                         'Error',
                         'Failed to remove wallet. Please try again.',
@@ -221,7 +267,7 @@ export default function SettingsScreen() {
 
   // Open external links
   const openLink = (url: string) => {
-    Linking.openURL(url).catch((err) => console.error('Failed to open link:', err));
+    Linking.openURL(url).catch((err) => Logger.error('Settings', 'Failed to open link:', err));
   };
 
   // Add back button functionality to header
@@ -305,6 +351,14 @@ export default function SettingsScreen() {
             />
           </View>
         )}
+
+        {/* Change PIN Button - available when user has a wallet (PIN exists for seed encryption) */}
+        {hasWallet && (
+          <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleChangePinPress}>
+            <FontAwesome name="lock" size={18} color="#ff8700" style={styles.buttonIcon} />
+            <Text style={styles.buttonTextSecondary}>Change PIN</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Wallet Management Section - only show if wallet exists */}
@@ -315,10 +369,10 @@ export default function SettingsScreen() {
           {/* Remove Wallet Button */}
           <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>
             <FontAwesome name="warning" size={18} color="#ff6b6b" style={styles.buttonIcon} />
-            <Text style={styles.buttonTextDanger}>Remove Wallet</Text>
+            <Text style={styles.buttonTextDanger}>Remove All Wallets</Text>
           </TouchableOpacity>
           <Text style={styles.warningText}>
-            This will permanently delete your wallet data from this device.
+            This will permanently delete ALL wallets and disable Device Login.
           </Text>
         </View>
       )}
@@ -380,6 +434,22 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Change PIN Modal */}
+      <ChangePinModal
+        visible={showChangePinModal}
+        onSubmit={handleChangePinSubmit}
+        onCancel={() => setShowChangePinModal(false)}
+      />
+
+      {/* Device Login PIN Modal */}
+      <PinEntryModal
+        visible={showDeviceLoginPinModal}
+        title="Enable Device Login"
+        message="Enter your wallet PIN to enable Device Login"
+        onSubmit={handleDeviceLoginPinSubmit}
+        onCancel={handleDeviceLoginPinCancel}
+      />
     </ScrollView>
   );
 }
@@ -450,6 +520,16 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderColor: '#ff6b6b44',
     backgroundColor: '#ff6b6b11',
+  },
+  secondaryButton: {
+    marginTop: 16,
+    borderColor: '#ff870044',
+    backgroundColor: '#ff870011',
+  },
+  buttonTextSecondary: {
+    color: '#ff8700',
+    fontSize: 16,
+    fontWeight: '500',
   },
   warningText: {
     fontSize: 12,

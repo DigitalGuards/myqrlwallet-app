@@ -204,6 +204,39 @@ myqrlwallet-app/
 - Encrypted seeds stored in SecureStore (iOS Keychain / Android Keystore)
 - All native↔web communication via secure postMessage bridge
 
+## Known Limitations & Workarounds
+
+### WebView JavaScript Throttling
+
+**Problem**: When the native Settings tab is active, the WebView (on the index tab) has its JavaScript execution throttled by React Native/OS. Messages sent via `injectJavaScript()` are queued but not processed until the WebView tab becomes active again.
+
+**Symptoms**: Operations like PIN change or PIN verification timeout despite the web app eventually processing the message. The message succeeds if the user navigates away from Settings to the WebView tab.
+
+**Workaround Pattern**: For any operation requiring WebView↔Native communication from the Settings tab:
+1. Queue the operation data in BiometricService (in-memory)
+2. Navigate to the index tab with a query param (e.g., `/?changePin=true`)
+3. The index screen detects the param and executes the queued operation
+4. Navigate back to Settings with the result
+
+**Example** (used for Enable Device Login and Change PIN):
+```typescript
+// In settings.tsx - queue and navigate
+BiometricService.queuePinChange(oldPin, newPin);
+router.replace('/?changePin=true');
+
+// In index.tsx - detect param and execute
+if (params.changePin === 'true' && isAuthorized) {
+  const result = await BiometricService.executePendingPinChange();
+  Alert.alert(result.success ? 'Success' : 'Error', ...);
+  router.push('/settings');
+}
+```
+
+**Affected Operations**:
+- Enable Device Login (`enableDeviceLogin` param)
+- Change PIN (`changePin` param)
+- Any future operation requiring WebView message response while on Settings tab
+
 ## Build & Deployment
 
 ### EAS Configuration

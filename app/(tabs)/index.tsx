@@ -3,6 +3,7 @@ import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert,
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
+import QuantumLoadingScreen from '../../components/QuantumLoadingScreen';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
@@ -15,13 +16,21 @@ import { router, useLocalSearchParams } from 'expo-router';
 // iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
 const IOS_INACTIVE_TIMEOUT_MS = 300;
 
+// Time threshold for showing loading screen (5 minutes in ms)
+const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;
+
+// Time to wait before resetting navigation flag (iOS can take 3+ seconds for background/foreground cycle)
+const NAVIGATE_TO_SETTINGS_FLAG_RESET_MS = 10000;
+
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScannerVisible, setQrScannerVisible] = useState(false);
+  const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const isFocused = useIsFocused();
-  const params = useLocalSearchParams<{ enableDeviceLogin?: string }>();
+  const params = useLocalSearchParams<{ enableDeviceLogin?: string; changePin?: string }>();
   const appState = useRef(AppState.currentState);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
@@ -31,11 +40,25 @@ export default function WalletScreen() {
   const iosInactiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track when biometric auth is showing - iOS marks app as 'inactive' during biometric prompt
   const isAuthenticating = useRef(false);
+  // Track when app went to background for loading screen threshold
+  const backgroundedAt = useRef<number | null>(null);
+  // Track if PIN change is in progress
+  const pinChangeTriggered = useRef(false);
+  // Track settings navigation (to avoid false positive re-auth on iOS tab switch)
+  const isNavigatingToSettings = useRef(false);
 
   // Navigate to settings
-  const navigateToSettings = () => {
+  const navigateToSettings = useCallback(() => {
+    Logger.debug('WalletScreen', `navigateToSettings called, setting flag`);
+    isNavigatingToSettings.current = true;
     router.push('/settings');
-  };
+    // Reset after navigation and any app state transitions settle
+    // iOS can take 3+ seconds for background/foreground cycle during tab switch
+    setTimeout(() => {
+      Logger.debug('WalletScreen', 'Resetting isNavigatingToSettings flag');
+      isNavigatingToSettings.current = false;
+    }, NAVIGATE_TO_SETTINGS_FLAG_RESET_MS);
+  }, []);
 
   // Handle device login unlock and send PIN to web
   const performDeviceLoginUnlock = useCallback(async () => {
@@ -148,7 +171,7 @@ export default function WalletScreen() {
     NativeBridge.onSeedStored(handleSeedStored);
     NativeBridge.onOpenNativeSettings(navigateToSettings);
     NativeBridge.onQRScanRequest(handleQRScanRequest);
-  }, [performDeviceLoginUnlock, handleSeedStored, handleQRScanRequest]);
+  }, [performDeviceLoginUnlock, handleSeedStored, handleQRScanRequest, navigateToSettings]);
 
   // Check device login settings and authenticate if needed
   useEffect(() => {
@@ -205,10 +228,16 @@ export default function WalletScreen() {
 
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
+    // Skip if intentionally navigating to settings - iOS triggers background/foreground on tab switch
+    if (isNavigatingToSettings.current) {
+      Logger.debug('WalletScreen', 'Skipping re-auth mark - navigating to settings');
+      return;
+    }
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
     needsReauth.current = true;
     hasRestoredSeeds.current = false;
-    NativeBridge.resetWebAppReady();
+    backgroundedAt.current = Date.now();
+    // Don't reset web app ready - WebView is always mounted (off-screen) and maintains state
   }, []);
 
   // Auto-lock app when it goes to background
@@ -261,6 +290,15 @@ export default function WalletScreen() {
         if (needsReauth.current && !isAuthenticating.current) {
           Logger.debug('WalletScreen', 'App foregrounded, triggering re-auth');
           needsReauth.current = false;
+
+          // Check if we should skip loading screen (backgrounded less than 5 minutes)
+          const timeSinceBackground = backgroundedAt.current
+            ? Date.now() - backgroundedAt.current
+            : Infinity;
+          const shouldSkipLoading = timeSinceBackground < LOADING_SCREEN_THRESHOLD_MS;
+          Logger.debug('WalletScreen', `Time since background: ${timeSinceBackground}ms, skip loading: ${shouldSkipLoading}`);
+          setSkipLoadingScreen(shouldSkipLoading);
+
           setIsAuthorized(false);
         }
       }
@@ -316,32 +354,86 @@ export default function WalletScreen() {
   }, [handleWebAppReady]);
 
   // Handle Device Login setup request from Settings tab
-  // Note: We only need isAuthorized (WebView mounted) since verifyPin waits for web app ready internally
+  // WebView must be active (on this tab) for the JS bridge to process messages reliably
   useEffect(() => {
     if (params.enableDeviceLogin === 'true' && isAuthorized && !deviceLoginSetupTriggered.current) {
       // Mark as triggered to prevent re-execution
       deviceLoginSetupTriggered.current = true;
 
-      // Clear the param to prevent re-triggering on subsequent renders
-      router.setParams({ enableDeviceLogin: undefined });
+      // Clear the param AFTER marking as triggered to prevent race conditions
+      setTimeout(() => router.setParams({ enableDeviceLogin: undefined }), 0);
 
-      // Show PIN modal for Device Login setup
-      // The PIN verification will wait for web app to be ready internally
-      showPinModal(async (pin: string) => {
-        const setupResult = await BiometricService.setupDeviceLogin(pin);
-        if (setupResult.success) {
+      // Show loading overlay
+      setProcessingMessage('Enabling Device Login...');
+
+      // Execute the queued Device Login setup after interactions complete
+      // InteractionManager ensures animations/transitions are done before executing
+      InteractionManager.runAfterInteractions(async () => {
+        Logger.debug('WalletScreen', 'Executing queued Device Login setup');
+        const result = await BiometricService.executePendingDeviceLoginSetup();
+
+        // Hide loading overlay
+        setProcessingMessage(null);
+
+        if (result.success) {
           Alert.alert('Success', 'Device Login enabled!', [
             { text: 'OK', onPress: () => router.push('/settings') }
           ]);
         } else {
-          Alert.alert('Error', setupResult.error || 'Failed to enable Device Login', [
+          Alert.alert('Error', result.error || 'Failed to enable Device Login', [
             { text: 'OK', onPress: () => router.push('/settings') }
           ]);
         }
+
         deviceLoginSetupTriggered.current = false;
       });
     }
-  }, [params.enableDeviceLogin, isAuthorized, showPinModal]);
+  }, [params.enableDeviceLogin, isAuthorized]);
+
+  // Handle PIN change request from Settings tab
+  // WebView must be active (on this tab) for the JS bridge to process messages reliably
+  useEffect(() => {
+    if (params.changePin === 'true' && isAuthorized && !pinChangeTriggered.current) {
+      // Mark as triggered to prevent re-execution
+      pinChangeTriggered.current = true;
+
+      // Clear the param AFTER marking as triggered to prevent race conditions
+      // Use setTimeout to avoid clearing during this render cycle
+      setTimeout(() => router.setParams({ changePin: undefined }), 0);
+
+      // Show loading overlay
+      setProcessingMessage('Changing PIN...');
+
+      // Execute the queued PIN change after interactions complete
+      // InteractionManager ensures animations/transitions are done before executing
+      InteractionManager.runAfterInteractions(async () => {
+        Logger.debug('WalletScreen', 'Executing queued PIN change');
+        const result = await BiometricService.executePendingPinChange();
+
+        // Hide loading overlay
+        setProcessingMessage(null);
+
+        if (result.success) {
+          // If there's an error message, it's a warning about a partial success
+          if (result.error) {
+            Alert.alert('Warning', result.error, [
+              { text: 'OK', onPress: () => router.push('/settings') }
+            ]);
+          } else {
+            Alert.alert('Success', 'Your PIN has been changed successfully.', [
+              { text: 'OK', onPress: () => router.push('/settings') }
+            ]);
+          }
+        } else {
+          Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.', [
+            { text: 'OK', onPress: () => router.push('/settings') }
+          ]);
+        }
+
+        pinChangeTriggered.current = false;
+      });
+    }
+  }, [params.changePin, isAuthorized]);
 
   // Update session timestamp on screen focus
   useEffect(() => {
@@ -350,12 +442,18 @@ export default function WalletScreen() {
     }
   }, [isFocused, isAuthorized]);
 
+  // Log WebView visibility changes
+  useEffect(() => {
+    Logger.debug('WalletScreen', `WebView visibility changed: isAuthorized=${isAuthorized}, webViewRef=${webViewRef.current ? 'exists' : 'null'}`);
+  }, [isAuthorized]);
+
   return (
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
-      {isAuthorized && (
-        <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} />
-      )}
+      {/* Always render WebView to keep ref available for bridge messages, but hide when not authorized */}
+      <RNView style={isAuthorized ? styles.webViewVisible : styles.webViewHidden}>
+        <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} skipLoadingScreen={skipLoadingScreen} />
+      </RNView>
       <PinEntryModal
         visible={pinModalVisible}
         title="Enter Your PIN"
@@ -368,6 +466,11 @@ export default function WalletScreen() {
         onScan={handleQRScanResult}
         onClose={handleQRScannerClose}
       />
+      {/* Processing overlay - shown during operations like PIN change */}
+      <QuantumLoadingScreen
+        visible={!!processingMessage}
+        customMessage={processingMessage || undefined}
+      />
     </RNView>
   );
 }
@@ -376,5 +479,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0A0A17',
+  },
+  webViewVisible: {
+    flex: 1,
+  },
+  webViewHidden: {
+    // Keep WebView functional but invisible - 0x0 size can prevent JS execution
+    flex: 1,
+    position: 'absolute',
+    left: -9999,
+    top: -9999,
   },
 });

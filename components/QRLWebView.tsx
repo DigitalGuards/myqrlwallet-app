@@ -31,6 +31,7 @@ interface QRLWebViewProps {
   userAgent?: string;
   onQRScanRequest?: () => void;
   onLoad?: () => void;  // Called when WebView content is loaded
+  skipLoadingScreen?: boolean;  // Skip the quantum loading animation
 }
 
 export interface QRLWebViewRef {
@@ -45,11 +46,12 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri = __DEV__ ? DEV_URL : 'https://qrlwallet.com',
   userAgent,
   onQRScanRequest,
-  onLoad
+  onLoad,
+  skipLoadingScreen = false
 }, ref) => {
   const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(true);
-  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
+  const [showLoadingScreen, setShowLoadingScreen] = useState(!skipLoadingScreen);
   const [error, setError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
 
@@ -80,6 +82,13 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Set up minimum display time timer on mount
   useEffect(() => {
+    // If skipping loading screen, mark everything as ready immediately
+    if (skipLoadingScreen) {
+      minTimeElapsed.current = true;
+      contentLoaded.current = true;
+      return;
+    }
+
     loadStartTime.current = Date.now();
     minTimeElapsed.current = false;
     contentLoaded.current = false;
@@ -94,7 +103,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         clearTimeout(minTimeoutRef.current);
       }
     };
-  }, [tryHideLoadingScreen]);
+  }, [tryHideLoadingScreen, skipLoadingScreen]);
 
   // Add a safety timeout to hide spinner after a maximum time
   useEffect(() => {
