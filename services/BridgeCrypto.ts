@@ -45,6 +45,7 @@ interface KeyExchangeState {
   sharedSecret: Uint8Array | null;
   aesKey: Uint8Array | null;
   isReady: boolean;
+  encryptionEnabled: boolean;
 }
 
 /**
@@ -60,6 +61,14 @@ class BridgeCryptoService {
    */
   isReady(): boolean {
     return this.state?.isReady ?? false;
+  }
+
+  /**
+   * Check if encryption should be used for messages
+   * Returns true only if key exchange completed successfully and encryption is enabled
+   */
+  shouldEncrypt(): boolean {
+    return this.state?.encryptionEnabled === true && this.state?.isReady === true;
   }
 
   /**
@@ -90,6 +99,7 @@ class BridgeCryptoService {
       sharedSecret: null,
       aesKey: null,
       isReady: false,
+      encryptionEnabled: false,
     };
 
     Logger.debug('BridgeCrypto', 'Generated new ECDH keypair');
@@ -131,6 +141,7 @@ class BridgeCryptoService {
       this.state.sharedSecret = sharedSecret;
       this.state.aesKey = new Uint8Array(aesKey);
       this.state.isReady = true;
+      this.state.encryptionEnabled = true;
 
       Logger.debug('BridgeCrypto', 'Key exchange completed successfully');
 
@@ -310,3 +321,17 @@ class BridgeCryptoService {
 }
 
 export default new BridgeCryptoService();
+
+/**
+ * Type guard to check if a message is an encrypted envelope
+ */
+export function isEncryptedEnvelope(message: unknown): message is EncryptedEnvelope {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'isEncrypted' in message &&
+    (message as EncryptedEnvelope).isEncrypted === true &&
+    'encrypted' in message &&
+    typeof (message as EncryptedEnvelope).encrypted === 'string'
+  );
+}

@@ -240,7 +240,7 @@ class NativeBridge {
    * Encrypts sensitive messages if secure channel is established
    */
   async sendToWebSecure(message: BridgeResponse): Promise<void> {
-    if (BridgeCrypto.isReady() && isSensitiveMessage(message.type)) {
+    if (BridgeCrypto.shouldEncrypt() && isSensitiveMessage(message.type)) {
       const envelope = await BridgeCrypto.encrypt(JSON.stringify(message));
       if (envelope) {
         Logger.debug('NativeBridge', `Sending encrypted ${message.type}`);
