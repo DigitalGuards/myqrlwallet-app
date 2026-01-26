@@ -12,9 +12,6 @@ import Logger from '../../services/Logger';
 import { useIsFocused } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
 
-// Track if PIN change is in progress (avoids React closure issues)
-let pinChangeTriggered = false;
-
 // Time to wait before treating iOS 'inactive' state as actual backgrounding
 // iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
 const IOS_INACTIVE_TIMEOUT_MS = 300;
@@ -22,8 +19,8 @@ const IOS_INACTIVE_TIMEOUT_MS = 300;
 // Time threshold for showing loading screen (5 minutes in ms)
 const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;
 
-// Module-level flag to track settings navigation (avoids React closure issues)
-let isNavigatingToSettings = false;
+// Time to wait before resetting navigation flag (iOS can take 3+ seconds for background/foreground cycle)
+const NAVIGATE_TO_SETTINGS_FLAG_RESET_MS = 10000;
 
 export default function WalletScreen() {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -45,18 +42,22 @@ export default function WalletScreen() {
   const isAuthenticating = useRef(false);
   // Track when app went to background for loading screen threshold
   const backgroundedAt = useRef<number | null>(null);
+  // Track if PIN change is in progress
+  const pinChangeTriggered = useRef(false);
+  // Track settings navigation (to avoid false positive re-auth on iOS tab switch)
+  const isNavigatingToSettings = useRef(false);
 
   // Navigate to settings
   const navigateToSettings = useCallback(() => {
     Logger.debug('WalletScreen', `navigateToSettings called, setting flag`);
-    isNavigatingToSettings = true;
+    isNavigatingToSettings.current = true;
     router.push('/settings');
     // Reset after navigation and any app state transitions settle
     // iOS can take 3+ seconds for background/foreground cycle during tab switch
     setTimeout(() => {
       Logger.debug('WalletScreen', 'Resetting isNavigatingToSettings flag');
-      isNavigatingToSettings = false;
-    }, 10000);  // 10 seconds to be safe
+      isNavigatingToSettings.current = false;
+    }, NAVIGATE_TO_SETTINGS_FLAG_RESET_MS);
   }, []);
 
   // Handle device login unlock and send PIN to web
@@ -228,7 +229,7 @@ export default function WalletScreen() {
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     // Skip if intentionally navigating to settings - iOS triggers background/foreground on tab switch
-    if (isNavigatingToSettings) {
+    if (isNavigatingToSettings.current) {
       Logger.debug('WalletScreen', 'Skipping re-auth mark - navigating to settings');
       return;
     }
@@ -392,9 +393,9 @@ export default function WalletScreen() {
   // Handle PIN change request from Settings tab
   // WebView must be active (on this tab) for the JS bridge to process messages reliably
   useEffect(() => {
-    if (params.changePin === 'true' && isAuthorized && !pinChangeTriggered) {
+    if (params.changePin === 'true' && isAuthorized && !pinChangeTriggered.current) {
       // Mark as triggered to prevent re-execution
-      pinChangeTriggered = true;
+      pinChangeTriggered.current = true;
 
       // Clear the param AFTER marking as triggered to prevent race conditions
       // Use setTimeout to avoid clearing during this render cycle
@@ -429,7 +430,7 @@ export default function WalletScreen() {
           ]);
         }
 
-        pinChangeTriggered = false;
+        pinChangeTriggered.current = false;
       });
     }
   }, [params.changePin, isAuthorized]);

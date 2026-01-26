@@ -1,6 +1,7 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import SeedStorageService from './SeedStorageService';
 import NativeBridge from './NativeBridge';
+import Logger from './Logger';
 
 /**
  * Queued PIN change request (stored in memory for navigation between screens)
@@ -29,7 +30,7 @@ class BiometricService {
       // Any level greater than NONE means some form of authentication is enrolled.
       return securityLevel > LocalAuthentication.SecurityLevel.NONE;
     } catch (error) {
-      console.error('Device authentication availability check failed:', error);
+      Logger.error('BiometricService', 'Device authentication availability check failed:', error);
       return false;
     }
   }
@@ -57,7 +58,7 @@ class BiometricService {
 
       return biometricTypes;
     } catch (error) {
-      console.error('Failed to get biometric types:', error);
+      Logger.error('BiometricService', 'Failed to get biometric types:', error);
       return [];
     }
   }
@@ -81,7 +82,7 @@ class BiometricService {
 
       return { success: result.success };
     } catch (error) {
-      console.error('Authentication error:', error);
+      Logger.error('BiometricService', 'Authentication error:', error);
       return {
         success: false,
         error: 'Authentication failed. Please try again.',
@@ -183,16 +184,16 @@ class BiometricService {
       }
 
       // First verify the PIN with the web app (ensures it can decrypt the seed)
-      console.log('[BiometricService] Verifying PIN with web app...');
+      Logger.debug('BiometricService', 'Verifying PIN with web app...');
       const verifyResult = await NativeBridge.verifyPin(pin);
       if (!verifyResult.success) {
-        console.log('[BiometricService] PIN verification failed:', verifyResult.error);
+        Logger.debug('BiometricService', 'PIN verification failed:', verifyResult.error);
         return {
           success: false,
           error: verifyResult.error || 'Incorrect PIN',
         };
       }
-      console.log('[BiometricService] PIN verified successfully');
+      Logger.debug('BiometricService', 'PIN verified successfully');
 
       // Authenticate before storing (confirm user identity)
       const authResult = await this.authenticate(
@@ -213,7 +214,7 @@ class BiometricService {
 
       return { success: true };
     } catch (error) {
-      console.error('Failed to setup Device Login:', error);
+      Logger.error('BiometricService', 'Failed to setup Device Login:', error);
       return {
         success: false,
         error: 'Failed to set up Device Login',
@@ -351,13 +352,13 @@ class BiometricService {
     error?: string;
   }> {
     try {
-      console.log('[BiometricService] Requesting PIN change via web app...');
+      Logger.debug('BiometricService', 'Requesting PIN change via web app...');
 
       // Send CHANGE_PIN to web and wait for PIN_CHANGED response
       const result = await NativeBridge.changePin(oldPin, newPin);
 
       if (!result.success) {
-        console.log('[BiometricService] PIN change failed:', result.error);
+        Logger.debug('BiometricService', 'PIN change failed:', result.error);
         return {
           success: false,
           error: result.error || 'Failed to change PIN',
@@ -366,11 +367,11 @@ class BiometricService {
 
       // Update SecureStore with the new PIN
       try {
-        console.log('[BiometricService] Web confirmed PIN change, updating SecureStore...');
+        Logger.debug('BiometricService', 'Web confirmed PIN change, updating SecureStore...');
         await SeedStorageService.storePinSecurely(newPin);
-        console.log('[BiometricService] PIN changed successfully');
+        Logger.debug('BiometricService', 'PIN changed successfully');
       } catch (storageError) {
-        console.error('[BiometricService] Failed to store new PIN for biometrics:', storageError);
+        Logger.error('BiometricService', 'Failed to store new PIN for biometrics:', storageError);
         return {
           success: true, // The PIN change was successful on the web side
           error: 'PIN changed, but failed to update for Device Login. Please disable and re-enable Device Login in settings to resolve this.',
@@ -379,7 +380,7 @@ class BiometricService {
 
       return { success: true };
     } catch (error) {
-      console.error('[BiometricService] Failed to change PIN:', error);
+      Logger.error('BiometricService', 'Failed to change PIN:', error);
       return {
         success: false,
         error: 'An unexpected error occurred while changing your PIN.',

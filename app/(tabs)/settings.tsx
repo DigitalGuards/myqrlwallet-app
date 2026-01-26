@@ -11,6 +11,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { ChangePinModal } from '../../components/ChangePinModal';
 import { PinEntryModal } from '../../components/PinEntryModal';
+import Logger from '../../services/Logger';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -122,7 +123,7 @@ export default function SettingsScreen() {
                 await ScreenSecurityService.setEnabled(false);
                 setPreventScreenshots(false);
               } catch (error) {
-                console.error('Failed to disable screenshot prevention:', error);
+                Logger.error('Settings', 'Failed to disable screenshot prevention:', error);
                 Alert.alert('Error', 'Could not disable screenshot prevention. Please try again.');
               }
             },
@@ -134,7 +135,7 @@ export default function SettingsScreen() {
         await ScreenSecurityService.setEnabled(true);
         setPreventScreenshots(true);
       } catch (error) {
-        console.error('Failed to enable screenshot prevention:', error);
+        Logger.error('Settings', 'Failed to enable screenshot prevention:', error);
         Alert.alert('Error', 'Could not enable screenshot prevention. Please try again.');
       }
     }
@@ -228,7 +229,7 @@ export default function SettingsScreen() {
                         Alert.alert('Wallet Removed', 'Your wallet has been removed. Web data may need manual clearing.');
                       }
                     } catch (error) {
-                      console.error('[Settings] Failed to remove wallet:', error);
+                      Logger.error('Settings', 'Failed to remove wallet:', error);
                       Alert.alert(
                         'Error',
                         'Failed to remove wallet. Please try again.',
@@ -266,7 +267,7 @@ export default function SettingsScreen() {
 
   // Open external links
   const openLink = (url: string) => {
-    Linking.openURL(url).catch((err) => console.error('Failed to open link:', err));
+    Linking.openURL(url).catch((err) => Logger.error('Settings', 'Failed to open link:', err));
   };
 
   // Add back button functionality to header
