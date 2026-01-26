@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
+import Logger from './Logger';
 
 /**
  * Message types that can be received from the WebView
@@ -22,6 +23,7 @@ export type WebToNativeMessageType =
   | 'WALLET_CLEARED'          // Web confirmed it cleared localStorage
   | 'WEB_APP_READY'           // Web app is fully initialized and ready to receive data
   | 'PIN_VERIFIED'            // Web responds to PIN verification request
+  | 'PIN_CHANGED'             // Web responds to PIN change request
   // Navigation messages
   | 'OPEN_NATIVE_SETTINGS';   // Request native app to open its settings screen
 
@@ -41,7 +43,8 @@ export type NativeToWebMessageType =
   | 'RESTORE_SEED'            // Native sends backup seed if localStorage empty
   | 'CLEAR_WALLET'            // Native requests web to clear wallet
   | 'BIOMETRIC_SETUP_PROMPT'  // Native prompts user to enable biometric
-  | 'VERIFY_PIN';             // Native asks web to verify PIN can decrypt seed
+  | 'VERIFY_PIN'              // Native asks web to verify PIN can decrypt seed
+  | 'CHANGE_PIN';             // Native requests web to change PIN (re-encrypt seeds)
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -89,6 +92,11 @@ type WalletClearedCallback = () => void;
 type PinVerifiedCallback = (success: boolean, error?: string) => void;
 
 /**
+ * Callback for PIN change result
+ */
+type PinChangedCallback = (success: boolean, newPin?: string, error?: string) => void;
+
+/**
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
@@ -100,6 +108,7 @@ class NativeBridge {
   private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
   private walletClearedCallback: WalletClearedCallback | null = null;
   private pinVerifiedCallback: PinVerifiedCallback | null = null;
+  private pinChangedCallback: PinChangedCallback | null = null;
   private isWebAppReady: boolean = false;
   private webAppReadyResolvers: Array<{
     resolve: () => void;
@@ -173,6 +182,7 @@ class NativeBridge {
    * Rejects any pending waitForWebAppReady promises to prevent stale operations
    */
   resetWebAppReady() {
+    Logger.debug('NativeBridge', 'Resetting web app ready state');
     this.isWebAppReady = false;
     this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
   }
@@ -183,9 +193,12 @@ class NativeBridge {
    * @returns Promise that resolves when ready or rejects on timeout or reset
    */
   waitForWebAppReady(timeoutMs: number = 15000): Promise<void> {
+    Logger.debug('NativeBridge', `waitForWebAppReady called, isWebAppReady=${this.isWebAppReady}`);
     if (this.isWebAppReady) {
+      Logger.debug('NativeBridge', 'Web app already ready, resolving immediately');
       return Promise.resolve();
     }
+    Logger.debug('NativeBridge', `Web app not ready, waiting up to ${timeoutMs}ms`);
 
     return new Promise((resolve, reject) => {
       const resolver = {
@@ -245,7 +258,7 @@ class NativeBridge {
       `;
       this.webViewRef.current.injectJavaScript(script);
     } else {
-      console.warn('[NativeBridge] WebView ref not available, message not sent:', message.type);
+      Logger.warn('NativeBridge', 'WebView ref not available, message not sent:', message.type);
     }
   }
 
@@ -263,7 +276,7 @@ class NativeBridge {
       case 'COPY_TO_CLIPBOARD': {
         const text = payload?.text;
         if (typeof text !== 'string') {
-          console.warn('[NativeBridge] COPY_TO_CLIPBOARD missing or invalid text');
+          Logger.warn('NativeBridge', 'COPY_TO_CLIPBOARD missing or invalid text');
           this.sendToWeb({ type: 'ERROR', payload: { message: 'Invalid clipboard text' } });
           return;
         }
@@ -279,7 +292,7 @@ class NativeBridge {
         if ((title !== undefined && typeof title !== 'string') ||
             (text !== undefined && typeof text !== 'string') ||
             (url !== undefined && typeof url !== 'string')) {
-          console.warn('[NativeBridge] SHARE has invalid payload types');
+          Logger.warn('NativeBridge', 'SHARE has invalid payload types');
           this.sendToWeb({ type: 'ERROR', payload: { message: 'Invalid share payload' } });
           return;
         }
@@ -291,7 +304,7 @@ class NativeBridge {
         const txHash = payload?.txHash;
         const txType = payload?.type;
         if (typeof txHash !== 'string' || (txType !== 'incoming' && txType !== 'outgoing')) {
-          console.warn('[NativeBridge] TX_CONFIRMED has invalid payload');
+          Logger.warn('NativeBridge', 'TX_CONFIRMED has invalid payload');
           return;
         }
         this.handleTxConfirmed(txHash, txType);
@@ -299,7 +312,7 @@ class NativeBridge {
       }
 
       case 'LOG':
-        console.log('[WebView]', payload?.message);
+        Logger.debug('WebView', String(payload?.message ?? ''));
         break;
 
       case 'HAPTIC':
@@ -309,7 +322,7 @@ class NativeBridge {
       case 'OPEN_URL': {
         const url = payload?.url;
         if (typeof url !== 'string') {
-          console.warn('[NativeBridge] OPEN_URL missing or invalid url');
+          Logger.warn('NativeBridge', 'OPEN_URL missing or invalid url');
           this.sendToWeb({ type: 'ERROR', payload: { message: 'Invalid URL' } });
           return;
         }
@@ -323,7 +336,7 @@ class NativeBridge {
         const encryptedSeed = payload?.encryptedSeed;
         const blockchain = payload?.blockchain;
         if (typeof address !== 'string' || typeof encryptedSeed !== 'string' || typeof blockchain !== 'string') {
-          console.warn('[NativeBridge] SEED_STORED missing or invalid required fields');
+          Logger.warn('NativeBridge', 'SEED_STORED missing or invalid required fields');
           return;
         }
         await this.handleSeedStored(address, encryptedSeed, blockchain);
@@ -335,7 +348,7 @@ class NativeBridge {
         break;
 
       case 'WALLET_CLEARED':
-        console.log('[NativeBridge] Web confirmed wallet cleared');
+        Logger.debug('NativeBridge', 'Web confirmed wallet cleared');
         if (this.walletClearedCallback) {
           this.walletClearedCallback();
         }
@@ -343,6 +356,7 @@ class NativeBridge {
 
       case 'WEB_APP_READY':
         // Mark web app as ready and resolve any waiting promises
+        Logger.debug('NativeBridge', 'WEB_APP_READY received, setting isWebAppReady=true');
         this.isWebAppReady = true;
         this.flushWebAppReadyResolvers('resolve');
 
@@ -352,7 +366,7 @@ class NativeBridge {
         break;
 
       case 'OPEN_NATIVE_SETTINGS':
-        console.log('[NativeBridge] Opening native settings');
+        Logger.debug('NativeBridge', 'Opening native settings');
         if (this.openNativeSettingsCallback) {
           this.openNativeSettingsCallback();
         }
@@ -361,7 +375,7 @@ class NativeBridge {
       case 'PIN_VERIFIED': {
         const success = payload?.success === true;
         const error = typeof payload?.error === 'string' ? payload.error : undefined;
-        console.log(`[NativeBridge] PIN verification result: ${success ? 'success' : 'failed'}`);
+        Logger.debug('NativeBridge', `PIN verification result: ${success ? 'success' : 'failed'}`);
         if (this.pinVerifiedCallback) {
           this.pinVerifiedCallback(success, error);
           this.pinVerifiedCallback = null; // Clear after use
@@ -369,8 +383,20 @@ class NativeBridge {
         break;
       }
 
+      case 'PIN_CHANGED': {
+        const success = payload?.success === true;
+        const newPin = typeof payload?.newPin === 'string' ? payload.newPin : undefined;
+        const error = typeof payload?.error === 'string' ? payload.error : undefined;
+        Logger.debug('NativeBridge', `PIN change result: ${success ? 'success' : 'failed'}`);
+        if (this.pinChangedCallback) {
+          this.pinChangedCallback(success, newPin, error);
+          this.pinChangedCallback = null; // Clear after use
+        }
+        break;
+      }
+
       default:
-        console.warn(`Unknown message type: ${type}`);
+        Logger.warn('NativeBridge', `Unknown message type: ${type}`);
     }
   }
 
@@ -381,7 +407,7 @@ class NativeBridge {
     if (this.qrScanCallback) {
       this.qrScanCallback();
     } else {
-      console.warn('QR scan requested but no callback registered');
+      Logger.warn('NativeBridge', 'QR scan requested but no callback registered');
       this.sendToWeb({
         type: 'ERROR',
         payload: { message: 'QR scanner not available' },
@@ -408,7 +434,7 @@ class NativeBridge {
         payload: { text },
       });
     } catch (error) {
-      console.error('Clipboard error:', error);
+      Logger.error('NativeBridge', 'Clipboard error:', error);
       this.sendToWeb({
         type: 'ERROR',
         payload: { message: 'Failed to copy to clipboard' },
@@ -458,7 +484,7 @@ class NativeBridge {
         },
       });
     } catch (error) {
-      console.error('Share error:', error);
+      Logger.error('NativeBridge', 'Share error:', error);
       this.sendToWeb({
         type: 'ERROR',
         payload: { message: 'Failed to share' },
@@ -471,7 +497,7 @@ class NativeBridge {
    * This can be used to trigger local notifications or update UI
    */
   private handleTxConfirmed(txHash: string, txType: 'incoming' | 'outgoing') {
-    console.log(`Transaction ${txType}: ${txHash}`);
+    Logger.debug('NativeBridge', `Transaction ${txType}: ${txHash}`);
     // TODO: Integrate with NotificationService when implemented
     // NotificationService.showTransactionNotification(txHash, txType);
   }
@@ -515,14 +541,14 @@ class NativeBridge {
       if (canOpen) {
         await Linking.openURL(url);
       } else {
-        console.warn(`[NativeBridge] Cannot open URL: ${url}`);
+        Logger.warn('NativeBridge', `Cannot open URL: ${url}`);
         this.sendToWeb({
           type: 'ERROR',
           payload: { message: 'Cannot open this URL' },
         });
       }
     } catch (error) {
-      console.error('[NativeBridge] Error opening URL:', error);
+      Logger.error('NativeBridge', 'Error opening URL:', error);
       this.sendToWeb({
         type: 'ERROR',
         payload: { message: 'Failed to open URL' },
@@ -584,7 +610,7 @@ class NativeBridge {
     encryptedSeed: string,
     blockchain: string
   ) {
-    console.log(`[NativeBridge] Backing up seed for ${address}`);
+    Logger.debug('NativeBridge', `Backing up seed for ${address}`);
 
     // Backup the encrypted seed to AsyncStorage
     await SeedStorageService.backupSeed(address, encryptedSeed, blockchain);
@@ -602,7 +628,7 @@ class NativeBridge {
     if (this.biometricUnlockCallback) {
       await this.biometricUnlockCallback();
     } else {
-      console.warn('[NativeBridge] Biometric unlock requested but no callback registered');
+      Logger.warn('NativeBridge', 'Biometric unlock requested but no callback registered');
       this.sendToWeb({
         type: 'ERROR',
         payload: { message: 'Biometric unlock not available' },
@@ -638,6 +664,7 @@ class NativeBridge {
    * Request web to clear all wallet data (from native settings)
    */
   sendClearWallet() {
+    Logger.debug('NativeBridge', `sendClearWallet called, webViewRef=${this.webViewRef?.current ? 'exists' : 'null'}, isWebAppReady=${this.isWebAppReady}`);
     this.sendToWeb({
       type: 'CLEAR_WALLET',
     });
@@ -667,11 +694,11 @@ class NativeBridge {
 
     // Wait for web app to be ready first (with its own timeout)
     try {
-      console.log('[NativeBridge] Waiting for web app to be ready before PIN verification...');
+      Logger.debug('NativeBridge', 'Waiting for web app to be ready before PIN verification...');
       await this.waitForWebAppReady();
-      console.log('[NativeBridge] Web app is ready, proceeding with PIN verification');
+      Logger.debug('NativeBridge', 'Web app is ready, proceeding with PIN verification');
     } catch (error) {
-      console.error('[NativeBridge] Web app not ready for PIN verification:', error);
+      Logger.error('NativeBridge', 'Web app not ready for PIN verification:', error);
       return { success: false, error: 'Web app not ready. Please try again.' };
     }
 
@@ -693,6 +720,52 @@ class NativeBridge {
       this.sendToWeb({
         type: 'VERIFY_PIN',
         payload: { pin },
+      });
+    });
+  }
+
+  /**
+   * Request web to change PIN (re-encrypt all seeds)
+   * Waits for web app to be ready before sending the request
+   * @param oldPin The current PIN to verify
+   * @param newPin The new PIN to encrypt seeds with
+   * @param timeoutMs Timeout in milliseconds for change operation (default 30 seconds)
+   * @returns Promise that resolves with change result
+   */
+  async changePin(oldPin: string, newPin: string, timeoutMs: number = 30000): Promise<{ success: boolean; error?: string }> {
+    // Prevent race condition - reject if change already in progress
+    if (this.pinChangedCallback) {
+      return { success: false, error: 'A PIN change is already in progress' };
+    }
+
+    // Wait for web app to be ready first (with its own timeout)
+    try {
+      Logger.debug('NativeBridge', 'Waiting for web app to be ready before PIN change...');
+      await this.waitForWebAppReady();
+      Logger.debug('NativeBridge', 'Web app is ready, proceeding with PIN change');
+    } catch (error) {
+      Logger.error('NativeBridge', 'Web app not ready for PIN change:', error);
+      return { success: false, error: 'Web app not ready. Please try again.' };
+    }
+
+    return new Promise((resolve) => {
+      // Set up timeout
+      const timeout = setTimeout(() => {
+        this.pinChangedCallback = null;
+        resolve({ success: false, error: 'PIN change timed out' });
+      }, timeoutMs);
+
+      // Set up callback for response
+      this.pinChangedCallback = (success: boolean, _newPin?: string, error?: string) => {
+        clearTimeout(timeout);
+        this.pinChangedCallback = null;
+        resolve({ success, error });
+      };
+
+      // Send change request to web
+      this.sendToWeb({
+        type: 'CHANGE_PIN',
+        payload: { oldPin, newPin },
       });
     });
   }

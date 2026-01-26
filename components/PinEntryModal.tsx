@@ -184,10 +184,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#2c2c2e',
   },
   submitButton: {
-    backgroundColor: '#0a84ff',
+    backgroundColor: '#ff8700',
   },
   cancelButtonText: {
-    color: '#0a84ff',
+    color: '#ff8700',
     fontSize: 17,
     fontWeight: '500',
   },
