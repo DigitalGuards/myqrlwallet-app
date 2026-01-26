@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 import Logger from './Logger';
+import BridgeCrypto, { EncryptedEnvelope } from './BridgeCrypto';
 
 /**
  * Message types that can be received from the WebView
@@ -60,6 +61,24 @@ export interface BridgeMessage {
 export interface BridgeResponse {
   type: NativeToWebMessageType;
   payload?: Record<string, unknown>;
+}
+
+/**
+ * Message types that contain sensitive data and should be encrypted
+ * when secure channel is established
+ */
+const SENSITIVE_NATIVE_TO_WEB: NativeToWebMessageType[] = [
+  'UNLOCK_WITH_PIN',
+  'RESTORE_SEED',
+  'VERIFY_PIN',
+  'CHANGE_PIN',
+];
+
+/**
+ * Check if a message type is sensitive and should be encrypted
+ */
+function isSensitiveMessage(type: NativeToWebMessageType): boolean {
+  return SENSITIVE_NATIVE_TO_WEB.includes(type);
 }
 
 /**
@@ -191,6 +210,70 @@ class NativeBridge {
     Logger.debug('NativeBridge', 'Resetting web app ready state');
     this.isWebAppReady = false;
     this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
+    // Also reset crypto state for new session
+    BridgeCrypto.reset();
+  }
+
+  // ============================================================
+  // Encryption Support
+  // ============================================================
+
+  /**
+   * Initiate key exchange with the web app
+   * Called automatically after WEB_APP_READY
+   */
+  private async initiateKeyExchange(): Promise<void> {
+    try {
+      const publicKey = await BridgeCrypto.getPublicKey();
+      Logger.debug('NativeBridge', 'Initiating key exchange');
+      this.sendToWeb({
+        type: 'KEY_EXCHANGE_INIT',
+        payload: { publicKey },
+      });
+    } catch (error) {
+      Logger.error('NativeBridge', 'Failed to initiate key exchange:', error);
+    }
+  }
+
+  /**
+   * Send a message to the WebView with optional encryption
+   * Encrypts sensitive messages if secure channel is established
+   */
+  async sendToWebSecure(message: BridgeResponse): Promise<void> {
+    if (BridgeCrypto.isReady() && isSensitiveMessage(message.type)) {
+      const envelope = await BridgeCrypto.encrypt(JSON.stringify(message));
+      if (envelope) {
+        Logger.debug('NativeBridge', `Sending encrypted ${message.type}`);
+        this.sendToWebRaw(envelope);
+        return;
+      }
+      // Fall through to unencrypted if encryption failed
+      Logger.warn('NativeBridge', 'Encryption failed, sending unencrypted');
+    }
+    this.sendToWeb(message);
+  }
+
+  /**
+   * Send an encrypted envelope directly to the WebView
+   */
+  private sendToWebRaw(envelope: EncryptedEnvelope): void {
+    if (this.webViewRef?.current) {
+      const script = `
+        (function() {
+          try {
+            window.dispatchEvent(new CustomEvent('nativeMessage', {
+              detail: ${JSON.stringify(envelope)}
+            }));
+          } catch (e) {
+            console.error('[NativeBridge] Error dispatching encrypted message:', e);
+          }
+        })();
+        void(0);
+      `;
+      this.webViewRef.current.injectJavaScript(script);
+    } else {
+      Logger.warn('NativeBridge', 'WebView ref not available, encrypted message not sent');
+    }
   }
 
   /**
@@ -366,6 +449,9 @@ class NativeBridge {
         this.isWebAppReady = true;
         this.flushWebAppReadyResolvers('resolve');
 
+        // Initiate key exchange for encrypted communication
+        await this.initiateKeyExchange();
+
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
         }
@@ -398,6 +484,19 @@ class NativeBridge {
           this.pinChangedCallback(success, newPin, error);
           this.pinChangedCallback = null; // Clear after use
         }
+        break;
+      }
+
+      // Key exchange messages
+      case 'KEY_EXCHANGE_RESPONSE': {
+        const publicKey = payload?.publicKey;
+        const success = payload?.success;
+        if (typeof publicKey !== 'string' || success !== true) {
+          Logger.warn('NativeBridge', 'KEY_EXCHANGE_RESPONSE failed or missing publicKey');
+          return;
+        }
+        const exchangeSuccess = await BridgeCrypto.completeKeyExchange(publicKey);
+        Logger.debug('NativeBridge', `Key exchange complete: ${exchangeSuccess}`);
         break;
       }
 
@@ -648,9 +747,10 @@ class NativeBridge {
 
   /**
    * Send PIN to web after successful biometric authentication
+   * Uses encrypted channel if available
    */
-  sendUnlockWithPin(pin: string) {
-    this.sendToWeb({
+  async sendUnlockWithPin(pin: string): Promise<void> {
+    await this.sendToWebSecure({
       type: 'UNLOCK_WITH_PIN',
       payload: { pin },
     });
@@ -658,9 +758,10 @@ class NativeBridge {
 
   /**
    * Send backed up seed to web for restoration
+   * Uses encrypted channel if available
    */
-  sendRestoreSeed(address: string, encryptedSeed: string, blockchain: string) {
-    this.sendToWeb({
+  async sendRestoreSeed(address: string, encryptedSeed: string, blockchain: string): Promise<void> {
+    await this.sendToWebSecure({
       type: 'RESTORE_SEED',
       payload: { address, encryptedSeed, blockchain },
     });
@@ -722,8 +823,8 @@ class NativeBridge {
         resolve({ success, error });
       };
 
-      // Send verification request to web
-      this.sendToWeb({
+      // Send verification request to web (encrypted if available)
+      this.sendToWebSecure({
         type: 'VERIFY_PIN',
         payload: { pin },
       });
@@ -768,8 +869,8 @@ class NativeBridge {
         resolve({ success, error });
       };
 
-      // Send change request to web
-      this.sendToWeb({
+      // Send change request to web (encrypted if available)
+      this.sendToWebSecure({
         type: 'CHANGE_PIN',
         payload: { oldPin, newPin },
       });
