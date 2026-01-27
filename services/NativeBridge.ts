@@ -27,9 +27,8 @@ export type WebToNativeMessageType =
   | 'PIN_CHANGED'             // Web responds to PIN change request
   // Navigation messages
   | 'OPEN_NATIVE_SETTINGS'    // Request native app to open its settings screen
-  // Key exchange messages
-  | 'KEY_EXCHANGE_INIT'       // Web initiates key exchange with its public key
-  | 'KEY_EXCHANGE_RESPONSE';  // Web responds with its public key (if native initiated)
+  // Key exchange messages (ML-KEM-1024)
+  | 'KEY_EXCHANGE_INIT';      // Web initiates key exchange with its encapsulation key
 
 /**
  * Message types that can be sent to the WebView
@@ -49,9 +48,8 @@ export type NativeToWebMessageType =
   | 'BIOMETRIC_SETUP_PROMPT'  // Native prompts user to enable biometric
   | 'VERIFY_PIN'              // Native asks web to verify PIN can decrypt seed
   | 'CHANGE_PIN'              // Native requests web to change PIN (re-encrypt seeds)
-  // Key exchange messages
-  | 'KEY_EXCHANGE_INIT'       // Native initiates key exchange with its public key
-  | 'KEY_EXCHANGE_RESPONSE';  // Native responds with its public key (if web initiated)
+  // Key exchange messages (ML-KEM-1024)
+  | 'KEY_EXCHANGE_RESPONSE';  // Native responds with ciphertext after encapsulation
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -215,23 +213,39 @@ class NativeBridge {
   }
 
   // ============================================================
-  // Encryption Support
+  // Encryption Support (ML-KEM-1024)
   // ============================================================
 
   /**
-   * Initiate key exchange with the web app
-   * Called automatically after WEB_APP_READY
+   * Handle key exchange initiated by web
+   * Web sends its encapsulation key, native encapsulates and returns ciphertext
    */
-  private async initiateKeyExchange(): Promise<void> {
+  private async handleKeyExchangeInit(encapsulationKey: string): Promise<void> {
     try {
-      const publicKey = await BridgeCrypto.getPublicKey();
-      Logger.debug('NativeBridge', 'Initiating key exchange');
-      this.sendToWeb({
-        type: 'KEY_EXCHANGE_INIT',
-        payload: { publicKey },
-      });
+      Logger.debug('NativeBridge', 'Received ML-KEM-1024 encapsulation key from web');
+
+      // Encapsulate: generates ciphertext + shared secret
+      const ciphertext = await BridgeCrypto.completeKeyExchange(encapsulationKey);
+
+      if (ciphertext) {
+        Logger.debug('NativeBridge', 'ML-KEM-1024 encapsulation successful, sending ciphertext');
+        this.sendToWeb({
+          type: 'KEY_EXCHANGE_RESPONSE',
+          payload: { ciphertext, success: true },
+        });
+      } else {
+        Logger.error('NativeBridge', 'ML-KEM-1024 encapsulation failed');
+        this.sendToWeb({
+          type: 'KEY_EXCHANGE_RESPONSE',
+          payload: { success: false, error: 'Encapsulation failed' },
+        });
+      }
     } catch (error) {
-      Logger.error('NativeBridge', 'Failed to initiate key exchange:', error);
+      Logger.error('NativeBridge', 'Key exchange failed:', error);
+      this.sendToWeb({
+        type: 'KEY_EXCHANGE_RESPONSE',
+        payload: { success: false, error: String(error) },
+      });
     }
   }
 
@@ -449,8 +463,8 @@ class NativeBridge {
         this.isWebAppReady = true;
         this.flushWebAppReadyResolvers('resolve');
 
-        // Initiate key exchange for encrypted communication
-        await this.initiateKeyExchange();
+        // Note: Key exchange is initiated by web via KEY_EXCHANGE_INIT
+        // Web will send its ML-KEM-1024 public key when ready
 
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
@@ -487,16 +501,18 @@ class NativeBridge {
         break;
       }
 
-      // Key exchange messages
-      case 'KEY_EXCHANGE_RESPONSE': {
-        const publicKey = payload?.publicKey;
-        const success = payload?.success;
-        if (typeof publicKey !== 'string' || success !== true) {
-          Logger.warn('NativeBridge', 'KEY_EXCHANGE_RESPONSE failed or missing publicKey');
+      // Key exchange messages (ML-KEM-1024)
+      case 'KEY_EXCHANGE_INIT': {
+        const encapsulationKey = payload?.encapsulationKey;
+        if (typeof encapsulationKey !== 'string') {
+          Logger.warn('NativeBridge', 'KEY_EXCHANGE_INIT missing encapsulationKey');
+          this.sendToWeb({
+            type: 'KEY_EXCHANGE_RESPONSE',
+            payload: { success: false, error: 'Missing encapsulation key' },
+          });
           return;
         }
-        const exchangeSuccess = await BridgeCrypto.completeKeyExchange(publicKey);
-        Logger.debug('NativeBridge', `Key exchange complete: ${exchangeSuccess}`);
+        await this.handleKeyExchangeInit(encapsulationKey);
         break;
       }
 

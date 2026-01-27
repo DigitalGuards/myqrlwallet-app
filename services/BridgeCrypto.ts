@@ -1,18 +1,26 @@
 /**
- * BridgeCrypto - ECDH Key Agreement for Secure Bridge Communication
+ * BridgeCrypto - ML-KEM-1024 Key Encapsulation for Secure Bridge Communication
  *
- * Implements ephemeral ECDH key exchange using P-256 (secp256r1) curve
+ * Implements post-quantum secure key exchange using ML-KEM-1024 (FIPS 203)
  * and AES-256-GCM for encrypting sensitive bridge messages.
  *
  * Security model:
- * - Each session generates new ephemeral keypairs
- * - Shared secret derived via ECDH
+ * - Post-quantum secure key exchange (NIST Category 5, ~AES-256 equivalent)
+ * - Native acts as ENCAPSULATOR: receives web's public key, generates shared secret
+ * - Web acts as DECAPSULATOR: generates keypair, decapsulates to get shared secret
  * - AES-256-GCM key derived from shared secret using HKDF
  * - Random IV per message, prepended to ciphertext
+ *
+ * Protocol:
+ * 1. Web generates ML-KEM keypair, sends encapsulation key to native
+ * 2. Native encapsulates: (ciphertext, sharedSecret) = encapsulate(webPublicKey)
+ * 3. Native sends ciphertext back to web
+ * 4. Web decapsulates: sharedSecret = decapsulate(ciphertext, secretKey)
+ * 5. Both derive AES key from shared secret
  */
 
 import * as Crypto from 'expo-crypto';
-import { p256 } from '@noble/curves/p256';
+import { ml_kem1024 } from '@noble/post-quantum/ml-kem';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha256';
 import Logger from './Logger';
@@ -20,11 +28,10 @@ import Logger from './Logger';
 // Constants
 const AES_KEY_LENGTH = 32; // 256 bits
 const IV_LENGTH = 12; // 96 bits for GCM
-const AUTH_TAG_LENGTH = 16; // 128 bits
 
-// HKDF info string for key derivation
-const HKDF_INFO = new TextEncoder().encode('BridgeCrypto-AES-GCM-Key');
-const HKDF_SALT = new TextEncoder().encode('MyQRLWallet-Bridge-v1');
+// HKDF info string for key derivation - updated for ML-KEM
+const HKDF_INFO = new TextEncoder().encode('BridgeCrypto-ML-KEM-1024-AES-GCM-Key');
+const HKDF_SALT = new TextEncoder().encode('MyQRLWallet-Bridge-v2');
 
 /**
  * Encrypted message envelope
@@ -37,11 +44,9 @@ export interface EncryptedEnvelope {
 }
 
 /**
- * Key exchange state
+ * Key exchange state for encapsulator (native)
  */
-interface KeyExchangeState {
-  privateKey: Uint8Array;
-  publicKey: Uint8Array;
+interface EncapsulatorState {
   sharedSecret: Uint8Array | null;
   aesKey: Uint8Array | null;
   isReady: boolean;
@@ -50,10 +55,10 @@ interface KeyExchangeState {
 
 /**
  * BridgeCrypto service singleton
- * Manages ECDH key exchange and message encryption/decryption
+ * Native acts as ENCAPSULATOR in ML-KEM key exchange
  */
 class BridgeCryptoService {
-  private state: KeyExchangeState | null = null;
+  private state: EncapsulatorState | null = null;
   private onReadyCallbacks: Array<() => void> = [];
 
   /**
@@ -72,87 +77,46 @@ class BridgeCryptoService {
   }
 
   /**
-   * Get the public key for key exchange (base64 encoded)
-   * Generates new keypair if not already initialized
-   */
-  async getPublicKey(): Promise<string> {
-    if (!this.state) {
-      await this.generateKeyPair();
-    }
-    return this.uint8ArrayToBase64(this.state!.publicKey);
-  }
-
-  /**
-   * Generate a new ephemeral ECDH keypair
-   */
-  async generateKeyPair(): Promise<void> {
-    // Generate random private key using expo-crypto
-    const privateKeyBytes = await Crypto.getRandomBytesAsync(32);
-    const privateKey = new Uint8Array(privateKeyBytes);
-
-    // Derive public key from private key
-    const publicKey = p256.getPublicKey(privateKey, false); // uncompressed format
-
-    this.state = {
-      privateKey,
-      publicKey,
-      sharedSecret: null,
-      aesKey: null,
-      isReady: false,
-      encryptionEnabled: false,
-    };
-
-    Logger.debug('BridgeCrypto', 'Generated new ECDH keypair');
-  }
-
-  /**
-   * Complete key exchange with peer's public key
-   * Derives shared secret and AES key
+   * Complete key exchange by encapsulating with web's public key
+   * Returns the ciphertext that must be sent back to web
    *
-   * @param peerPublicKeyBase64 - Peer's public key in base64 (uncompressed P-256)
+   * @param webEncapKeyBase64 - Web's encapsulation key (ML-KEM-1024 public key) in base64
+   * @returns Base64-encoded ciphertext, or null if encapsulation fails
    */
-  async completeKeyExchange(peerPublicKeyBase64: string): Promise<boolean> {
-    if (!this.state) {
-      Logger.error('BridgeCrypto', 'Cannot complete key exchange: no keypair generated');
-      return false;
-    }
-
+  async completeKeyExchange(webEncapKeyBase64: string): Promise<string | null> {
     try {
-      const peerPublicKey = this.base64ToUint8Array(peerPublicKeyBase64);
+      const webEncapKey = this.base64ToUint8Array(webEncapKeyBase64);
 
-      // Validate peer public key is on the curve
-      try {
-        p256.ProjectivePoint.fromHex(peerPublicKey);
-      } catch {
-        Logger.error('BridgeCrypto', 'Invalid peer public key');
-        return false;
+      // Validate key size (ML-KEM-1024 public key is 1568 bytes)
+      if (webEncapKey.length !== 1568) {
+        Logger.error('BridgeCrypto', `Invalid encapsulation key size: ${webEncapKey.length} (expected 1568)`);
+        return null;
       }
 
-      // Compute shared secret via ECDH
-      const sharedPoint = p256.getSharedSecret(this.state.privateKey, peerPublicKey);
-
-      // The shared secret is the x-coordinate of the shared point
-      // getSharedSecret returns the x-coordinate directly (32 bytes)
-      const sharedSecret = sharedPoint.slice(1, 33); // Skip the 0x04 prefix if present
+      // Encapsulate: generates ciphertext + shared secret
+      const { cipherText, sharedSecret } = ml_kem1024.encapsulate(webEncapKey);
 
       // Derive AES key using HKDF
       const aesKey = hkdf(sha256, sharedSecret, HKDF_SALT, HKDF_INFO, AES_KEY_LENGTH);
 
-      this.state.sharedSecret = sharedSecret;
-      this.state.aesKey = new Uint8Array(aesKey);
-      this.state.isReady = true;
-      this.state.encryptionEnabled = true;
+      this.state = {
+        sharedSecret: new Uint8Array(sharedSecret),
+        aesKey: new Uint8Array(aesKey),
+        isReady: true,
+        encryptionEnabled: true,
+      };
 
-      Logger.debug('BridgeCrypto', 'Key exchange completed successfully');
+      Logger.debug('BridgeCrypto', 'ML-KEM-1024 key encapsulation completed successfully');
 
       // Notify any waiting callbacks
       this.onReadyCallbacks.forEach(cb => cb());
       this.onReadyCallbacks = [];
 
-      return true;
+      // Return ciphertext for web to decapsulate
+      return this.uint8ArrayToBase64(cipherText);
     } catch (error) {
-      Logger.error('BridgeCrypto', 'Key exchange failed:', error);
-      return false;
+      Logger.error('BridgeCrypto', 'Key encapsulation failed:', error);
+      return null;
     }
   }
 
@@ -176,7 +140,7 @@ class BridgeCryptoService {
       // Convert plaintext to bytes
       const plaintextBytes = new TextEncoder().encode(plaintext);
 
-      // Encrypt using AES-GCM (we'll use SubtleCrypto via a shim)
+      // Encrypt using AES-GCM
       const ciphertext = await this.aesGcmEncrypt(
         this.state.aesKey,
         iv,
@@ -238,7 +202,6 @@ class BridgeCryptoService {
   reset(): void {
     // Clear sensitive data
     if (this.state) {
-      this.state.privateKey.fill(0);
       if (this.state.sharedSecret) this.state.sharedSecret.fill(0);
       if (this.state.aesKey) this.state.aesKey.fill(0);
     }
@@ -277,22 +240,20 @@ class BridgeCryptoService {
   // ============================================================
 
   /**
-   * AES-GCM encryption using a pure JS implementation
-   * Note: In production, consider using react-native-quick-crypto for native performance
+   * AES-GCM encryption using @noble/ciphers
    */
   private async aesGcmEncrypt(
     key: Uint8Array,
     iv: Uint8Array,
     plaintext: Uint8Array
   ): Promise<Uint8Array> {
-    // Use the gcm module from @noble/ciphers
     const { gcm } = await import('@noble/ciphers/aes');
     const aes = gcm(key, iv);
     return aes.encrypt(plaintext);
   }
 
   /**
-   * AES-GCM decryption using a pure JS implementation
+   * AES-GCM decryption using @noble/ciphers
    */
   private async aesGcmDecrypt(
     key: Uint8Array,
@@ -308,7 +269,6 @@ class BridgeCryptoService {
    * Convert Uint8Array to base64 string
    */
   private uint8ArrayToBase64(bytes: Uint8Array): string {
-    // Use Buffer in React Native environment
     return Buffer.from(bytes).toString('base64');
   }
 
