@@ -56,13 +56,31 @@ export default function RootLayout() {
     <ThemeProvider value={appTheme}>
       <View style={{ flex: 1, backgroundColor: '#0A0A17' }}>
         <StatusBar style="light" backgroundColor="#0A0A17" />
-        <Stack screenOptions={{ 
+        <Stack screenOptions={{
           headerShown: false,
-          contentStyle: { 
-            backgroundColor: '#0A0A17' 
-          } 
+          contentStyle: {
+            backgroundColor: '#0A0A17'
+          }
         }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="settings"
+            options={{
+              headerShown: true,
+              title: 'Settings',
+              headerStyle: {
+                backgroundColor: '#0A0A17',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+                fontSize: 18,
+              },
+              headerTitleAlign: 'center',
+              headerShadowVisible: false,
+              gestureEnabled: true,
+            }}
+          />
           <Stack.Screen name="+not-found" />
         </Stack>
       </View>

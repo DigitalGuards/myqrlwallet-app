@@ -1,19 +1,18 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Alert, Image, Linking } from 'react-native';
-import WebViewService, { UserPreferences } from '../../services/WebViewService';
-import BiometricService from '../../services/BiometricService';
-import SeedStorageService from '../../services/SeedStorageService';
-import ScreenSecurityService from '../../services/ScreenSecurityService';
-import NativeBridge from '../../services/NativeBridge';
+import WebViewService, { UserPreferences } from '../services/WebViewService';
+import BiometricService from '../services/BiometricService';
+import SeedStorageService from '../services/SeedStorageService';
+import ScreenSecurityService from '../services/ScreenSecurityService';
+import NativeBridge from '../services/NativeBridge';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { ChangePinModal } from '../../components/ChangePinModal';
-import { PinEntryModal } from '../../components/PinEntryModal';
+import { ChangePinModal } from '../components/ChangePinModal';
+import { PinEntryModal } from '../components/PinEntryModal';
 
 export default function SettingsScreen() {
-  const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
     notificationsEnabled: true,
   });
@@ -269,20 +268,6 @@ export default function SettingsScreen() {
     Linking.openURL(url).catch((err) => console.error('Failed to open link:', err));
   };
 
-  // Add back button functionality to header
-  useEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <FontAwesome name="arrow-left" size={20} color="#fff" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
-
   return (
     <ScrollView style={styles.container}>
       {/* General Section */}
@@ -392,40 +377,40 @@ export default function SettingsScreen() {
       {/* About Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>
-        
+
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../../assets/images/myqrlwallet/mqrlwallet.png')}
+            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
             style={styles.logo}
             resizeMode="contain"
           />
           <Text style={styles.version}>Version {appVersion}</Text>
         </View>
-        
+
         <Text style={styles.paragraph}>
-          The Quantum Resistant Ledger (QRL) is a blockchain technology designed to be secure against 
+          The Quantum Resistant Ledger (QRL) is a blockchain technology designed to be secure against
           quantum computing attacks. This app provides a mobile interface to access your QRL wallet.
         </Text>
-        
+
         <View style={styles.linksContainer}>
-          <TouchableOpacity 
-            style={styles.linkButton} 
+          <TouchableOpacity
+            style={styles.linkButton}
             onPress={() => openLink('https://theqrl.org')}
           >
             <FontAwesome name="globe" size={18} color="#ff8700" style={styles.buttonIcon} />
             <Text style={styles.linkText}>QRL Website</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.linkButton} 
+
+          <TouchableOpacity
+            style={styles.linkButton}
             onPress={() => openLink('https://docs.theqrl.org')}
           >
             <FontAwesome name="book" size={18} color="#ff8700" style={styles.buttonIcon} />
             <Text style={styles.linkText}>Documentation</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.linkButton} 
+
+          <TouchableOpacity
+            style={styles.linkButton}
             onPress={() => openLink('https://github.com/theqrl')}
           >
             <FontAwesome name="github" size={18} color="#ff8700" style={styles.buttonIcon} />
@@ -586,7 +571,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#ff8700',
   },
-  backButton: {
-    padding: 10,
-  },
-}); 
+});
