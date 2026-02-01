@@ -7,12 +7,14 @@ import ScreenSecurityService from '../services/ScreenSecurityService';
 import NativeBridge from '../services/NativeBridge';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
-import { useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { ChangePinModal } from '../components/ChangePinModal';
 import { PinEntryModal } from '../components/PinEntryModal';
+import Logger from '../services/Logger';
 
 export default function SettingsScreen() {
+  const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
     notificationsEnabled: true,
   });
@@ -121,7 +123,7 @@ export default function SettingsScreen() {
                 await ScreenSecurityService.setEnabled(false);
                 setPreventScreenshots(false);
               } catch (error) {
-                console.error('Failed to disable screenshot prevention:', error);
+                Logger.error('Settings', 'Failed to disable screenshot prevention:', error);
                 Alert.alert('Error', 'Could not disable screenshot prevention. Please try again.');
               }
             },
@@ -133,7 +135,7 @@ export default function SettingsScreen() {
         await ScreenSecurityService.setEnabled(true);
         setPreventScreenshots(true);
       } catch (error) {
-        console.error('Failed to enable screenshot prevention:', error);
+        Logger.error('Settings', 'Failed to enable screenshot prevention:', error);
         Alert.alert('Error', 'Could not enable screenshot prevention. Please try again.');
       }
     }
@@ -227,7 +229,7 @@ export default function SettingsScreen() {
                         Alert.alert('Wallet Removed', 'Your wallet has been removed. Web data may need manual clearing.');
                       }
                     } catch (error) {
-                      console.error('[Settings] Failed to remove wallet:', error);
+                      Logger.error('Settings', 'Failed to remove wallet:', error);
                       Alert.alert(
                         'Error',
                         'Failed to remove wallet. Please try again.',
@@ -265,8 +267,22 @@ export default function SettingsScreen() {
 
   // Open external links
   const openLink = (url: string) => {
-    Linking.openURL(url).catch((err) => console.error('Failed to open link:', err));
+    Linking.openURL(url).catch((err) => Logger.error('Settings', 'Failed to open link:', err));
   };
+
+  // Add back button functionality to header
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <FontAwesome name="arrow-left" size={20} color="#fff" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation]);
 
   return (
     <ScrollView style={styles.container}>
@@ -377,40 +393,40 @@ export default function SettingsScreen() {
       {/* About Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>About</Text>
-
+        
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
+            source={require('../../assets/images/myqrlwallet/mqrlwallet.png')}
             style={styles.logo}
             resizeMode="contain"
           />
           <Text style={styles.version}>Version {appVersion}</Text>
         </View>
-
+        
         <Text style={styles.paragraph}>
-          The Quantum Resistant Ledger (QRL) is a blockchain technology designed to be secure against
+          The Quantum Resistant Ledger (QRL) is a blockchain technology designed to be secure against 
           quantum computing attacks. This app provides a mobile interface to access your QRL wallet.
         </Text>
-
+        
         <View style={styles.linksContainer}>
-          <TouchableOpacity
-            style={styles.linkButton}
+          <TouchableOpacity 
+            style={styles.linkButton} 
             onPress={() => openLink('https://theqrl.org')}
           >
             <FontAwesome name="globe" size={18} color="#ff8700" style={styles.buttonIcon} />
             <Text style={styles.linkText}>QRL Website</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.linkButton}
+          
+          <TouchableOpacity 
+            style={styles.linkButton} 
             onPress={() => openLink('https://docs.theqrl.org')}
           >
             <FontAwesome name="book" size={18} color="#ff8700" style={styles.buttonIcon} />
             <Text style={styles.linkText}>Documentation</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.linkButton}
+          
+          <TouchableOpacity 
+            style={styles.linkButton} 
             onPress={() => openLink('https://github.com/theqrl')}
           >
             <FontAwesome name="github" size={18} color="#ff8700" style={styles.buttonIcon} />
@@ -571,4 +587,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#ff8700',
   },
-});
+  backButton: {
+    padding: 10,
+  },
+}); 

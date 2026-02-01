@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Logger from './Logger';
 
 const STORAGE_KEYS = {
   COOKIES: '@MyQRLWallet:cookies',
@@ -21,9 +22,9 @@ class WebViewService {
   async saveCookies(cookies: string): Promise<void> {
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.COOKIES, cookies);
-      console.log('Cookies saved successfully');
+      Logger.debug('WebViewService', 'Cookies saved successfully');
     } catch (error) {
-      console.error('Failed to save cookies:', error);
+      Logger.error('WebViewService', 'Failed to save cookies:', error);
     }
   }
 
@@ -35,7 +36,7 @@ class WebViewService {
     try {
       return await AsyncStorage.getItem(STORAGE_KEYS.COOKIES);
     } catch (error) {
-      console.error('Failed to retrieve cookies:', error);
+      Logger.error('WebViewService', 'Failed to retrieve cookies:', error);
       return null;
     }
   }
@@ -48,7 +49,7 @@ class WebViewService {
       const timestamp = new Date().toISOString();
       await AsyncStorage.setItem(STORAGE_KEYS.LAST_SESSION, timestamp);
     } catch (error) {
-      console.error('Failed to update last session:', error);
+      Logger.error('WebViewService', 'Failed to update last session:', error);
     }
   }
 
@@ -60,7 +61,7 @@ class WebViewService {
     try {
       return await AsyncStorage.getItem(STORAGE_KEYS.LAST_SESSION);
     } catch (error) {
-      console.error('Failed to get last session:', error);
+      Logger.error('WebViewService', 'Failed to get last session:', error);
       return null;
     }
   }
@@ -76,7 +77,7 @@ class WebViewService {
         JSON.stringify(preferences)
       );
     } catch (error) {
-      console.error('Failed to save user preferences:', error);
+      Logger.error('WebViewService', 'Failed to save user preferences:', error);
     }
   }
 
@@ -97,7 +98,7 @@ class WebViewService {
         notificationsEnabled: true,
       };
     } catch (error) {
-      console.error('Failed to get user preferences:', error);
+      Logger.error('WebViewService', 'Failed to get user preferences:', error);
       return {
         notificationsEnabled: true,
       };
@@ -113,9 +114,9 @@ class WebViewService {
         STORAGE_KEYS.COOKIES,
         STORAGE_KEYS.LAST_SESSION,
       ]);
-      console.log('Session data cleared successfully');
+      Logger.debug('WebViewService', 'Session data cleared successfully');
     } catch (error) {
-      console.error('Failed to clear session data:', error);
+      Logger.error('WebViewService', 'Failed to clear session data:', error);
     }
   }
 }
