@@ -1,17 +1,17 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, Switch, View, Text, TouchableOpacity, ScrollView, Alert, Image, Linking } from 'react-native';
-import WebViewService, { UserPreferences } from '../../services/WebViewService';
-import BiometricService from '../../services/BiometricService';
-import SeedStorageService from '../../services/SeedStorageService';
-import ScreenSecurityService from '../../services/ScreenSecurityService';
-import NativeBridge from '../../services/NativeBridge';
+import WebViewService, { UserPreferences } from '../services/WebViewService';
+import BiometricService from '../services/BiometricService';
+import SeedStorageService from '../services/SeedStorageService';
+import ScreenSecurityService from '../services/ScreenSecurityService';
+import NativeBridge from '../services/NativeBridge';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Constants from 'expo-constants';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { ChangePinModal } from '../../components/ChangePinModal';
-import { PinEntryModal } from '../../components/PinEntryModal';
-import Logger from '../../services/Logger';
+import { ChangePinModal } from '../components/ChangePinModal';
+import { PinEntryModal } from '../components/PinEntryModal';
+import Logger from '../services/Logger';
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
@@ -96,8 +96,9 @@ export default function SettingsScreen() {
     // Queue the setup request
     BiometricService.queueDeviceLoginSetup(pin);
 
-    // Navigate to main tab - WebView must be active for PIN verification
-    router.replace('/?enableDeviceLogin=true');
+    // Navigate back to index - WebView must be active for PIN verification
+    // Index screen detects pending setup via BiometricService queue on focus
+    router.back();
   };
 
   // Handle Device Login PIN modal cancel
@@ -162,8 +163,9 @@ export default function SettingsScreen() {
     // Queue the PIN change request
     BiometricService.queuePinChange(currentPin, newPin);
 
-    // Navigate to main tab - WebView must be active for PIN change to work
-    router.replace('/?changePin=true');
+    // Navigate back to index - WebView must be active for PIN change to work
+    // Index screen detects pending change via BiometricService queue on focus
+    router.back();
   };
 
   // Remove wallet - clears all wallet data from native storage
@@ -396,7 +398,7 @@ export default function SettingsScreen() {
         
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../../assets/images/myqrlwallet/mqrlwallet.png')}
+            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
             style={styles.logo}
             resizeMode="contain"
           />
