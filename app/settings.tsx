@@ -396,7 +396,7 @@ export default function SettingsScreen() {
         
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../../assets/images/myqrlwallet/mqrlwallet.png')}
+            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
             style={styles.logo}
             resizeMode="contain"
           />
