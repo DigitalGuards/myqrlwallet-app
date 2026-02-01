@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import Logger from './Logger';
 
 /**
  * Storage keys
@@ -60,7 +61,7 @@ class SeedStorageService {
     // Update wallet metadata
     await this.updateWalletMetadata(address);
 
-    console.log(`[SeedStorage] Backed up seed for ${address}`);
+    Logger.debug('SeedStorage', `Backed up seed for ${address}`);
   }
 
   /**
@@ -133,7 +134,7 @@ class SeedStorageService {
       // Require device authentication (biometric or passcode) to access
       requireAuthentication: false, // We'll handle biometric separately
     });
-    console.log('[SeedStorage] PIN stored securely');
+    Logger.debug('SeedStorage', 'PIN stored securely');
   }
 
   /**
@@ -144,7 +145,7 @@ class SeedStorageService {
     try {
       return await SecureStore.getItemAsync(PIN_KEY);
     } catch (error) {
-      console.error('[SeedStorage] Failed to retrieve PIN:', error);
+      Logger.error('SeedStorage', 'Failed to retrieve PIN:', error);
       return null;
     }
   }
@@ -162,7 +163,7 @@ class SeedStorageService {
    */
   async setBiometricEnabled(enabled: boolean): Promise<void> {
     await AsyncStorage.setItem(BIOMETRIC_ENABLED_KEY, JSON.stringify(enabled));
-    console.log(`[SeedStorage] Biometric enabled: ${enabled}`);
+    Logger.debug('SeedStorage', `Biometric enabled: ${enabled}`);
   }
 
   /**
@@ -256,7 +257,7 @@ class SeedStorageService {
    * WARNING: This permanently deletes all backed up seeds and stored PIN
    */
   async clearWallet(): Promise<void> {
-    console.log('[SeedStorage] Clearing all wallet data...');
+    Logger.debug('SeedStorage', 'Clearing all wallet data...');
 
     // Clear all seed backups
     const keys = await AsyncStorage.getAllKeys();
@@ -275,7 +276,7 @@ class SeedStorageService {
     // Clear wallet metadata
     await AsyncStorage.removeItem(WALLET_METADATA_KEY);
 
-    console.log('[SeedStorage] All wallet data cleared');
+    Logger.debug('SeedStorage', 'All wallet data cleared');
   }
 
   /**
@@ -285,7 +286,7 @@ class SeedStorageService {
     const key = `${SEED_BACKUP_PREFIX}${address.toLowerCase()}`;
     await AsyncStorage.removeItem(key);
     await this.updateWalletMetadata();
-    console.log(`[SeedStorage] Removed backup for ${address}`);
+    Logger.debug('SeedStorage', `Removed backup for ${address}`);
   }
 }
 

@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 import { View } from 'react-native';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
+import Logger from '../services/Logger';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -24,7 +25,7 @@ export default function RootLayout() {
         try {
           await ScreenSecurityService.initialize();
         } catch (error) {
-          console.error('Failed to initialize screen security:', error);
+          Logger.error('RootLayout', 'Failed to initialize screen security:', error);
         }
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();

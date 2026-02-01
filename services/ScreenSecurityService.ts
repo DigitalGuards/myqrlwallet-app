@@ -1,5 +1,6 @@
 import * as ScreenCapture from 'expo-screen-capture';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Logger from './Logger';
 
 const SETTING_KEY = '@MyQRLWallet:preventScreenshots';
 
@@ -23,7 +24,7 @@ class ScreenSecurityService {
       await this.enable();
     }
     this.initialized = true;
-    console.log('[ScreenSecurity] Initialized, prevention:', enabled ? 'enabled' : 'disabled');
+    Logger.debug('ScreenSecurity', 'Initialized, prevention:', enabled ? 'enabled' : 'disabled');
   }
 
   /**
@@ -36,7 +37,7 @@ class ScreenSecurityService {
       // Default to false - user must explicitly enable
       return value === 'true';
     } catch (error) {
-      console.error('[ScreenSecurity] Failed to read setting:', error);
+      Logger.error('ScreenSecurity', 'Failed to read setting:', error);
       return false; // Default to disabled on error
     }
   }
@@ -52,9 +53,9 @@ class ScreenSecurityService {
       } else {
         await this.disable();
       }
-      console.log('[ScreenSecurity] Setting updated:', enabled ? 'enabled' : 'disabled');
+      Logger.debug('ScreenSecurity', 'Setting updated:', enabled ? 'enabled' : 'disabled');
     } catch (error) {
-      console.error('[ScreenSecurity] Failed to save setting:', error);
+      Logger.error('ScreenSecurity', 'Failed to save setting:', error);
       throw error;
     }
   }
@@ -66,7 +67,7 @@ class ScreenSecurityService {
    */
   async enable(): Promise<void> {
     await ScreenCapture.preventScreenCaptureAsync();
-    console.log('[ScreenSecurity] Prevention enabled');
+    Logger.debug('ScreenSecurity', 'Prevention enabled');
   }
 
   /**
@@ -75,7 +76,7 @@ class ScreenSecurityService {
    */
   async disable(): Promise<void> {
     await ScreenCapture.allowScreenCaptureAsync();
-    console.log('[ScreenSecurity] Prevention disabled');
+    Logger.debug('ScreenSecurity', 'Prevention disabled');
   }
 }
 
