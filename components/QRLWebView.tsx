@@ -275,12 +275,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               javaScriptEnabled={true}
               domStorageEnabled={true}
               startInLoadingState={true}
-              scalesPageToFit={true}
               scrollEnabled={true}
               decelerationRate={Platform.OS === 'ios' ? 'normal' : 0.985}
               automaticallyAdjustContentInsets={true}
               contentInsetAdjustmentBehavior="automatic"
-              overScrollMode="always"
+              overScrollMode="never"
               bounces={true}
               directionalLockEnabled={false}
               showsHorizontalScrollIndicator={false}
