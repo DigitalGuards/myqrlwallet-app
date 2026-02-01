@@ -96,8 +96,9 @@ export default function SettingsScreen() {
     // Queue the setup request
     BiometricService.queueDeviceLoginSetup(pin);
 
-    // Navigate to main tab - WebView must be active for PIN verification
-    router.replace('/?enableDeviceLogin=true');
+    // Navigate back to index - WebView must be active for PIN verification
+    // Index screen detects pending setup via BiometricService queue on focus
+    router.back();
   };
 
   // Handle Device Login PIN modal cancel
@@ -162,8 +163,9 @@ export default function SettingsScreen() {
     // Queue the PIN change request
     BiometricService.queuePinChange(currentPin, newPin);
 
-    // Navigate to main tab - WebView must be active for PIN change to work
-    router.replace('/?changePin=true');
+    // Navigate back to index - WebView must be active for PIN change to work
+    // Index screen detects pending change via BiometricService queue on focus
+    router.back();
   };
 
   // Remove wallet - clears all wallet data from native storage

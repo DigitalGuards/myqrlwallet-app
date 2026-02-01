@@ -185,7 +185,7 @@ class BiometricService {
 
       // First verify the PIN with the web app (ensures it can decrypt the seed)
       Logger.debug('BiometricService', 'Verifying PIN with web app...');
-      const verifyResult = await NativeBridge.verifyPin(pin);
+      const verifyResult = await NativeBridge.verifyPin(pin, 30000);
       if (!verifyResult.success) {
         Logger.debug('BiometricService', 'PIN verification failed:', verifyResult.error);
         return {

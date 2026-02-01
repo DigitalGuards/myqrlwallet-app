@@ -9,8 +9,8 @@ import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
-import { useIsFocused } from '@react-navigation/native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useIsFocused, useFocusEffect } from '@react-navigation/native';
+import { router } from 'expo-router';
 
 // Time to wait before treating iOS 'inactive' state as actual backgrounding
 // iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
@@ -30,7 +30,6 @@ export default function WalletScreen() {
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const isFocused = useIsFocused();
-  const params = useLocalSearchParams<{ enableDeviceLogin?: string; changePin?: string }>();
   const appState = useRef(AppState.currentState);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
@@ -85,13 +84,7 @@ export default function WalletScreen() {
   const handlePinCancel = useCallback(() => {
     setPinModalVisible(false);
     setPendingPinAction(null);
-    // If we came from Settings for Device Login, go back
-    if (params.enableDeviceLogin === 'true') {
-      router.setParams({ enableDeviceLogin: undefined });
-      deviceLoginSetupTriggered.current = false;
-      router.push('/settings');
-    }
-  }, [params.enableDeviceLogin]);
+  }, []);
 
   // Show PIN modal with a callback
   const showPinModal = useCallback((action: (pin: string) => Promise<void>) => {
@@ -353,87 +346,71 @@ export default function WalletScreen() {
     NativeBridge.onWebAppReady(handleWebAppReady);
   }, [handleWebAppReady]);
 
-  // Handle Device Login setup request from Settings tab
-  // WebView must be active (on this tab) for the JS bridge to process messages reliably
-  useEffect(() => {
-    if (params.enableDeviceLogin === 'true' && isAuthorized && !deviceLoginSetupTriggered.current) {
-      // Mark as triggered to prevent re-execution
-      deviceLoginSetupTriggered.current = true;
+  // Handle pending operations from Settings screen when this screen regains focus.
+  // Settings queues operations in BiometricService and calls router.back().
+  // When this screen regains focus, we detect and execute the pending operation.
+  // WebView must be active (visible) for the JS bridge to process messages reliably.
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAuthorized) return;
 
-      // Clear the param AFTER marking as triggered to prevent race conditions
-      setTimeout(() => router.setParams({ enableDeviceLogin: undefined }), 0);
+      // Check for pending Device Login setup
+      if (BiometricService.hasPendingDeviceLoginSetup() && !deviceLoginSetupTriggered.current) {
+        deviceLoginSetupTriggered.current = true;
+        setProcessingMessage('Enabling Device Login...');
 
-      // Show loading overlay
-      setProcessingMessage('Enabling Device Login...');
+        InteractionManager.runAfterInteractions(async () => {
+          Logger.debug('WalletScreen', 'Executing queued Device Login setup');
+          const result = await BiometricService.executePendingDeviceLoginSetup();
 
-      // Execute the queued Device Login setup after interactions complete
-      // InteractionManager ensures animations/transitions are done before executing
-      InteractionManager.runAfterInteractions(async () => {
-        Logger.debug('WalletScreen', 'Executing queued Device Login setup');
-        const result = await BiometricService.executePendingDeviceLoginSetup();
+          setProcessingMessage(null);
 
-        // Hide loading overlay
-        setProcessingMessage(null);
-
-        if (result.success) {
-          Alert.alert('Success', 'Device Login enabled!', [
-            { text: 'OK', onPress: () => router.push('/settings') }
-          ]);
-        } else {
-          Alert.alert('Error', result.error || 'Failed to enable Device Login', [
-            { text: 'OK', onPress: () => router.push('/settings') }
-          ]);
-        }
-
-        deviceLoginSetupTriggered.current = false;
-      });
-    }
-  }, [params.enableDeviceLogin, isAuthorized]);
-
-  // Handle PIN change request from Settings tab
-  // WebView must be active (on this tab) for the JS bridge to process messages reliably
-  useEffect(() => {
-    if (params.changePin === 'true' && isAuthorized && !pinChangeTriggered.current) {
-      // Mark as triggered to prevent re-execution
-      pinChangeTriggered.current = true;
-
-      // Clear the param AFTER marking as triggered to prevent race conditions
-      // Use setTimeout to avoid clearing during this render cycle
-      setTimeout(() => router.setParams({ changePin: undefined }), 0);
-
-      // Show loading overlay
-      setProcessingMessage('Changing PIN...');
-
-      // Execute the queued PIN change after interactions complete
-      // InteractionManager ensures animations/transitions are done before executing
-      InteractionManager.runAfterInteractions(async () => {
-        Logger.debug('WalletScreen', 'Executing queued PIN change');
-        const result = await BiometricService.executePendingPinChange();
-
-        // Hide loading overlay
-        setProcessingMessage(null);
-
-        if (result.success) {
-          // If there's an error message, it's a warning about a partial success
-          if (result.error) {
-            Alert.alert('Warning', result.error, [
+          if (result.success) {
+            Alert.alert('Success', 'Device Login enabled!', [
               { text: 'OK', onPress: () => router.push('/settings') }
             ]);
           } else {
-            Alert.alert('Success', 'Your PIN has been changed successfully.', [
+            Alert.alert('Error', result.error || 'Failed to enable Device Login', [
               { text: 'OK', onPress: () => router.push('/settings') }
             ]);
           }
-        } else {
-          Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.', [
-            { text: 'OK', onPress: () => router.push('/settings') }
-          ]);
-        }
 
-        pinChangeTriggered.current = false;
-      });
-    }
-  }, [params.changePin, isAuthorized]);
+          deviceLoginSetupTriggered.current = false;
+        });
+      }
+
+      // Check for pending PIN change
+      if (BiometricService.hasPendingPinChange() && !pinChangeTriggered.current) {
+        pinChangeTriggered.current = true;
+        setProcessingMessage('Changing PIN...');
+
+        InteractionManager.runAfterInteractions(async () => {
+          Logger.debug('WalletScreen', 'Executing queued PIN change');
+          const result = await BiometricService.executePendingPinChange();
+
+          setProcessingMessage(null);
+
+          if (result.success) {
+            if (result.error) {
+              Alert.alert('Warning', result.error, [
+                { text: 'OK', onPress: () => router.push('/settings') }
+              ]);
+            } else {
+              Alert.alert('Success', 'Your PIN has been changed successfully.', [
+                { text: 'OK', onPress: () => router.push('/settings') }
+              ]);
+            }
+          } else {
+            Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.', [
+              { text: 'OK', onPress: () => router.push('/settings') }
+            ]);
+          }
+
+          pinChangeTriggered.current = false;
+        });
+      }
+    }, [isAuthorized])
+  );
 
   // Update session timestamp on screen focus
   useEffect(() => {
