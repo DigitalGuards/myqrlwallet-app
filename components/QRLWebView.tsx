@@ -295,7 +295,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               // Additional settings
               incognito={false}
               thirdPartyCookiesEnabled={false}
-              pullToRefreshEnabled={false}
+              pullToRefreshEnabled={false} // Disabled to fix Android scroll issues; feature is also blocked by frontend CSS.
               javaScriptCanOpenWindowsAutomatically={false}
               allowsInlineMediaPlayback={true}
               mediaPlaybackRequiresUserAction={true}
