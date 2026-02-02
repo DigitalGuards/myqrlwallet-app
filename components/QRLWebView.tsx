@@ -295,7 +295,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               // Additional settings
               incognito={false}
               thirdPartyCookiesEnabled={false}
-              pullToRefreshEnabled={true}
+              pullToRefreshEnabled={false}
               javaScriptCanOpenWindowsAutomatically={false}
               allowsInlineMediaPlayback={true}
               mediaPlaybackRequiresUserAction={true}
