@@ -6,8 +6,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 import { View } from 'react-native';
+import * as Linking from 'expo-linking';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
+import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -32,6 +34,36 @@ export default function RootLayout() {
       })();
     }
   }, [loaded]);
+
+  // Listen for qrlconnect:// deep links and forward to WebView
+  useEffect(() => {
+    const handleDeepLink = (event: { url: string }) => {
+      const { url } = event;
+      if (url.startsWith('qrlconnect://') || url.startsWith('qrlconnect:?')) {
+        Logger.debug('RootLayout', `qrlconnect deep link received: ${url}`);
+        // Wait for WebView to be ready, then forward the URI
+        NativeBridge.waitForWebAppReady(10000)
+          .then(() => {
+            NativeBridge.sendDAppURI(url);
+          })
+          .catch((err) => {
+            Logger.error('RootLayout', 'Failed to forward dApp URI:', err);
+          });
+      }
+    };
+
+    // Handle deep links that opened the app
+    Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink({ url });
+    });
+
+    // Handle deep links while app is running
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   if (!loaded) {
     return null;
