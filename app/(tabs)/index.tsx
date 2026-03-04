@@ -158,13 +158,21 @@ export default function WalletScreen() {
     }
   }, []);
 
+  // Handle DAPP_SHOW_WEBVIEW - switch to WebView tab when dApp needs approval
+  const handleDAppShowWebView = useCallback(() => {
+    Logger.debug('WalletScreen', 'dApp requesting WebView focus');
+    // Navigate to the wallet tab (index) to show the WebView with approval modal
+    router.replace('/');
+  }, []);
+
   // Register bridge callbacks
   useEffect(() => {
     NativeBridge.onBiometricUnlockRequest(performDeviceLoginUnlock);
     NativeBridge.onSeedStored(handleSeedStored);
     NativeBridge.onOpenNativeSettings(navigateToSettings);
     NativeBridge.onQRScanRequest(handleQRScanRequest);
-  }, [performDeviceLoginUnlock, handleSeedStored, handleQRScanRequest, navigateToSettings]);
+    NativeBridge.onDAppShowWebView(handleDAppShowWebView);
+  }, [performDeviceLoginUnlock, handleSeedStored, handleQRScanRequest, navigateToSettings, handleDAppShowWebView]);
 
   // Check device login settings and authenticate if needed
   useEffect(() => {
