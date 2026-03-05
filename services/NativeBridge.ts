@@ -124,6 +124,7 @@ class NativeBridge {
   private pinVerifiedCallback: PinVerifiedCallback | null = null;
   private pinChangedCallback: PinChangedCallback | null = null;
   private dappShowWebViewCallback: DAppShowWebViewCallback | null = null;
+  private dappStoreWriteQueue: Promise<void> = Promise.resolve();
   private isWebAppReady: boolean = false;
   private webAppReadyResolvers: Array<{
     resolve: () => void;
@@ -453,12 +454,14 @@ class NativeBridge {
         const connectedAccount = typeof payload?.connectedAccount === 'string' ? payload.connectedAccount : '';
         Logger.debug('NativeBridge', `dApp connected: ${name} (${channelId})`);
         if (channelId) {
-          DAppConnectionStore.onConnected({
-            channelId,
-            name,
-            url,
-            connectedAccount,
-            connectedAt: Date.now(),
+          await this.enqueueDAppStoreWrite(async () => {
+            await DAppConnectionStore.onConnected({
+              channelId,
+              name,
+              url,
+              connectedAccount,
+              connectedAt: Date.now(),
+            });
           });
         }
         break;
@@ -469,7 +472,9 @@ class NativeBridge {
         const explicit = payload?.explicit === true;
         Logger.debug('NativeBridge', `dApp disconnected: ${disconnectChannelId} (explicit: ${explicit})`);
         if (disconnectChannelId) {
-          DAppConnectionStore.onDisconnected(disconnectChannelId, explicit);
+          await this.enqueueDAppStoreWrite(async () => {
+            await DAppConnectionStore.onDisconnected(disconnectChannelId, explicit);
+          });
         }
         break;
       }
@@ -481,6 +486,15 @@ class NativeBridge {
       default:
         Logger.warn('NativeBridge', `Unknown message type: ${type}`);
     }
+  }
+
+  private enqueueDAppStoreWrite(writeFn: () => Promise<void>): Promise<void> {
+    this.dappStoreWriteQueue = this.dappStoreWriteQueue
+      .then(writeFn)
+      .catch((err) => {
+        Logger.error('NativeBridge', 'Failed to persist dApp connection state:', err);
+      });
+    return this.dappStoreWriteQueue;
   }
 
   /**
