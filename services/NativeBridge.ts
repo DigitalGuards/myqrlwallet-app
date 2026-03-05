@@ -272,20 +272,21 @@ class NativeBridge {
    */
   sendToWeb(message: BridgeResponse) {
     if (this.webViewRef?.current) {
+      const serializedMessage = JSON.stringify(message);
+      // JSON-stringify again so it is always a safely quoted JS string literal.
+      const escapedSerializedMessage = JSON.stringify(serializedMessage);
       // Wrap in try-catch and IIFE to prevent iOS from interpreting errors as navigation
       // The void(0) at the end ensures no return value that could trigger navigation
-      const script = `
-        (function() {
-          try {
-            window.dispatchEvent(new CustomEvent('nativeMessage', {
-              detail: ${JSON.stringify(message)}
-            }));
-          } catch (e) {
-            console.error('[NativeBridge] Error dispatching message:', e);
-          }
-        })();
-        void(0);
-      `;
+      const script =
+        "(function() {" +
+        "try {" +
+        `var detail = JSON.parse(${escapedSerializedMessage});` +
+        "window.dispatchEvent(new CustomEvent('nativeMessage', { detail: detail }));" +
+        "} catch (e) {" +
+        "console.error('[NativeBridge] Error dispatching message:', e);" +
+        "}" +
+        "})();" +
+        "void(0);";
       this.webViewRef.current.injectJavaScript(script);
     } else {
       Logger.warn('NativeBridge', 'WebView ref not available, message not sent:', message.type);
@@ -434,11 +435,11 @@ class NativeBridge {
         break;
 
       case 'DAPP_CONNECTED':
-        Logger.debug('NativeBridge', `dApp connected: ${payload?.name}`);
+        Logger.debug('NativeBridge', 'dApp connected:', payload?.name);
         break;
 
       case 'DAPP_DISCONNECTED':
-        Logger.debug('NativeBridge', `dApp disconnected: ${payload?.channelId}`);
+        Logger.debug('NativeBridge', 'dApp disconnected:', payload?.channelId);
         break;
 
       case 'DAPP_HAPTIC':

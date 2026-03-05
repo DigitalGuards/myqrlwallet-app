@@ -39,8 +39,8 @@ export default function RootLayout() {
   useEffect(() => {
     const handleDeepLink = (event: { url: string }) => {
       const { url } = event;
-      if (url.startsWith('qrlconnect://') || url.startsWith('qrlconnect:?')) {
-        Logger.debug('RootLayout', `qrlconnect deep link received: ${url}`);
+      if (url.startsWith('qrlconnect:')) {
+        Logger.debug('RootLayout', 'qrlconnect deep link received:', url);
         // Wait for WebView to be ready, then forward the URI
         NativeBridge.waitForWebAppReady(10000)
           .then(() => {
