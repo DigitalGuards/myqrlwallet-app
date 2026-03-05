@@ -11,6 +11,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { ChangePinModal } from '../components/ChangePinModal';
 import { PinEntryModal } from '../components/PinEntryModal';
+import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
 
 export default function SettingsScreen() {
@@ -25,6 +26,7 @@ export default function SettingsScreen() {
   const [preventScreenshots, setPreventScreenshots] = useState(false);
   const [showChangePinModal, setShowChangePinModal] = useState(false);
   const [showDeviceLoginPinModal, setShowDeviceLoginPinModal] = useState(false);
+  const [dappConnectionCount, setDappConnectionCount] = useState(0);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
 
   // Load wallet status - called on mount and when screen gains focus
@@ -34,6 +36,9 @@ export default function SettingsScreen() {
 
     const deviceLoginReady = await BiometricService.isDeviceLoginReady();
     setDeviceLoginEnabled(deviceLoginReady);
+
+    const count = await DAppConnectionStore.activeCount();
+    setDappConnectionCount(count);
   }, []);
 
   // Refresh wallet status when screen gains focus
@@ -363,6 +368,31 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      {/* DApp Connections Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>DApp Connections</Text>
+        <TouchableOpacity
+          style={styles.settingRow}
+          onPress={() => router.push('/dapp-connections')}
+        >
+          <View style={styles.settingTextContainer}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <FontAwesome name="plug" size={16} color="#3b82f6" />
+              <Text style={styles.settingTitle}>Connected dApps</Text>
+              {dappConnectionCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{dappConnectionCount}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.settingDescription}>
+              Manage your dApp connections and view history
+            </Text>
+          </View>
+          <FontAwesome name="chevron-right" size={14} color="#666" />
+        </TouchableOpacity>
+      </View>
+
       {/* Wallet Management Section - only show if wallet exists */}
       {hasWallet && (
         <View style={styles.section}>
@@ -588,6 +618,20 @@ const styles = StyleSheet.create({
   linkText: {
     fontSize: 16,
     color: '#ff8700',
+  },
+  badge: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   backButton: {
     padding: 10,
