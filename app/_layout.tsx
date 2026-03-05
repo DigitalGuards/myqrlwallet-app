@@ -9,6 +9,7 @@ import { View } from 'react-native';
 import * as Linking from 'expo-linking';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
+import DAppConnectionStore from '../services/DAppConnectionStore';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 
@@ -29,6 +30,10 @@ export default function RootLayout() {
         } catch (error) {
           Logger.error('RootLayout', 'Failed to initialize screen security:', error);
         }
+        // Load dApp connection history (triggers 30-day cleanup)
+        DAppConnectionStore.load().catch((err) => {
+          Logger.error('RootLayout', 'Failed to load dApp connections:', err);
+        });
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();
       })();
@@ -101,6 +106,24 @@ export default function RootLayout() {
             options={{
               headerShown: true,
               title: 'Settings',
+              headerStyle: {
+                backgroundColor: '#0A0A17',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+                fontSize: 18,
+              },
+              headerTitleAlign: 'center',
+              headerShadowVisible: false,
+              gestureEnabled: true,
+            }}
+          />
+          <Stack.Screen
+            name="dapp-connections"
+            options={{
+              headerShown: true,
+              title: 'DApp Connections',
               headerStyle: {
                 backgroundColor: '#0A0A17',
               },

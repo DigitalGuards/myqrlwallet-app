@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
+import DAppConnectionStore from './DAppConnectionStore';
 import Logger from './Logger';
 
 /**
@@ -51,7 +52,8 @@ export type NativeToWebMessageType =
   | 'VERIFY_PIN'              // Native asks web to verify PIN can decrypt seed
   | 'CHANGE_PIN'              // Native requests web to change PIN (re-encrypt seeds)
   // DApp Connect messages
-  | 'DAPP_URI';               // Deep link URI forwarded to WebView
+  | 'DAPP_URI'                // Deep link URI forwarded to WebView
+  | 'DAPP_DISCONNECT';        // Request web to disconnect a specific dApp session
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -260,6 +262,16 @@ class NativeBridge {
   }
 
   /**
+   * Request web to disconnect a specific dApp session
+   */
+  sendDAppDisconnect(channelId: string) {
+    this.sendToWeb({
+      type: 'DAPP_DISCONNECT',
+      payload: { channelId },
+    });
+  }
+
+  /**
    * Unregister wallet cleared callback
    */
   offWalletCleared() {
@@ -434,13 +446,33 @@ class NativeBridge {
         }
         break;
 
-      case 'DAPP_CONNECTED':
-        Logger.debug('NativeBridge', 'dApp connected:', payload?.name);
+      case 'DAPP_CONNECTED': {
+        const name = typeof payload?.name === 'string' ? payload.name : 'Unknown dApp';
+        const channelId = typeof payload?.channelId === 'string' ? payload.channelId : '';
+        const url = typeof payload?.url === 'string' ? payload.url : '';
+        const connectedAccount = typeof payload?.connectedAccount === 'string' ? payload.connectedAccount : '';
+        Logger.debug('NativeBridge', `dApp connected: ${name} (${channelId})`);
+        if (channelId) {
+          DAppConnectionStore.onConnected({
+            channelId,
+            name,
+            url,
+            connectedAccount,
+            connectedAt: Date.now(),
+          });
+        }
         break;
+      }
 
-      case 'DAPP_DISCONNECTED':
-        Logger.debug('NativeBridge', 'dApp disconnected:', payload?.channelId);
+      case 'DAPP_DISCONNECTED': {
+        const disconnectChannelId = typeof payload?.channelId === 'string' ? payload.channelId : '';
+        const explicit = payload?.explicit === true;
+        Logger.debug('NativeBridge', `dApp disconnected: ${disconnectChannelId} (explicit: ${explicit})`);
+        if (disconnectChannelId) {
+          DAppConnectionStore.onDisconnected(disconnectChannelId, explicit);
+        }
         break;
+      }
 
       case 'DAPP_HAPTIC':
         this.handleHaptic(payload?.style as string | undefined);
