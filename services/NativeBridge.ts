@@ -52,7 +52,8 @@ export type NativeToWebMessageType =
   | 'VERIFY_PIN'              // Native asks web to verify PIN can decrypt seed
   | 'CHANGE_PIN'              // Native requests web to change PIN (re-encrypt seeds)
   // DApp Connect messages
-  | 'DAPP_URI';               // Deep link URI forwarded to WebView
+  | 'DAPP_URI'                // Deep link URI forwarded to WebView
+  | 'DAPP_DISCONNECT';        // Request web to disconnect a specific dApp session
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -257,6 +258,16 @@ class NativeBridge {
     this.sendToWeb({
       type: 'DAPP_URI',
       payload: { uri },
+    });
+  }
+
+  /**
+   * Request web to disconnect a specific dApp session
+   */
+  sendDAppDisconnect(channelId: string) {
+    this.sendToWeb({
+      type: 'DAPP_DISCONNECT',
+      payload: { channelId },
     });
   }
 

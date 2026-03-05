@@ -12,6 +12,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import DAppConnectionStore, { DAppConnectionRecord } from '../services/DAppConnectionStore';
+import NativeBridge from '../services/NativeBridge';
 
 function formatDate(ts: number): string {
   const d = new Date(ts);
@@ -143,9 +144,10 @@ export default function DAppConnectionsScreen() {
             text: 'Disconnect',
             style: 'destructive',
             onPress: async () => {
+              // Tell WebView to disconnect the relay session
+              NativeBridge.sendDAppDisconnect(channelId);
               // Mark as disconnected in native store
               await DAppConnectionStore.onDisconnected(channelId, true);
-              // TODO: also disconnect the active relay session via bridge
               loadConnections();
             },
           },
