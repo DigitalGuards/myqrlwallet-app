@@ -40,7 +40,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/myqrlwallet/favicon.ico"
+      "favicon": "./assets/images/myqrlwallet/icon.png"
     },
     "plugins": [
       "expo-router",
