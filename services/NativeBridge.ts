@@ -25,7 +25,12 @@ export type WebToNativeMessageType =
   | 'PIN_VERIFIED'            // Web responds to PIN verification request
   | 'PIN_CHANGED'             // Web responds to PIN change request
   // Navigation messages
-  | 'OPEN_NATIVE_SETTINGS';   // Request native app to open its settings screen
+  | 'OPEN_NATIVE_SETTINGS'    // Request native app to open its settings screen
+  // DApp Connect messages
+  | 'DAPP_SHOW_WEBVIEW'       // Request native to show/focus WebView tab (for approval)
+  | 'DAPP_CONNECTED'          // Notify native that a dApp connected
+  | 'DAPP_DISCONNECTED'       // Notify native that a dApp disconnected
+  | 'DAPP_HAPTIC';            // Trigger haptic for dApp approve/reject
 
 /**
  * Message types that can be sent to the WebView
@@ -44,7 +49,9 @@ export type NativeToWebMessageType =
   | 'CLEAR_WALLET'            // Native requests web to clear wallet
   | 'BIOMETRIC_SETUP_PROMPT'  // Native prompts user to enable biometric
   | 'VERIFY_PIN'              // Native asks web to verify PIN can decrypt seed
-  | 'CHANGE_PIN';             // Native requests web to change PIN (re-encrypt seeds)
+  | 'CHANGE_PIN'              // Native requests web to change PIN (re-encrypt seeds)
+  // DApp Connect messages
+  | 'DAPP_URI';               // Deep link URI forwarded to WebView
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -97,6 +104,11 @@ type PinVerifiedCallback = (success: boolean, error?: string) => void;
 type PinChangedCallback = (success: boolean, newPin?: string, error?: string) => void;
 
 /**
+ * Callback for when dApp requests WebView to be shown/focused
+ */
+type DAppShowWebViewCallback = () => void;
+
+/**
  * Service for handling communication between native app and WebView
  */
 class NativeBridge {
@@ -109,6 +121,7 @@ class NativeBridge {
   private walletClearedCallback: WalletClearedCallback | null = null;
   private pinVerifiedCallback: PinVerifiedCallback | null = null;
   private pinChangedCallback: PinChangedCallback | null = null;
+  private dappShowWebViewCallback: DAppShowWebViewCallback | null = null;
   private isWebAppReady: boolean = false;
   private webAppReadyResolvers: Array<{
     resolve: () => void;
@@ -230,6 +243,23 @@ class NativeBridge {
   }
 
   /**
+   * Register callback for when dApp requests WebView to be shown/focused
+   */
+  onDAppShowWebView(callback: DAppShowWebViewCallback) {
+    this.dappShowWebViewCallback = callback;
+  }
+
+  /**
+   * Forward a qrlconnect:// deep link URI to the WebView
+   */
+  sendDAppURI(uri: string) {
+    this.sendToWeb({
+      type: 'DAPP_URI',
+      payload: { uri },
+    });
+  }
+
+  /**
    * Unregister wallet cleared callback
    */
   offWalletCleared() {
@@ -242,20 +272,21 @@ class NativeBridge {
    */
   sendToWeb(message: BridgeResponse) {
     if (this.webViewRef?.current) {
+      const serializedMessage = JSON.stringify(message);
+      // JSON-stringify again so it is always a safely quoted JS string literal.
+      const escapedSerializedMessage = JSON.stringify(serializedMessage);
       // Wrap in try-catch and IIFE to prevent iOS from interpreting errors as navigation
       // The void(0) at the end ensures no return value that could trigger navigation
-      const script = `
-        (function() {
-          try {
-            window.dispatchEvent(new CustomEvent('nativeMessage', {
-              detail: ${JSON.stringify(message)}
-            }));
-          } catch (e) {
-            console.error('[NativeBridge] Error dispatching message:', e);
-          }
-        })();
-        void(0);
-      `;
+      const script =
+        "(function() {" +
+        "try {" +
+        `var detail = JSON.parse(${escapedSerializedMessage});` +
+        "window.dispatchEvent(new CustomEvent('nativeMessage', { detail: detail }));" +
+        "} catch (e) {" +
+        "console.error('[NativeBridge] Error dispatching message:', e);" +
+        "}" +
+        "})();" +
+        "void(0);";
       this.webViewRef.current.injectJavaScript(script);
     } else {
       Logger.warn('NativeBridge', 'WebView ref not available, message not sent:', message.type);
@@ -394,6 +425,26 @@ class NativeBridge {
         }
         break;
       }
+
+      // DApp Connect messages
+      case 'DAPP_SHOW_WEBVIEW':
+        Logger.debug('NativeBridge', 'dApp requesting WebView focus');
+        if (this.dappShowWebViewCallback) {
+          this.dappShowWebViewCallback();
+        }
+        break;
+
+      case 'DAPP_CONNECTED':
+        Logger.debug('NativeBridge', 'dApp connected:', payload?.name);
+        break;
+
+      case 'DAPP_DISCONNECTED':
+        Logger.debug('NativeBridge', 'dApp disconnected:', payload?.channelId);
+        break;
+
+      case 'DAPP_HAPTIC':
+        this.handleHaptic(payload?.style as string | undefined);
+        break;
 
       default:
         Logger.warn('NativeBridge', `Unknown message type: ${type}`);
