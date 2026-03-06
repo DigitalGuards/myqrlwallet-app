@@ -13,10 +13,11 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import DAppConnectionStore, { DAppConnectionRecord } from '../services/DAppConnectionStore';
 import NativeBridge from '../services/NativeBridge';
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 function formatDate(ts: number): string {
   const d = new Date(ts);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
 function truncateAddress(address: string): string {
@@ -110,10 +111,16 @@ export default function DAppConnectionsScreen() {
   const [recent, setRecent] = useState<DAppConnectionRecord[]>([]);
 
   const loadConnections = useCallback(async () => {
-    const activeRecords = await DAppConnectionStore.getActive();
-    const recentRecords = await DAppConnectionStore.getRecent();
-    setActive(activeRecords);
-    setRecent(recentRecords);
+    try {
+      const activeRecords = await DAppConnectionStore.getActive();
+      const recentRecords = await DAppConnectionStore.getRecent();
+      setActive(activeRecords);
+      setRecent(recentRecords);
+    } catch (err) {
+      console.error('Failed to load dApp connections:', err);
+      setActive([]);
+      setRecent([]);
+    }
   }, []);
 
   useFocusEffect(
@@ -143,17 +150,27 @@ export default function DAppConnectionsScreen() {
             text: 'Disconnect',
             style: 'destructive',
             onPress: async () => {
-              // Tell WebView to disconnect the relay session
-              NativeBridge.sendDAppDisconnect(channelId);
-              // Mark as disconnected in native store
-              await DAppConnectionStore.onDisconnected(channelId, true);
-              loadConnections();
+              try {
+                // Tell WebView to disconnect the relay session
+                NativeBridge.sendDAppDisconnect(channelId);
+                // Mark as disconnected in native store
+                await DAppConnectionStore.onDisconnected(channelId, true);
+                await loadConnections();
+              } catch (err) {
+                console.error('Failed to disconnect dApp:', err);
+                Alert.alert('Error', 'Failed to disconnect. Please try again.');
+              }
             },
           },
         ]
       );
     } else {
-      DAppConnectionStore.remove(channelId).then(() => loadConnections());
+      DAppConnectionStore.remove(channelId)
+        .then(() => loadConnections())
+        .catch((err) => {
+          console.error('Failed to remove dApp connection:', err);
+          Alert.alert('Error', 'Failed to remove connection. Please try again.');
+        });
     }
   };
 

@@ -376,7 +376,7 @@ export default function SettingsScreen() {
           onPress={() => router.push('/dapp-connections')}
         >
           <View style={styles.settingTextContainer}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={styles.dappConnectionTitleContainer}>
               <FontAwesome name="plug" size={16} color="#3b82f6" />
               <Text style={styles.settingTitle}>Connected dApps</Text>
               {dappConnectionCount > 0 && (
@@ -618,6 +618,11 @@ const styles = StyleSheet.create({
   linkText: {
     fontSize: 16,
     color: '#ff8700',
+  },
+  dappConnectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   badge: {
     backgroundColor: '#3b82f6',
