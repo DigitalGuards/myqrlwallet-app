@@ -304,6 +304,8 @@ export default function WalletScreen() {
         }
       }
 
+      // Notify WebView of every app state transition (single source of truth)
+      NativeBridge.sendAppState(nextAppState as 'active' | 'background' | 'inactive');
       appState.current = nextAppState;
     });
 
