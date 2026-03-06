@@ -9,8 +9,17 @@ import { View } from 'react-native';
 import * as Linking from 'expo-linking';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
+import DAppConnectionStore from '../services/DAppConnectionStore';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
+
+const APP_BACKGROUND = '#0A0A17';
+const APP_TEXT = '#FFFFFF';
+const APP_ACCENT = '#ff8700';
+const HEADER_TITLE_STYLE = {
+  fontWeight: 'bold' as const,
+  fontSize: 18,
+};
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -29,6 +38,10 @@ export default function RootLayout() {
         } catch (error) {
           Logger.error('RootLayout', 'Failed to initialize screen security:', error);
         }
+        // Load dApp connection history (triggers 30-day cleanup)
+        DAppConnectionStore.load().catch((err) => {
+          Logger.error('RootLayout', 'Failed to load dApp connections:', err);
+        });
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();
       })();
@@ -74,11 +87,11 @@ export default function RootLayout() {
     ...DarkTheme,
     colors: {
       ...DarkTheme.colors,
-      primary: '#ff8700', // QRL Orange
-      background: '#0A0A17', // Dark navy
-      card: '#0A0A17',
-      text: '#FFFFFF',
-      border: '#0A0A17',
+      primary: APP_ACCENT, // QRL Orange
+      background: APP_BACKGROUND, // Dark navy
+      card: APP_BACKGROUND,
+      text: APP_TEXT,
+      border: APP_BACKGROUND,
     },
   };
 
@@ -87,12 +100,12 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={appTheme}>
-      <View style={{ flex: 1, backgroundColor: '#0A0A17' }}>
-        <StatusBar style="light" backgroundColor="#0A0A17" />
+      <View style={{ flex: 1, backgroundColor: APP_BACKGROUND }}>
+        <StatusBar style="light" backgroundColor={APP_BACKGROUND} />
         <Stack screenOptions={{
           headerShown: false,
           contentStyle: {
-            backgroundColor: '#0A0A17'
+            backgroundColor: APP_BACKGROUND
           }
         }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -102,13 +115,25 @@ export default function RootLayout() {
               headerShown: true,
               title: 'Settings',
               headerStyle: {
-                backgroundColor: '#0A0A17',
+                backgroundColor: APP_BACKGROUND,
               },
-              headerTintColor: '#fff',
-              headerTitleStyle: {
-                fontWeight: 'bold',
-                fontSize: 18,
+              headerTintColor: APP_TEXT,
+              headerTitleStyle: HEADER_TITLE_STYLE,
+              headerTitleAlign: 'center',
+              headerShadowVisible: false,
+              gestureEnabled: true,
+            }}
+          />
+          <Stack.Screen
+            name="dapp-connections"
+            options={{
+              headerShown: true,
+              title: 'DApp Connections',
+              headerStyle: {
+                backgroundColor: APP_BACKGROUND,
               },
+              headerTintColor: APP_TEXT,
+              headerTitleStyle: HEADER_TITLE_STYLE,
               headerTitleAlign: 'center',
               headerShadowVisible: false,
               gestureEnabled: true,
