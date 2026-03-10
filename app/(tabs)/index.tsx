@@ -436,7 +436,7 @@ export default function WalletScreen() {
 
   return (
     <RNView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0A0A17" />
+      <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
       {/* Always render WebView to keep ref available for bridge messages, but hide when not authorized */}
       <RNView style={isAuthorized ? styles.webViewVisible : styles.webViewHidden}>
         <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} skipLoadingScreen={skipLoadingScreen} />
@@ -465,7 +465,7 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A17',
+    backgroundColor: '#0f172a',
   },
   webViewVisible: {
     flex: 1,
