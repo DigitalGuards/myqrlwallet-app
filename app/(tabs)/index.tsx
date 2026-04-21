@@ -10,7 +10,7 @@ import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 
 // Time to wait before treating iOS 'inactive' state as actual backgrounding
 // iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
@@ -30,6 +30,7 @@ export default function WalletScreen() {
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const isFocused = useIsFocused();
+  const pathname = usePathname();
   const appState = useRef(AppState.currentState);
   const webViewRef = useRef<QRLWebViewRef>(null);
   const pendingUnlockPin = useRef<string | null>(null);
@@ -161,9 +162,14 @@ export default function WalletScreen() {
   // Handle DAPP_SHOW_WEBVIEW - switch to WebView tab when dApp needs approval
   const handleDAppShowWebView = useCallback(() => {
     Logger.debug('WalletScreen', 'dApp requesting WebView focus');
-    // Navigate to the wallet tab (index) to show the WebView with approval modal
-    router.replace('/');
-  }, []);
+    // Only navigate if we're actually on a different tab. Calling replace('/')
+    // while already on '/' re-mounts the WebView, which reloads the wallet
+    // page and orphans any live socket.io connection — the fresh page then
+    // hits a reconnect storm behind CF's cold polling path.
+    if (pathname !== '/') {
+      router.replace('/');
+    }
+  }, [pathname]);
 
   // Register bridge callbacks
   useEffect(() => {
