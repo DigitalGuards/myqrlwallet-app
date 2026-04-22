@@ -13,12 +13,12 @@ import DAppConnectionStore from '../services/DAppConnectionStore';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 
-const APP_BACKGROUND = '#0A0A17';
-const APP_TEXT = '#FFFFFF';
-const APP_ACCENT = '#ff8700';
+const APP_BACKGROUND = '#0f172a';
+const APP_TEXT = '#f8fafc';
+const APP_ACCENT = '#f5a623';
 const HEADER_TITLE_STYLE = {
   fontWeight: 'bold' as const,
-  fontSize: 18,
+  fontSize: 16,
 };
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.

@@ -18,7 +18,7 @@ const LOADING_MESSAGES = [
   'Initializing quantum-secure protocols...',
   'Establishing post-quantum encryption...',
   'Securing your digital assets...',
-  'Loading QRL Zond network...',
+  'Loading QRL v2 network...',
   'Preparing your quantum-safe wallet...',
 ];
 
