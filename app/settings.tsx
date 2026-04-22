@@ -285,7 +285,7 @@ export default function SettingsScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <FontAwesome name="arrow-left" size={20} color="#fff" />
+          <FontAwesome name="arrow-left" size={16} color="#f8fafc" />
         </TouchableOpacity>
       ),
     });
@@ -306,8 +306,8 @@ export default function SettingsScreen() {
           <Switch
             value={preferences.notificationsEnabled}
             onValueChange={(value) => updatePreference('notificationsEnabled', value)}
-            trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-            thumbColor={preferences.notificationsEnabled ? '#ff8700' : '#888'}
+            trackColor={{ false: '#1e293b', true: '#f5a62366' }}
+            thumbColor={preferences.notificationsEnabled ? '#f5a623' : '#64748b'}
           />
         </View>
       </View>
@@ -335,8 +335,8 @@ export default function SettingsScreen() {
             <Switch
               value={deviceLoginEnabled}
               onValueChange={handleDeviceLoginToggle}
-              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-              thumbColor={deviceLoginEnabled ? '#ff8700' : '#888'}
+              trackColor={{ false: '#1e293b', true: '#f5a62366' }}
+              thumbColor={deviceLoginEnabled ? '#f5a623' : '#64748b'}
             />
           </View>
         )}
@@ -353,8 +353,8 @@ export default function SettingsScreen() {
             <Switch
               value={preventScreenshots}
               onValueChange={handleScreenshotPreventionToggle}
-              trackColor={{ false: '#3a3a4a', true: '#ff870066' }}
-              thumbColor={preventScreenshots ? '#ff8700' : '#888'}
+              trackColor={{ false: '#1e293b', true: '#f5a62366' }}
+              thumbColor={preventScreenshots ? '#f5a623' : '#64748b'}
             />
           </View>
         )}
@@ -362,7 +362,7 @@ export default function SettingsScreen() {
         {/* Change PIN Button - available when user has a wallet (PIN exists for seed encryption) */}
         {hasWallet && (
           <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleChangePinPress}>
-            <FontAwesome name="lock" size={18} color="#ff8700" style={styles.buttonIcon} />
+            <FontAwesome name="lock" size={14} color="#f5a623" style={styles.buttonIcon} />
             <Text style={styles.buttonTextSecondary}>Change PIN</Text>
           </TouchableOpacity>
         )}
@@ -377,7 +377,7 @@ export default function SettingsScreen() {
         >
           <View style={styles.settingTextContainer}>
             <View style={styles.dappConnectionTitleContainer}>
-              <FontAwesome name="plug" size={16} color="#3b82f6" />
+              <FontAwesome name="plug" size={12} color="#4aafff" />
               <Text style={styles.settingTitle}>Connected dApps</Text>
               {dappConnectionCount > 0 && (
                 <View style={styles.badge}>
@@ -389,7 +389,7 @@ export default function SettingsScreen() {
               Manage your dApp connections and view history
             </Text>
           </View>
-          <FontAwesome name="chevron-right" size={14} color="#666" />
+          <FontAwesome name="chevron-right" size={10} color="#64748b" />
         </TouchableOpacity>
       </View>
 
@@ -400,7 +400,7 @@ export default function SettingsScreen() {
 
           {/* Remove Wallet Button */}
           <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={removeWallet}>
-            <FontAwesome name="warning" size={18} color="#ff6b6b" style={styles.buttonIcon} />
+            <FontAwesome name="warning" size={14} color="#f87171" style={styles.buttonIcon} />
             <Text style={styles.buttonTextDanger}>Remove All Wallets</Text>
           </TouchableOpacity>
           <Text style={styles.warningText}>
@@ -414,7 +414,7 @@ export default function SettingsScreen() {
 
         {/* Clear Session Button */}
         <TouchableOpacity style={[styles.button, styles.dangerButton]} onPress={clearCache}>
-          <FontAwesome name="trash" size={18} color="#ff6b6b" style={styles.buttonIcon} />
+          <FontAwesome name="trash" size={14} color="#f87171" style={styles.buttonIcon} />
           <Text style={styles.buttonTextDanger}>Clear Session</Text>
         </TouchableOpacity>
         <Text style={styles.helpText}>
@@ -445,23 +445,23 @@ export default function SettingsScreen() {
             style={styles.linkButton} 
             onPress={() => openLink('https://theqrl.org')}
           >
-            <FontAwesome name="globe" size={18} color="#ff8700" style={styles.buttonIcon} />
+            <FontAwesome name="globe" size={14} color="#f5a623" style={styles.buttonIcon} />
             <Text style={styles.linkText}>QRL Website</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.linkButton} 
+
+          <TouchableOpacity
+            style={styles.linkButton}
             onPress={() => openLink('https://docs.theqrl.org')}
           >
-            <FontAwesome name="book" size={18} color="#ff8700" style={styles.buttonIcon} />
+            <FontAwesome name="book" size={14} color="#f5a623" style={styles.buttonIcon} />
             <Text style={styles.linkText}>Documentation</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.linkButton} 
+
+          <TouchableOpacity
+            style={styles.linkButton}
             onPress={() => openLink('https://github.com/theqrl')}
           >
-            <FontAwesome name="github" size={18} color="#ff8700" style={styles.buttonIcon} />
+            <FontAwesome name="github" size={14} color="#f5a623" style={styles.buttonIcon} />
             <Text style={styles.linkText}>GitHub</Text>
           </TouchableOpacity>
         </View>
@@ -489,23 +489,25 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A17',
+    backgroundColor: '#0f172a',
   },
   section: {
-    marginBottom: 24,
-    backgroundColor: '#16161a',
-    borderRadius: 12,
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
+    marginBottom: 6,
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    marginHorizontal: 12,
+    marginTop: 6,
+    padding: 10,
     borderWidth: 1,
-    borderColor: '#2a2a3a',
+    borderColor: '#1e293b',
+    borderLeftWidth: 3,
+    borderLeftColor: '#4aafff',
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
-    marginBottom: 16,
-    color: '#ff8700',
+    marginBottom: 8,
+    color: '#f5a623',
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
@@ -513,132 +515,132 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 6,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#2a2a3a',
+    borderBottomColor: '#1e293b',
   },
   settingTextContainer: {
     flex: 1,
-    marginRight: 16,
+    marginRight: 10,
   },
   settingTitle: {
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 13,
+    marginBottom: 2,
     color: '#f8fafc',
   },
   settingDescription: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 11,
+    color: '#94a3b8',
   },
   button: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#1e1e2e',
+    paddingVertical: 7,
+    borderRadius: 6,
+    backgroundColor: '#0f172a',
     borderWidth: 1,
-    borderColor: '#2a2a3a',
+    borderColor: '#1e293b',
   },
   buttonIcon: {
-    marginRight: 8,
+    marginRight: 6,
   },
   buttonTextDanger: {
-    color: '#ff6b6b',
-    fontSize: 16,
+    color: '#f87171',
+    fontSize: 13,
     fontWeight: '500',
   },
   dangerButton: {
-    marginTop: 16,
-    borderColor: '#ff6b6b44',
-    backgroundColor: '#ff6b6b11',
+    marginTop: 8,
+    borderColor: '#f8717144',
+    backgroundColor: '#f8717111',
   },
   secondaryButton: {
-    marginTop: 16,
-    borderColor: '#ff870044',
-    backgroundColor: '#ff870011',
+    marginTop: 8,
+    borderColor: '#f5a62344',
+    backgroundColor: '#f5a62311',
   },
   buttonTextSecondary: {
-    color: '#ff8700',
-    fontSize: 16,
+    color: '#f5a623',
+    fontSize: 13,
     fontWeight: '500',
   },
   warningText: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 10,
+    color: '#64748b',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
   noWalletText: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 11,
+    color: '#64748b',
     textAlign: 'center',
     fontStyle: 'italic',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   helpText: {
-    fontSize: 12,
-    color: '#888',
+    fontSize: 10,
+    color: '#94a3b8',
     textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 18,
+    marginTop: 4,
+    lineHeight: 14,
   },
   // About section styles
   aboutHeader: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   logo: {
-    width: 200,
-    height: 56,
-    marginBottom: 10,
+    width: 140,
+    height: 38,
+    marginBottom: 6,
   },
   version: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 10,
+    fontSize: 12,
+    color: '#94a3b8',
+    marginBottom: 4,
   },
   paragraph: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: '#a0a0a0',
-    marginBottom: 20,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#94a3b8',
+    marginBottom: 10,
     textAlign: 'center',
   },
   linksContainer: {
-    marginTop: 10,
+    marginTop: 4,
   },
   linkButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 6,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#2a2a3a',
+    borderBottomColor: '#1e293b',
   },
   linkText: {
-    fontSize: 16,
-    color: '#ff8700',
+    fontSize: 13,
+    color: '#f5a623',
   },
   dappConnectionTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   badge: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
+    backgroundColor: '#4aafff',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
   badgeText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '700',
   },
   backButton: {
-    padding: 10,
+    padding: 8,
   },
 }); 

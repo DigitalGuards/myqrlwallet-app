@@ -36,7 +36,7 @@ function truncateUrl(url: string): string {
 
 /** Animated pulsing dot for connection status */
 const PulsingDot = ({ active }: { active: boolean }) => {
-  const color = active ? '#3b82f6' : '#6b7280'; // blue-500 / gray-500
+  const color = active ? '#4aafff' : '#6b7280'; // blue-accent / gray-500
   return (
     <View style={[pulseStyles.container, { backgroundColor: `${color}40` }]}>
       {active && (
@@ -133,7 +133,7 @@ export default function DAppConnectionsScreen() {
     navigation.setOptions({
       headerLeft: () => (
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <FontAwesome name="arrow-left" size={20} color="#fff" />
+          <FontAwesome name="arrow-left" size={16} color="#f8fafc" />
         </TouchableOpacity>
       ),
     });
@@ -188,7 +188,7 @@ export default function DAppConnectionsScreen() {
     <View style={styles.container}>
       {isEmpty ? (
         <View style={styles.emptyContainer}>
-          <FontAwesome name="plug" size={48} color="#3a3a4a" />
+          <FontAwesome name="plug" size={36} color="#1e293b" />
           <Text style={styles.emptyTitle}>No dApp Connections</Text>
           <Text style={styles.emptyText}>
             Scan a QR code from a dApp to connect your wallet.
@@ -215,77 +215,79 @@ export default function DAppConnectionsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A17',
+    backgroundColor: '#0f172a',
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingHorizontal: 12,
+    paddingBottom: 20,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
-    color: '#3b82f6',
+    color: '#4aafff',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginTop: 20,
-    marginBottom: 10,
+    marginTop: 12,
+    marginBottom: 6,
     paddingLeft: 4,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#16161a',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 6,
     borderWidth: 1,
-    borderColor: '#2a2a3a',
+    borderColor: '#1e293b',
+    borderLeftWidth: 3,
+    borderLeftColor: '#4aafff',
   },
   rowLeft: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 10,
   },
   rowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
+    gap: 6,
+    marginBottom: 2,
   },
   dappName: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
     color: '#f8fafc',
     flexShrink: 1,
   },
   dappUrl: {
-    fontSize: 13,
-    color: '#888',
-    marginBottom: 2,
+    fontSize: 11,
+    color: '#94a3b8',
+    marginBottom: 1,
   },
   dateText: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 10,
+    color: '#64748b',
   },
   actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
   },
   disconnectButton: {
-    borderColor: '#ef444444',
-    backgroundColor: '#ef444411',
+    borderColor: '#f8717144',
+    backgroundColor: '#f8717111',
   },
   removeButton: {
     borderColor: '#6b728044',
     backgroundColor: '#6b728011',
   },
   actionText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500',
   },
   disconnectText: {
-    color: '#ef4444',
+    color: '#f87171',
   },
   removeText: {
     color: '#6b7280',
@@ -297,19 +299,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '600',
     color: '#f8fafc',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 12,
+    marginBottom: 6,
   },
   emptyText: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 12,
+    color: '#94a3b8',
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 17,
   },
   backButton: {
-    padding: 10,
+    padding: 8,
   },
 });
