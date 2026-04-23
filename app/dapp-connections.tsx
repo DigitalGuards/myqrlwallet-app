@@ -47,7 +47,7 @@ function absoluteTime(ts: number): string {
 
 function relativeTime(ts: number, now: number): string {
   const diff = now - ts;
-  if (diff < 45_000) return 'just now';
+  if (diff < 60_000) return 'just now';
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(diff / 3_600_000);
