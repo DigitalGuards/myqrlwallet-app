@@ -243,6 +243,9 @@ export default function WalletScreen() {
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
     needsReauth.current = true;
     hasRestoredSeeds.current = false;
+    // Drop any PIN held between a successful biometric unlock and WEB_APP_READY.
+    // If the user returns, authCheck will re-run and repopulate this post-auth.
+    pendingUnlockPin.current = null;
     backgroundedAt.current = Date.now();
     // Don't reset web app ready - WebView is always mounted (off-screen) and maintains state
   }, []);
