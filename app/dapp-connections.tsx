@@ -1,31 +1,69 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useLayoutEffect } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   TouchableOpacity,
   Alert,
-  SectionList,
+  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { Ionicons } from '@expo/vector-icons';
 import DAppConnectionStore, { DAppConnectionRecord } from '../services/DAppConnectionStore';
 import NativeBridge from '../services/NativeBridge';
+import Logger from '../services/Logger';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function formatDate(ts: number): string {
+const C = {
+  bg: '#0f172a',
+  card: '#1e293b',
+  divider: '#334155',
+  textPrimary: '#f8fafc',
+  textSecondary: '#94a3b8',
+  textTertiary: '#64748b',
+  chevron: '#64748b',
+  brandOrange: '#ff8700',
+  green: '#22c55e',
+  red: '#ef4444',
+  gray: '#64748b',
+  blue: '#3b82f6',
+};
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function absoluteTime(ts: number): string {
   const d = new Date(ts);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const datePart = sameYear
+    ? `${MONTHS[d.getMonth()]} ${d.getDate()}`
+    : `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  return `${datePart} at ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function relativeTime(ts: number, now: number): string {
+  const diff = now - ts;
+  if (diff < 45_000) return 'just now';
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(diff / 3_600_000);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(diff / 86_400_000);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  return absoluteTime(ts);
 }
 
 function truncateAddress(address: string): string {
-  if (!address || address.length < 14) return address || 'None';
-  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+  if (!address || address.length < 14) return address || '';
+  return `${address.slice(0, 8)}…${address.slice(-6)}`;
 }
 
-function truncateUrl(url: string): string {
+function hostname(url: string): string {
   try {
     const u = new URL(url);
     return u.hostname + (u.port ? `:${u.port}` : '');
@@ -34,18 +72,16 @@ function truncateUrl(url: string): string {
   }
 }
 
-/** Animated pulsing dot for connection status */
-const PulsingDot = ({ active }: { active: boolean }) => {
-  const color = active ? '#4aafff' : '#6b7280'; // blue-accent / gray-500
+/** Animated pulsing dot for live connections. */
+function PulsingDot({ active }: { active: boolean }) {
+  const color = active ? C.green : C.gray;
   return (
-    <View style={[pulseStyles.container, { backgroundColor: `${color}40` }]}>
-      {active && (
-        <View style={[pulseStyles.ping, { backgroundColor: color }]} />
-      )}
-      <View style={[pulseStyles.dot, { backgroundColor: active ? `${color}e6` : `${color}99` }]} />
+    <View style={[pulseStyles.container, { backgroundColor: `${color}33` }]}>
+      {active && <View style={[pulseStyles.ping, { backgroundColor: color }]} />}
+      <View style={[pulseStyles.dot, { backgroundColor: active ? color : `${color}bb` }]} />
     </View>
   );
-};
+}
 
 const pulseStyles = StyleSheet.create({
   container: {
@@ -60,7 +96,7 @@ const pulseStyles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    opacity: 0.3,
+    opacity: 0.25,
   },
   dot: {
     position: 'absolute',
@@ -72,28 +108,41 @@ const pulseStyles = StyleSheet.create({
 
 interface ConnectionRowProps {
   record: DAppConnectionRecord;
+  now: number;
   onAction: (channelId: string, isActive: boolean) => void;
 }
 
-const ConnectionRow = ({ record, onAction }: ConnectionRowProps) => {
+function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
   const isActive = record.disconnectedAt === null;
+  const ts = isActive ? record.connectedAt : (record.disconnectedAt ?? record.connectedAt);
+  const verb = isActive ? 'Connected' : 'Disconnected';
+  const rel = relativeTime(ts, now);
+  const abs = absoluteTime(ts);
+  const tileColor = isActive ? C.green : C.gray;
 
   return (
     <View style={styles.row}>
-      <View style={styles.rowLeft}>
-        <View style={styles.rowHeader}>
+      <View style={[styles.tile, { backgroundColor: tileColor }]}>
+        <Ionicons name="link" size={18} color="#ffffff" />
+      </View>
+      <View style={styles.rowText}>
+        <View style={styles.headerLine}>
           <PulsingDot active={isActive} />
-          <Text style={styles.dappName} numberOfLines={1}>{record.name}</Text>
+          <Text style={styles.dappName} numberOfLines={1}>
+            {record.name}
+          </Text>
         </View>
         <Text style={styles.dappUrl} numberOfLines={1}>
-          {truncateUrl(record.url)}
+          {hostname(record.url)}
           {record.connectedAccount ? ` · ${truncateAddress(record.connectedAccount)}` : ''}
         </Text>
-        <Text style={styles.dateText}>
-          {isActive ? 'Connected' : 'Disconnected'} {formatDate(isActive ? record.connectedAt : record.disconnectedAt!)}
+        <Text style={styles.timestamp} numberOfLines={1}>
+          {verb} {rel}
+          {rel !== abs ? ` · ${abs}` : ''}
         </Text>
       </View>
       <TouchableOpacity
+        activeOpacity={0.6}
         style={[styles.actionButton, isActive ? styles.disconnectButton : styles.removeButton]}
         onPress={() => onAction(record.channelId, isActive)}
       >
@@ -103,21 +152,46 @@ const ConnectionRow = ({ record, onAction }: ConnectionRowProps) => {
       </TouchableOpacity>
     </View>
   );
-};
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const items = React.Children.toArray(children).filter(Boolean);
+  if (items.length === 0) return null;
+  return (
+    <View style={styles.sectionWrap}>
+      <Text style={styles.sectionLabel}>{title}</Text>
+      <View style={styles.card}>
+        {items.map((child, i) => (
+          <React.Fragment key={i}>
+            {i > 0 ? <View style={styles.divider} /> : null}
+            {child}
+          </React.Fragment>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 export default function DAppConnectionsScreen() {
   const navigation = useNavigation();
   const [active, setActive] = useState<DAppConnectionRecord[]>([]);
   const [recent, setRecent] = useState<DAppConnectionRecord[]>([]);
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
 
   const loadConnections = useCallback(async () => {
     try {
-      const activeRecords = await DAppConnectionStore.getActive();
-      const recentRecords = await DAppConnectionStore.getRecent();
+      const [activeRecords, recentRecords] = await Promise.all([
+        DAppConnectionStore.getActive(),
+        DAppConnectionStore.getRecent(),
+      ]);
       setActive(activeRecords);
       setRecent(recentRecords);
     } catch (err) {
-      console.error('Failed to load dApp connections:', err);
+      Logger.error('DAppConnections', 'Failed to load:', err);
       setActive([]);
       setRecent([]);
     }
@@ -126,18 +200,11 @@ export default function DAppConnectionsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadConnections();
+      setNow(Date.now());
+      const id = setInterval(() => setNow(Date.now()), 30_000);
+      return () => clearInterval(id);
     }, [loadConnections])
   );
-
-  useEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <FontAwesome name="arrow-left" size={16} color="#f8fafc" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation]);
 
   const handleAction = (channelId: string, isActive: boolean) => {
     if (isActive) {
@@ -151,13 +218,11 @@ export default function DAppConnectionsScreen() {
             style: 'destructive',
             onPress: async () => {
               try {
-                // Tell WebView to disconnect the relay session
                 NativeBridge.sendDAppDisconnect(channelId);
-                // Mark as disconnected in native store
                 await DAppConnectionStore.onDisconnected(channelId, true);
                 await loadConnections();
               } catch (err) {
-                console.error('Failed to disconnect dApp:', err);
+                Logger.error('DAppConnections', 'Failed to disconnect:', err);
                 Alert.alert('Error', 'Failed to disconnect. Please try again.');
               }
             },
@@ -168,129 +233,174 @@ export default function DAppConnectionsScreen() {
       DAppConnectionStore.remove(channelId)
         .then(() => loadConnections())
         .catch((err) => {
-          console.error('Failed to remove dApp connection:', err);
+          Logger.error('DAppConnections', 'Failed to remove:', err);
           Alert.alert('Error', 'Failed to remove connection. Please try again.');
         });
     }
   };
 
-  const sections = [];
-  if (active.length > 0) {
-    sections.push({ title: 'Active', data: active });
-  }
-  if (recent.length > 0) {
-    sections.push({ title: 'Recent', data: recent });
-  }
-
   const isEmpty = active.length === 0 && recent.length === 0;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={styles.backButton}
+        >
+          <Ionicons name="chevron-back" size={28} color={C.textPrimary} />
+        </TouchableOpacity>
+        <Text style={styles.title}>dApp Connections</Text>
+      </View>
+
       {isEmpty ? (
         <View style={styles.emptyContainer}>
-          <FontAwesome name="plug" size={36} color="#1e293b" />
+          <View style={[styles.emptyTile, { backgroundColor: C.card }]}>
+            <Ionicons name="link-outline" size={32} color={C.textSecondary} />
+          </View>
           <Text style={styles.emptyTitle}>No dApp Connections</Text>
-          <Text style={styles.emptyText}>
-            Scan a QR code from a dApp to connect your wallet.
-          </Text>
+          <Text style={styles.emptyText}>Scan a QR code from a dApp to pair your wallet.</Text>
         </View>
       ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item.channelId}
-          renderSectionHeader={({ section }) => (
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-          )}
-          renderItem={({ item }) => (
-            <ConnectionRow record={item} onAction={handleAction} />
-          )}
-          contentContainerStyle={styles.listContent}
-          stickySectionHeadersEnabled={false}
-        />
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Section title="Active">
+            {active.map((r) => (
+              <ConnectionRow key={r.channelId} record={r} now={now} onAction={handleAction} />
+            ))}
+          </Section>
+          <Section title="Recent">
+            {recent.map((r) => (
+              <ConnectionRow key={r.channelId} record={r} now={now} onAction={handleAction} />
+            ))}
+          </Section>
+          <View style={styles.footer} />
+        </ScrollView>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: C.bg,
   },
-  listContent: {
-    paddingHorizontal: 12,
-    paddingBottom: 20,
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
-  sectionTitle: {
-    fontSize: 11,
+  backButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    marginLeft: -6,
+    marginBottom: 4,
+  },
+  title: {
+    fontSize: 34,
+    fontWeight: '700',
+    color: C.textPrimary,
+    letterSpacing: 0.2,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: 12,
+    paddingBottom: 32,
+  },
+  sectionWrap: {
+    paddingHorizontal: 16,
+    marginBottom: 24,
+  },
+  sectionLabel: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#4aafff',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: 12,
-    marginBottom: 6,
-    paddingLeft: 4,
+    color: C.textSecondary,
+    marginBottom: 10,
+    marginLeft: 4,
+  },
+  card: {
+    backgroundColor: C.card,
+    borderRadius: 14,
+    overflow: 'hidden',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#1e293b',
-    borderLeftWidth: 3,
-    borderLeftColor: '#4aafff',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minHeight: 72,
   },
-  rowLeft: {
+  tile: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  rowText: {
     flex: 1,
     marginRight: 10,
+    justifyContent: 'center',
   },
-  rowHeader: {
+  headerLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
+    gap: 7,
   },
   dappName: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: '500',
+    color: C.textPrimary,
     flexShrink: 1,
   },
   dappUrl: {
-    fontSize: 11,
-    color: '#94a3b8',
-    marginBottom: 1,
+    fontSize: 12,
+    color: C.textSecondary,
+    marginTop: 2,
   },
-  dateText: {
-    fontSize: 10,
-    color: '#64748b',
+  timestamp: {
+    fontSize: 11,
+    color: C.textTertiary,
+    marginTop: 3,
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: C.divider,
+    marginLeft: 60,
   },
   actionButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
     borderWidth: 1,
   },
   disconnectButton: {
-    borderColor: '#f8717144',
-    backgroundColor: '#f8717111',
+    borderColor: `${C.red}55`,
+    backgroundColor: `${C.red}14`,
   },
   removeButton: {
-    borderColor: '#6b728044',
-    backgroundColor: '#6b728011',
+    borderColor: `${C.gray}55`,
+    backgroundColor: `${C.gray}14`,
   },
   actionText: {
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 12,
+    fontWeight: '600',
   },
   disconnectText: {
-    color: '#f87171',
+    color: C.red,
   },
   removeText: {
-    color: '#6b7280',
+    color: C.textSecondary,
   },
   emptyContainer: {
     flex: 1,
@@ -298,20 +408,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 40,
   },
+  emptyTile: {
+    width: 64,
+    height: 64,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
   emptyTitle: {
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '600',
-    color: '#f8fafc',
-    marginTop: 12,
+    color: C.textPrimary,
     marginBottom: 6,
   },
   emptyText: {
-    fontSize: 12,
-    color: '#94a3b8',
+    fontSize: 13,
+    color: C.textSecondary,
     textAlign: 'center',
-    lineHeight: 17,
+    lineHeight: 18,
   },
-  backButton: {
-    padding: 8,
+  footer: {
+    height: 24,
   },
 });
