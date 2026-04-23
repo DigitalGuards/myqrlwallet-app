@@ -10,6 +10,7 @@ import * as Linking from 'expo-linking';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
 import DAppConnectionStore from '../services/DAppConnectionStore';
+import SeedStorageService from '../services/SeedStorageService';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 
@@ -41,6 +42,12 @@ export default function RootLayout() {
         // Load dApp connection history (triggers 30-day cleanup)
         DAppConnectionStore.load().catch((err) => {
           Logger.error('RootLayout', 'Failed to load dApp connections:', err);
+        });
+        // One-shot: mirror the legacy-install keychain PIN into the
+        // AsyncStorage existence marker so hasPinStored() never needs to hit
+        // the keychain again. Safe to run at cold launch — foreground state.
+        SeedStorageService.repairPinExistsMarker().catch((err) => {
+          Logger.error('RootLayout', 'Failed pin_exists marker repair:', err);
         });
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();

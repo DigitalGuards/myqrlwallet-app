@@ -10,6 +10,33 @@ const PIN_KEY = 'wallet_pin';
 const BIOMETRIC_ENABLED_KEY = 'biometric_enabled';
 const BIOMETRIC_PROMPT_SHOWN_KEY = 'biometric_prompt_shown';
 const WALLET_METADATA_KEY = 'wallet_metadata';
+// AsyncStorage mirror of "does the Keychain hold a PIN?". Maintained alongside
+// every storePinSecurely / clearWallet so hasPinStored() can answer without
+// hitting SecureStore — a background Keychain read during the lock transition
+// raises errSecInteractionNotAllowed and pollutes logs.
+const PIN_EXISTS_KEY = 'pin_exists';
+// AsyncStorage marker for the accessibility class the stored PIN was written
+// under. Bumped whenever we change the class. Used to decide whether a running
+// session should silently re-write the PIN with the current class.
+const PIN_ACCESSIBILITY_VERSION_KEY = 'pin_accessibility_version';
+const CURRENT_PIN_ACCESSIBILITY_VERSION = 'v2';
+
+// iOS SecStatusCode -25308 — raised when the Keychain item's accessibility
+// class denies the current state (device locked / pre-first-unlock / etc).
+// Treat this as an expected runtime condition during lock transitions rather
+// than an error worth logging.
+function isInteractionNotAllowed(error: unknown): boolean {
+  if (!error) return false;
+  const message =
+    error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
+  return (
+    message.includes('User interaction is not allowed') ||
+    message.includes('errSecInteractionNotAllowed') ||
+    message.includes('-25308') ||
+    // Android Keystore analogue when the user lock screen hasn't been set up yet.
+    (message.includes('Keystore') && message.includes('not initialized'))
+  );
+}
 
 /**
  * Wallet metadata stored in AsyncStorage
@@ -128,18 +155,28 @@ class SeedStorageService {
   /**
    * Store PIN securely using expo-secure-store.
    *
-   * AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY lets the app read the PIN while the
-   * screen is locked, as long as the device was unlocked at least once since
-   * boot. Without this, background keychain reads (e.g. during the
-   * inactive→background lock transition) fail with `errSecInteractionNotAllowed`
-   * and pollute logs. The `ThisDeviceOnly` suffix prevents iCloud Keychain
-   * sync of the PIN.
+   * WHEN_UNLOCKED_THIS_DEVICE_ONLY — wallet-threat-model correct: the PIN
+   * becomes unreadable the instant the screen locks, so a lost/stolen locked
+   * device cannot hand the PIN to a background forensic acquisition.
+   * `ThisDeviceOnly` keeps the PIN out of iCloud Keychain sync. This works
+   * safely only because no background code path reads the PIN — hasPinStored
+   * consults an AsyncStorage marker, not the Keychain. If you ever add a
+   * background reader, reconsider the class choice.
+   *
+   * After a successful keychain write, mirror "PIN exists" and the
+   * accessibility version into AsyncStorage atomically (multiSet), so
+   * hasPinStored / needsPinAccessibilityMigration can answer without touching
+   * SecureStore.
    */
   async storePinSecurely(pin: string): Promise<void> {
     await SecureStore.setItemAsync(PIN_KEY, pin, {
       requireAuthentication: false, // biometric handled separately
-      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     });
+    await AsyncStorage.multiSet([
+      [PIN_EXISTS_KEY, '1'],
+      [PIN_ACCESSIBILITY_VERSION_KEY, CURRENT_PIN_ACCESSIBILITY_VERSION],
+    ]);
     Logger.debug('SeedStorage', 'PIN stored securely');
   }
 
@@ -151,6 +188,11 @@ class SeedStorageService {
     try {
       return await SecureStore.getItemAsync(PIN_KEY);
     } catch (error) {
+      if (isInteractionNotAllowed(error)) {
+        // Expected during device-lock transitions. Return null silently —
+        // callers treat a missing PIN as "not unlocked yet" which is correct.
+        return null;
+      }
       Logger.error('SeedStorage', 'Failed to retrieve PIN:', error);
       return null;
     }
@@ -158,25 +200,64 @@ class SeedStorageService {
 
   /**
    * Re-write the stored PIN with the current accessibility class. Used to
-   * migrate PINs stored under the legacy default (WHEN_UNLOCKED) to
-   * AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY. Safe to call whenever we have the
-   * PIN in memory post-unlock; a no-op if the PIN is already under the
-   * current class.
+   * migrate PINs stored under legacy classes (WHEN_UNLOCKED, or 1.2.1's
+   * AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY) to the current
+   * WHEN_UNLOCKED_THIS_DEVICE_ONLY. Returns true on success so callers can
+   * avoid flipping migration markers on a failed write.
    */
-  async migratePinAccessibility(pin: string): Promise<void> {
+  async migratePinAccessibility(pin: string): Promise<boolean> {
     try {
       await this.storePinSecurely(pin);
+      return true;
     } catch (error) {
-      Logger.warn('SeedStorage', 'PIN accessibility migration failed:', error);
+      Logger.error('SeedStorage', 'PIN accessibility migration failed:', error);
+      return false;
     }
   }
 
   /**
-   * Check if a PIN is stored
+   * Whether the stored PIN's accessibility class needs a re-write to the
+   * current version. True only if a PIN exists AND the version marker is
+   * absent or stale.
+   */
+  async needsPinAccessibilityMigration(): Promise<boolean> {
+    const [hasPin, version] = await Promise.all([
+      this.hasPinStored(),
+      AsyncStorage.getItem(PIN_ACCESSIBILITY_VERSION_KEY),
+    ]);
+    return hasPin && version !== CURRENT_PIN_ACCESSIBILITY_VERSION;
+  }
+
+  /**
+   * Check if a PIN is stored. AsyncStorage-only — must never read the
+   * keychain, or the lock-transition error comes back. See storePinSecurely.
    */
   async hasPinStored(): Promise<boolean> {
-    const pin = await this.getStoredPin();
-    return pin !== null;
+    const marker = await AsyncStorage.getItem(PIN_EXISTS_KEY);
+    return marker === '1';
+  }
+
+  /**
+   * One-shot bootstrap for installs upgrading from ≤1.2.1: if the AsyncStorage
+   * marker is absent but the keychain still holds a PIN, mirror the existence
+   * flag. Safe to call at app launch — runs at most one keychain read (only
+   * when the marker is missing), and only in the foreground where
+   * interactionNotAllowed is not a concern.
+   */
+  async repairPinExistsMarker(): Promise<void> {
+    try {
+      const marker = await AsyncStorage.getItem(PIN_EXISTS_KEY);
+      if (marker === '1') return; // already set — nothing to do
+      const pin = await this.getStoredPin();
+      if (pin !== null) {
+        await AsyncStorage.setItem(PIN_EXISTS_KEY, '1');
+        Logger.debug('SeedStorage', 'Repaired pin_exists marker for upgraded install');
+      }
+    } catch (error) {
+      // Repair is best-effort; absence of the marker just means hasPinStored
+      // returns false until the next storePinSecurely write.
+      Logger.warn('SeedStorage', 'pin_exists repair skipped:', error);
+    }
   }
 
   /**
@@ -274,8 +355,13 @@ class SeedStorageService {
   }
 
   /**
-   * Clear all wallet data (used when user removes wallet from settings)
-   * WARNING: This permanently deletes all backed up seeds and stored PIN
+   * Clear all wallet data (used when user removes wallet from settings).
+   * WARNING: permanently deletes all backed up seeds, stored PIN, and the
+   * AsyncStorage markers that mirror keychain state. iOS keeps SecureStore
+   * items across app reinstalls (they're tied to the Keychain access group),
+   * so the AsyncStorage markers MUST be cleared too — otherwise a reinstall
+   * could see `pin_exists = '1'` pointing at a Keychain the Keychain no
+   * longer holds (or vice versa).
    */
   async clearWallet(): Promise<void> {
     Logger.debug('SeedStorage', 'Clearing all wallet data...');
@@ -288,14 +374,15 @@ class SeedStorageService {
     // Clear PIN from secure storage
     await SecureStore.deleteItemAsync(PIN_KEY);
 
-    // Clear biometric preference
-    await AsyncStorage.removeItem(BIOMETRIC_ENABLED_KEY);
-
-    // Clear biometric prompt shown flag
-    await AsyncStorage.removeItem(BIOMETRIC_PROMPT_SHOWN_KEY);
-
-    // Clear wallet metadata
-    await AsyncStorage.removeItem(WALLET_METADATA_KEY);
+    // Clear biometric preference + prompt flag + wallet metadata + PIN
+    // mirror markers in one shot.
+    await AsyncStorage.multiRemove([
+      BIOMETRIC_ENABLED_KEY,
+      BIOMETRIC_PROMPT_SHOWN_KEY,
+      WALLET_METADATA_KEY,
+      PIN_EXISTS_KEY,
+      PIN_ACCESSIBILITY_VERSION_KEY,
+    ]);
 
     Logger.debug('SeedStorage', 'All wallet data cleared');
   }
