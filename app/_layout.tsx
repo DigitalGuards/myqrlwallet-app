@@ -45,8 +45,11 @@ export default function RootLayout() {
         });
         // One-shot: mirror the legacy-install keychain PIN into the
         // AsyncStorage existence marker so hasPinStored() never needs to hit
-        // the keychain again. Safe to run at cold launch — foreground state.
-        SeedStorageService.repairPinExistsMarker().catch((err) => {
+        // the keychain again. Awaited before splash-hide so the initial
+        // authCheck in WalletScreen sees a consistent marker — otherwise
+        // 1.2.1 upgraders can race into the redundant Device Login setup
+        // prompt even though they already have it enabled.
+        await SeedStorageService.repairPinExistsMarker().catch((err) => {
           Logger.error('RootLayout', 'Failed pin_exists marker repair:', err);
         });
         // Hide splash only after security is initialized
