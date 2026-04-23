@@ -126,20 +126,26 @@ class SeedStorageService {
   }
 
   /**
-   * Store PIN securely using expo-secure-store
-   * This stores the PIN in iOS Keychain or Android Keystore
+   * Store PIN securely using expo-secure-store.
+   *
+   * AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY lets the app read the PIN while the
+   * screen is locked, as long as the device was unlocked at least once since
+   * boot. Without this, background keychain reads (e.g. during the
+   * inactive→background lock transition) fail with `errSecInteractionNotAllowed`
+   * and pollute logs. The `ThisDeviceOnly` suffix prevents iCloud Keychain
+   * sync of the PIN.
    */
   async storePinSecurely(pin: string): Promise<void> {
     await SecureStore.setItemAsync(PIN_KEY, pin, {
-      // Require device authentication (biometric or passcode) to access
-      requireAuthentication: false, // We'll handle biometric separately
+      requireAuthentication: false, // biometric handled separately
+      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
     });
     Logger.debug('SeedStorage', 'PIN stored securely');
   }
 
   /**
-   * Retrieve PIN from secure storage
-   * Note: Call this AFTER successful biometric authentication
+   * Retrieve PIN from secure storage.
+   * Call after successful biometric authentication.
    */
   async getStoredPin(): Promise<string | null> {
     try {
@@ -147,6 +153,21 @@ class SeedStorageService {
     } catch (error) {
       Logger.error('SeedStorage', 'Failed to retrieve PIN:', error);
       return null;
+    }
+  }
+
+  /**
+   * Re-write the stored PIN with the current accessibility class. Used to
+   * migrate PINs stored under the legacy default (WHEN_UNLOCKED) to
+   * AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY. Safe to call whenever we have the
+   * PIN in memory post-unlock; a no-op if the PIN is already under the
+   * current class.
+   */
+  async migratePinAccessibility(pin: string): Promise<void> {
+    try {
+      await this.storePinSecurely(pin);
+    } catch (error) {
+      Logger.warn('SeedStorage', 'PIN accessibility migration failed:', error);
     }
   }
 

@@ -9,10 +9,23 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
-// PIN length constraints
 const PIN_MIN_LENGTH = 4;
 const PIN_MAX_LENGTH = 6;
+
+const C = {
+  overlay: 'rgba(0, 0, 0, 0.7)',
+  card: '#1e293b',
+  input: '#273548',
+  inputFocus: '#334155',
+  divider: '#334155',
+  textPrimary: '#f8fafc',
+  textSecondary: '#94a3b8',
+  textTertiary: '#64748b',
+  brandOrange: '#ff8700',
+  red: '#ef4444',
+};
 
 interface PinEntryModalProps {
   visible: boolean;
@@ -23,8 +36,8 @@ interface PinEntryModalProps {
 }
 
 /**
- * Secure PIN entry modal - replaces Alert.prompt for sensitive input
- * Uses secureTextEntry to mask PIN digits
+ * Secure PIN entry modal - replaces Alert.prompt for sensitive input.
+ * secureTextEntry masks PIN digits.
  */
 export const PinEntryModal: React.FC<PinEntryModalProps> = ({
   visible,
@@ -37,15 +50,12 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
 
-  // Focus input when modal opens
   useEffect(() => {
     if (visible) {
       setPin('');
       setError(null);
-      // Small delay to ensure modal is rendered
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 100);
+      const timer = setTimeout(() => inputRef.current?.focus(), 120);
+      return () => clearTimeout(timer);
     }
   }, [visible]);
 
@@ -72,19 +82,19 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={handleCancel}
-    >
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleCancel}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.overlay}
       >
-        <View style={styles.container}>
+        <View style={styles.card}>
+          <View style={styles.tileWrap}>
+            <View style={styles.tile}>
+              <Ionicons name="keypad" size={22} color="#ffffff" />
+            </View>
+          </View>
           <Text style={styles.title}>{title}</Text>
-          {message && <Text style={styles.message}>{message}</Text>}
+          {message ? <Text style={styles.message}>{message}</Text> : null}
 
           <TextInput
             ref={inputRef}
@@ -94,28 +104,32 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
               setPin(text.replace(/[^0-9]/g, '').slice(0, PIN_MAX_LENGTH));
               setError(null);
             }}
-            placeholder={`Enter PIN (${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits)`}
-            placeholderTextColor="#888"
+            placeholder={`${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`}
+            placeholderTextColor={C.textTertiary}
             keyboardType="number-pad"
             secureTextEntry
             maxLength={PIN_MAX_LENGTH}
             autoComplete="off"
             autoCorrect={false}
             textContentType="none"
+            returnKeyType="done"
+            onSubmitEditing={handleSubmit}
           />
 
-          {error && <Text style={styles.error}>{error}</Text>}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <View style={styles.buttonRow}>
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
               onPress={handleCancel}
+              activeOpacity={0.7}
             >
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.button, styles.submitButton]}
               onPress={handleSubmit}
+              activeOpacity={0.8}
             >
               <Text style={styles.submitButtonText}>Submit</Text>
             </TouchableOpacity>
@@ -129,72 +143,89 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: C.overlay,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
-  container: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 14,
-    padding: 20,
-    width: '85%',
-    maxWidth: 320,
+  card: {
+    backgroundColor: C.card,
+    borderRadius: 18,
+    padding: 22,
+    width: '100%',
+    maxWidth: 340,
+  },
+  tileWrap: {
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  tile: {
+    width: 44,
+    height: 44,
+    borderRadius: 11,
+    backgroundColor: C.brandOrange,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 19,
+    fontWeight: '700',
+    color: C.textPrimary,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   message: {
     fontSize: 13,
-    color: '#8e8e93',
+    color: C.textSecondary,
     textAlign: 'center',
-    marginBottom: 16,
+    lineHeight: 18,
+    marginBottom: 18,
   },
   input: {
-    backgroundColor: '#2c2c2e',
+    backgroundColor: C.input,
     borderRadius: 10,
-    padding: 12,
-    fontSize: 16,
-    color: '#fff',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    fontSize: 18,
+    fontWeight: '600',
+    color: C.textPrimary,
     textAlign: 'center',
-    letterSpacing: 4,
-    marginBottom: 8,
+    letterSpacing: 6,
+    marginBottom: 4,
   },
   error: {
-    color: '#ff453a',
+    color: C.red,
     fontSize: 12,
     textAlign: 'center',
-    marginBottom: 8,
+    marginTop: 10,
   },
   buttonRow: {
     flexDirection: 'row',
-    marginTop: 12,
+    marginTop: 20,
     gap: 10,
   },
   button: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 13,
+    borderRadius: 11,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelButton: {
-    backgroundColor: '#2c2c2e',
+    backgroundColor: C.input,
   },
   submitButton: {
-    backgroundColor: '#ff8700',
+    backgroundColor: C.brandOrange,
   },
   cancelButtonText: {
-    color: '#ff8700',
-    fontSize: 17,
-    fontWeight: '500',
+    color: C.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
   },
   submitButtonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

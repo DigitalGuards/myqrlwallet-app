@@ -19,6 +19,8 @@ class BiometricService {
   private pendingPinChange: PinChangeRequest | null = null;
   // In-memory queue for Device Login setup (used during navigation from Settings to WebView tab)
   private pendingDeviceLoginPin: string | null = null;
+  // One-shot flag so we only re-write the PIN for accessibility migration once per session
+  private pinAccessibilityMigrated = false;
   /**
    * Check if device supports any form of authentication (biometrics, PIN, pattern, passcode)
    * @returns True if device has any authentication method available
@@ -155,6 +157,14 @@ class BiometricService {
         success: false,
         error: 'Failed to retrieve stored PIN',
       };
+    }
+
+    // Migrate PINs stored under the legacy WHEN_UNLOCKED accessibility to
+    // AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY so background reads during the
+    // lock transition stop failing. Once per session is enough.
+    if (!this.pinAccessibilityMigrated) {
+      this.pinAccessibilityMigrated = true;
+      await SeedStorageService.migratePinAccessibility(pin);
     }
 
     return {
