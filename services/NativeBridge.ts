@@ -490,21 +490,16 @@ class NativeBridge {
         // does not strand them in the wallet. The user just tapped Approve, so
         // this is a user-initiated navigation.
         const redirectUrl = typeof payload?.redirectUrl === 'string' ? payload.redirectUrl : '';
-        // Match the scheme without requiring '://' so single-colon schemes
-        // (e.g. javascript:, intent:) are classified and blocked rather than
-        // slipping past. Block script/data/file plus the Android-specific
-        // intent/content schemes (arbitrary intent launch / content access).
+        // The redirect URL is attacker-controllable: it arrives over the relay
+        // in the dApp's ORIGINATOR_INFO. Use an allowlist (not a blocklist) so
+        // only web + our own scheme can be opened. This keeps tel:/sms:/mailto:/
+        // market:/intent: and other app-launch or script schemes from being
+        // triggered post-approval by a malicious redirectUrl. Match without
+        // requiring '://' so single-colon schemes are classified, not skipped.
         const schemeMatch = /^([a-z][a-z0-9.+-]*):/i.exec(redirectUrl);
         const scheme = schemeMatch?.[1]?.toLowerCase();
-        const blocked = new Set([
-          'javascript',
-          'data',
-          'file',
-          'vbscript',
-          'intent',
-          'content',
-        ]);
-        if (scheme && !blocked.has(scheme)) {
+        const allowed = new Set(['https', 'http', 'qrlconnect']);
+        if (scheme && allowed.has(scheme)) {
           Logger.debug('NativeBridge', `dApp return -> ${redirectUrl}`);
           try {
             await Linking.openURL(redirectUrl);
