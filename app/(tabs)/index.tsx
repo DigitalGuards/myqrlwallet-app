@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform, BackHandler } from 'react-native';
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
@@ -441,6 +441,17 @@ export default function WalletScreen() {
   // Log WebView visibility changes
   useEffect(() => {
     Logger.debug('WalletScreen', `WebView visibility changed: isAuthorized=${isAuthorized}, webViewRef=${webViewRef.current ? 'exists' : 'null'}`);
+  }, [isAuthorized]);
+
+  // While locked, swallow the Android hardware back button. The WebView now
+  // stays mounted under the lock overlay, so without this the back button
+  // could navigate the WebView behind the lock. Returning true marks the
+  // event handled; when unlocked we return false so normal back behaviour
+  // (and the WebView's own back handler) applies.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => !isAuthorized);
+    return () => sub.remove();
   }, [isAuthorized]);
 
   return (

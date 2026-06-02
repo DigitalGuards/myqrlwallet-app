@@ -490,9 +490,20 @@ class NativeBridge {
         // does not strand them in the wallet. The user just tapped Approve, so
         // this is a user-initiated navigation.
         const redirectUrl = typeof payload?.redirectUrl === 'string' ? payload.redirectUrl : '';
-        const schemeMatch = /^([a-z][a-z0-9.+-]*):\/\//i.exec(redirectUrl);
+        // Match the scheme without requiring '://' so single-colon schemes
+        // (e.g. javascript:, intent:) are classified and blocked rather than
+        // slipping past. Block script/data/file plus the Android-specific
+        // intent/content schemes (arbitrary intent launch / content access).
+        const schemeMatch = /^([a-z][a-z0-9.+-]*):/i.exec(redirectUrl);
         const scheme = schemeMatch?.[1]?.toLowerCase();
-        const blocked = new Set(['javascript', 'data', 'file', 'vbscript']);
+        const blocked = new Set([
+          'javascript',
+          'data',
+          'file',
+          'vbscript',
+          'intent',
+          'content',
+        ]);
         if (scheme && !blocked.has(scheme)) {
           Logger.debug('NativeBridge', `dApp return -> ${redirectUrl}`);
           try {
