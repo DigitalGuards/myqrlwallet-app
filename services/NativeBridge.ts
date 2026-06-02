@@ -31,7 +31,8 @@ export type WebToNativeMessageType =
   | 'DAPP_SHOW_WEBVIEW'       // Request native to show/focus WebView tab (for approval)
   | 'DAPP_CONNECTED'          // Notify native that a dApp connected
   | 'DAPP_DISCONNECTED'       // Notify native that a dApp disconnected
-  | 'DAPP_HAPTIC';            // Trigger haptic for dApp approve/reject
+  | 'DAPP_HAPTIC'             // Trigger haptic for dApp approve/reject
+  | 'DAPP_RETURN';            // Bounce back to the dApp after approval (peer redirect)
 
 /**
  * Message types that can be sent to the WebView
@@ -482,6 +483,28 @@ class NativeBridge {
       case 'DAPP_HAPTIC':
         this.handleHaptic(payload?.style as string | undefined);
         break;
+
+      case 'DAPP_RETURN': {
+        // Peer redirect: after the wallet resolves a restricted request, bounce
+        // the user back to the originating dApp so a same-device deep-link flow
+        // does not strand them in the wallet. The user just tapped Approve, so
+        // this is a user-initiated navigation.
+        const redirectUrl = typeof payload?.redirectUrl === 'string' ? payload.redirectUrl : '';
+        const schemeMatch = /^([a-z][a-z0-9.+-]*):\/\//i.exec(redirectUrl);
+        const scheme = schemeMatch?.[1]?.toLowerCase();
+        const blocked = new Set(['javascript', 'data', 'file', 'vbscript']);
+        if (scheme && !blocked.has(scheme)) {
+          Logger.debug('NativeBridge', `dApp return -> ${redirectUrl}`);
+          try {
+            await Linking.openURL(redirectUrl);
+          } catch (err) {
+            Logger.warn('NativeBridge', `Failed to open return URL: ${String(err)}`);
+          }
+        } else {
+          Logger.warn('NativeBridge', 'Ignoring dApp return URL with unsupported scheme');
+        }
+        break;
+      }
 
       default:
         Logger.warn('NativeBridge', `Unknown message type: ${type}`);

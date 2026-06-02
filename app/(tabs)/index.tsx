@@ -446,10 +446,17 @@ export default function WalletScreen() {
   return (
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
-      {/* Always render WebView to keep ref available for bridge messages, but hide when not authorized */}
-      <RNView style={isAuthorized ? styles.webViewVisible : styles.webViewHidden}>
+      {/* Keep the WebView mounted AND on-screen at full size even while locked.
+          Moving it off-screen (left/top:-9999) throttles its JS, which stalled
+          the dApp-connect relay reconnect (reconnectAll) during re-auth on
+          resume. Instead we leave it un-throttled and cover wallet content with
+          an opaque lock overlay below while re-auth is pending. */}
+      <RNView style={styles.webViewVisible}>
         <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} skipLoadingScreen={skipLoadingScreen} />
       </RNView>
+      {/* Opaque lock cover: hides wallet content during re-auth and blocks
+          touches to the WebView underneath, while letting its JS keep running. */}
+      {!isAuthorized && <RNView style={styles.lockOverlay} pointerEvents="auto" />}
       <PinEntryModal
         visible={pinModalVisible}
         title="Enter Your PIN"
@@ -479,11 +486,15 @@ const styles = StyleSheet.create({
   webViewVisible: {
     flex: 1,
   },
-  webViewHidden: {
-    // Keep WebView functional but invisible - 0x0 size can prevent JS execution
-    flex: 1,
+  // Opaque full-bleed cover shown over the (still on-screen, still running)
+  // WebView while re-auth is pending, so wallet content is hidden without
+  // throttling the WebView's JS by relocating it off-screen.
+  lockOverlay: {
     position: 'absolute',
-    left: -9999,
-    top: -9999,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#0f172a',
   },
 });
