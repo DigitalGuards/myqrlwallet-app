@@ -229,12 +229,27 @@ class SeedStorageService {
   }
 
   /**
-   * Check if a PIN is stored. AsyncStorage-only — must never read the
-   * keychain, or the lock-transition error comes back. See storePinSecurely.
+   * Check if a PIN is stored. The AsyncStorage `pin_exists` marker is the fast,
+   * lock-safe path and is the only thing read in steady state. When the marker
+   * is ABSENT (fresh install, or a ≤1.2.1 upgrade whose marker has not been
+   * repaired yet) we fall back to a single keychain read so this can't lose a
+   * race with repairPinExistsMarker() at cold launch — React flushes the
+   * child's authCheck effect before the root layout's repair effect, so a
+   * marker-only check would report "no PIN" for an upgraded install and trigger
+   * a redundant Device-Login prompt. getStoredPin() is lock-safe (it swallows
+   * errSecInteractionNotAllowed → null), so the fallback never resurfaces the
+   * lock-transition error; on a hit we repair the marker so subsequent calls
+   * never touch the keychain again.
    */
   async hasPinStored(): Promise<boolean> {
     const marker = await AsyncStorage.getItem(PIN_EXISTS_KEY);
-    return marker === '1';
+    if (marker === '1') return true;
+    const pin = await this.getStoredPin();
+    if (pin !== null) {
+      await AsyncStorage.setItem(PIN_EXISTS_KEY, '1');
+      return true;
+    }
+    return false;
   }
 
   /**
