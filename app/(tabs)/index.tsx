@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform, BackHandler } from 'react-native';
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
@@ -243,6 +243,9 @@ export default function WalletScreen() {
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
     needsReauth.current = true;
     hasRestoredSeeds.current = false;
+    // Drop any PIN held between a successful biometric unlock and WEB_APP_READY.
+    // If the user returns, authCheck will re-run and repopulate this post-auth.
+    pendingUnlockPin.current = null;
     backgroundedAt.current = Date.now();
     // Don't reset web app ready - WebView is always mounted (off-screen) and maintains state
   }, []);
@@ -440,13 +443,31 @@ export default function WalletScreen() {
     Logger.debug('WalletScreen', `WebView visibility changed: isAuthorized=${isAuthorized}, webViewRef=${webViewRef.current ? 'exists' : 'null'}`);
   }, [isAuthorized]);
 
+  // While locked, swallow the Android hardware back button. The WebView now
+  // stays mounted under the lock overlay, so without this the back button
+  // could navigate the WebView behind the lock. Returning true marks the
+  // event handled; when unlocked we return false so normal back behaviour
+  // (and the WebView's own back handler) applies.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => !isAuthorized);
+    return () => sub.remove();
+  }, [isAuthorized]);
+
   return (
     <RNView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
-      {/* Always render WebView to keep ref available for bridge messages, but hide when not authorized */}
-      <RNView style={isAuthorized ? styles.webViewVisible : styles.webViewHidden}>
+      {/* Keep the WebView mounted AND on-screen at full size even while locked.
+          Moving it off-screen (left/top:-9999) throttles its JS, which stalled
+          the dApp-connect relay reconnect (reconnectAll) during re-auth on
+          resume. Instead we leave it un-throttled and cover wallet content with
+          an opaque lock overlay below while re-auth is pending. */}
+      <RNView style={styles.webViewVisible}>
         <QRLWebView ref={webViewRef} onLoad={handleWebViewLoad} skipLoadingScreen={skipLoadingScreen} />
       </RNView>
+      {/* Opaque lock cover: hides wallet content during re-auth and blocks
+          touches to the WebView underneath, while letting its JS keep running. */}
+      {!isAuthorized && <RNView style={styles.lockOverlay} pointerEvents="auto" />}
       <PinEntryModal
         visible={pinModalVisible}
         title="Enter Your PIN"
@@ -476,11 +497,15 @@ const styles = StyleSheet.create({
   webViewVisible: {
     flex: 1,
   },
-  webViewHidden: {
-    // Keep WebView functional but invisible - 0x0 size can prevent JS execution
-    flex: 1,
+  // Opaque full-bleed cover shown over the (still on-screen, still running)
+  // WebView while re-auth is pending, so wallet content is hidden without
+  // throttling the WebView's JS by relocating it off-screen.
+  lockOverlay: {
     position: 'absolute',
-    left: -9999,
-    top: -9999,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#0f172a',
   },
 });

@@ -19,8 +19,6 @@ class BiometricService {
   private pendingPinChange: PinChangeRequest | null = null;
   // In-memory queue for Device Login setup (used during navigation from Settings to WebView tab)
   private pendingDeviceLoginPin: string | null = null;
-  // One-shot flag so we only re-write the PIN for accessibility migration once per session
-  private pinAccessibilityMigrated = false;
   /**
    * Check if device supports any form of authentication (biometrics, PIN, pattern, passcode)
    * @returns True if device has any authentication method available
@@ -159,12 +157,16 @@ class BiometricService {
       };
     }
 
-    // Migrate PINs stored under the legacy WHEN_UNLOCKED accessibility to
-    // AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY so background reads during the
-    // lock transition stop failing. Once per session is enough.
-    if (!this.pinAccessibilityMigrated) {
-      this.pinAccessibilityMigrated = true;
-      await SeedStorageService.migratePinAccessibility(pin);
+    // Migrate PINs stored under a legacy accessibility class to the current
+    // one. Gated by an AsyncStorage version marker so we only re-write when
+    // needed, and the flag only advances when the write succeeds (set inside
+    // storePinSecurely itself).
+    if (await SeedStorageService.needsPinAccessibilityMigration()) {
+      const migrated = await SeedStorageService.migratePinAccessibility(pin);
+      Logger.debug(
+        'BiometricService',
+        `PIN accessibility migration: ${migrated ? 'ok' : 'retry-next-unlock'}`
+      );
     }
 
     return {
