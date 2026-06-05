@@ -174,6 +174,19 @@ export default function SettingsScreen() {
     await WebViewService.saveUserPreferences(updatedPreferences);
   };
 
+  // Home card-visibility prefs: persist natively AND push to the WebView so the
+  // web wallet's Home screen reflects the change. In-app the web Settings is
+  // bypassed (it opens this native screen), so native is the source of truth.
+  const handleDisplayToggle = async (
+    key: 'showTokensCard' | 'showNftsCard',
+    value: boolean,
+  ) => {
+    const updatedPreferences = { ...preferences, [key]: value };
+    setPreferences(updatedPreferences);
+    await WebViewService.saveUserPreferences(updatedPreferences);
+    NativeBridge.sendDisplayPrefs({ [key]: value });
+  };
+
   const handleDeviceLoginToggle = async (newValue: boolean) => {
     if (newValue) {
       setShowDeviceLoginPinModal(true);
@@ -365,6 +378,40 @@ export default function SettingsScreen() {
                 onValueChange={(value) => updatePreference('notificationsEnabled', value)}
                 trackColor={switchTrack}
                 thumbColor={switchThumb(preferences.notificationsEnabled ?? true)}
+                ios_backgroundColor={C.divider}
+              />
+            }
+          />
+        </Section>
+
+        {/* Display */}
+        <Section title="Display">
+          <Row
+            icon="pricetags"
+            tint={C.green}
+            title="Show Tokens Card"
+            subtitle="Show the Tokens section on the Home screen"
+            right={
+              <Switch
+                value={preferences.showTokensCard ?? true}
+                onValueChange={(value) => handleDisplayToggle('showTokensCard', value)}
+                trackColor={switchTrack}
+                thumbColor={switchThumb(preferences.showTokensCard ?? true)}
+                ios_backgroundColor={C.divider}
+              />
+            }
+          />
+          <Row
+            icon="images"
+            tint={C.teal}
+            title="Show NFTs Card"
+            subtitle="Show the NFT collection on the Home screen"
+            right={
+              <Switch
+                value={preferences.showNftsCard ?? true}
+                onValueChange={(value) => handleDisplayToggle('showNftsCard', value)}
+                trackColor={switchTrack}
+                thumbColor={switchThumb(preferences.showNftsCard ?? true)}
                 ios_backgroundColor={C.divider}
               />
             }
