@@ -9,6 +9,10 @@ const STORAGE_KEYS = {
 
 export interface UserPreferences {
   notificationsEnabled?: boolean;
+  // Home screen card visibility (mirrors the web wallet's Show Tokens/NFTs
+  // Card settings; pushed to the WebView via SET_DISPLAY_PREFS).
+  showTokensCard?: boolean;
+  showNftsCard?: boolean;
 }
 
 /**
@@ -96,11 +100,15 @@ class WebViewService {
       // Default preferences
       return {
         notificationsEnabled: true,
+        showTokensCard: true,
+        showNftsCard: true,
       };
     } catch (error) {
       Logger.error('WebViewService', 'Failed to get user preferences:', error);
       return {
         notificationsEnabled: true,
+        showTokensCard: true,
+        showNftsCard: true,
       };
     }
   }
