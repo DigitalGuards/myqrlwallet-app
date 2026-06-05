@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 import DAppConnectionStore from './DAppConnectionStore';
+import WebViewService from './WebViewService';
 import Logger from './Logger';
 
 /**
@@ -54,7 +55,8 @@ export type NativeToWebMessageType =
   | 'CHANGE_PIN'              // Native requests web to change PIN (re-encrypt seeds)
   // DApp Connect messages
   | 'DAPP_URI'                // Deep link URI forwarded to WebView
-  | 'DAPP_DISCONNECT';        // Request web to disconnect a specific dApp session
+  | 'DAPP_DISCONNECT'         // Request web to disconnect a specific dApp session
+  | 'SET_DISPLAY_PREFS';      // Set Home card visibility (showTokensCard / showNftsCard)
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -274,6 +276,19 @@ class NativeBridge {
   }
 
   /**
+   * Push Home card-visibility prefs to the WebView. The web wallet stores
+   * these in its WalletSettings and the Home screen re-reads them live.
+   * Fire-and-forget: if sent while the WebView is throttled (Settings tab),
+   * it is queued and applied when the WebView becomes active again.
+   */
+  sendDisplayPrefs(prefs: { showTokensCard?: boolean; showNftsCard?: boolean }) {
+    this.sendToWeb({
+      type: 'SET_DISPLAY_PREFS',
+      payload: { ...prefs },
+    });
+  }
+
+  /**
    * Unregister wallet cleared callback
    */
   offWalletCleared() {
@@ -404,6 +419,19 @@ class NativeBridge {
         Logger.debug('NativeBridge', 'WEB_APP_READY received, setting isWebAppReady=true');
         this.isWebAppReady = true;
         this.flushWebAppReadyResolvers('resolve');
+
+        // Initial sync: push the stored Home card-visibility prefs so the web
+        // wallet reflects the native choice even if web localStorage was reset
+        // (e.g. via Clear Session). Native is the source of truth in-app.
+        try {
+          const displayPrefs = await WebViewService.getUserPreferences();
+          this.sendDisplayPrefs({
+            showTokensCard: displayPrefs.showTokensCard ?? true,
+            showNftsCard: displayPrefs.showNftsCard ?? true,
+          });
+        } catch (error) {
+          Logger.error('NativeBridge', 'Failed to push display prefs on WEB_APP_READY:', error);
+        }
 
         if (this.webAppReadyCallback) {
           await this.webAppReadyCallback();
