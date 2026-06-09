@@ -62,15 +62,12 @@ export default function WalletScreen() {
     }, NAVIGATE_TO_SETTINGS_FLAG_RESET_MS);
   }, []);
 
-  // Hint shown when the device has Face ID / Touch ID hardware but it is not
-  // usable for this app - either turned off for the app in Settings (a sticky
-  // "Don't Allow") or no biometric is enrolled. Without it, iOS silently
-  // presents the device-passcode sheet and the user concludes Face ID is broken.
-  // The copy is intentionally state-agnostic: we cannot tell "off-for-app" from
-  // "not enrolled" at this layer, and on Android there is no per-app toggle, so
-  // we say "isn't available ... check Settings" rather than "turned off". (The
-  // lockout case is excluded upstream and never reaches here.) Shown at most
-  // once per session.
+  // Hint shown only when a biometric IS enrolled on the device but turned OFF
+  // for this app (the per-app Face ID / Touch ID toggle in Settings is off, from
+  // a sticky "Don't Allow"). BiometricService classifies this precisely via a
+  // biometrics-only probe, so not-enrolled and lockout never reach here. Without
+  // the nudge, iOS silently presents the device-passcode sheet and the user
+  // concludes Face ID is broken. Shown at most once per session.
   const showBiometricOffNudge = useCallback((biometricType?: 'face' | 'fingerprint' | 'iris' | null) => {
     if (biometricOffNudgeShown.current) return;
     biometricOffNudgeShown.current = true;
@@ -85,8 +82,8 @@ export default function WalletScreen() {
         : 'biometric unlock';
     InteractionManager.runAfterInteractions(() => {
       Alert.alert(
-        `${label} isn't available for MyQRLWallet`,
-        `Make sure ${label} is turned on for MyQRLWallet (and set up on your device) in Settings. You can still unlock by entering your wallet PIN.`,
+        `${label} is turned off for MyQRLWallet`,
+        `Turn ${label} back on for MyQRLWallet in Settings to unlock with it. You can still unlock by entering your wallet PIN.`,
         [
           { text: 'Open Settings', onPress: () => { Linking.openSettings().catch(() => {}); } },
           { text: 'Not Now', style: 'cancel' },

@@ -69,34 +69,25 @@ class BiometricService {
    * Inspect whether the device has biometric hardware and whether that biometric
    * is currently USABLE BY THIS APP.
    *
-   * The distinction is the crux of the "Face ID stopped working" report: on iOS,
-   * supportedAuthenticationTypesAsync() reflects the hardware (it reads
+   * On iOS, supportedAuthenticationTypesAsync() reflects the hardware (it reads
    * LAContext.biometryType), so it still reports Face ID even when the user has
    * turned Face ID OFF for this app in Settings (a sticky "Don't Allow"), or has
-   * not enrolled a face, or is locked out. In every one of those states
+   * not enrolled a face, or is locked out. In all of those states
    * getEnrolledLevelAsync() drops to SECRET. The gap between "hardware present"
-   * and "level >= biometric" is how we detect "this device has Face ID but it
-   * is not available to us right now" and steer the user to Settings instead of
-   * letting iOS silently present the device-passcode sheet.
-   *
-   * `biometricEnrolled` (isEnrolledAsync) disambiguates the SECRET sub-states:
-   * iOS reports enrolled=true for a usable biometric AND for a temporary LOCKOUT
-   * (too many failed scans), but false for off-for-app / not-enrolled. We use it
-   * so the caller can treat lockout differently - a lockout must fall through to
-   * the device-passcode sheet (which clears it and unlocks), not get a useless
-   * "turn it on in Settings" nudge.
+   * and "level >= biometric" tells us "this device has a biometric but it is not
+   * usable right now" - it does NOT tell us WHY. Distinguishing the why
+   * (off-for-app vs not-enrolled vs lockout) requires a biometrics-only
+   * authenticateAsync probe; see getPinWithBiometric.
    */
   async getBiometricStatus(): Promise<{
     hasBiometricHardware: boolean;
     biometricUsable: boolean;
-    biometricEnrolled: boolean;
     biometricType: 'face' | 'fingerprint' | 'iris' | null;
   }> {
     try {
-      const [level, types, enrolled] = await Promise.all([
+      const [level, types] = await Promise.all([
         LocalAuthentication.getEnrolledLevelAsync(),
         LocalAuthentication.supportedAuthenticationTypesAsync(),
-        LocalAuthentication.isEnrolledAsync(),
       ]);
 
       let biometricType: 'face' | 'fingerprint' | 'iris' | null = null;
@@ -115,15 +106,41 @@ class BiometricService {
         // means only the device credential is usable - which is also what we see
         // when biometrics are off-for-app / unenrolled / locked out.
         biometricUsable: level >= LocalAuthentication.SecurityLevel.BIOMETRIC_WEAK,
-        // true for a usable biometric OR a locked-out one; false for off-for-app
-        // and not-enrolled. Combined with !biometricUsable this isolates lockout.
-        biometricEnrolled: enrolled,
         biometricType,
       };
     } catch (error) {
       Logger.error('BiometricService', 'Biometric status check failed:', error);
-      return { hasBiometricHardware: false, biometricUsable: false, biometricEnrolled: false, biometricType: null };
+      return { hasBiometricHardware: false, biometricUsable: false, biometricType: null };
     }
+  }
+
+  /**
+   * Read the stored PIN after a successful authentication and opportunistically
+   * migrate it to the current keychain accessibility class. Shared by the normal
+   * unlock path and the biometric-probe success path.
+   */
+  private async retrieveStoredPinAfterAuth(): Promise<{
+    success: boolean;
+    pin?: string;
+    error?: string;
+  }> {
+    const pin = await SeedStorageService.getStoredPin();
+    if (!pin) {
+      return { success: false, error: 'Failed to retrieve stored PIN' };
+    }
+
+    // Migrate PINs stored under a legacy accessibility class to the current one.
+    // Gated by an AsyncStorage version marker; the marker only advances when the
+    // write succeeds (set inside storePinSecurely itself).
+    if (await SeedStorageService.needsPinAccessibilityMigration()) {
+      const migrated = await SeedStorageService.migratePinAccessibility(pin);
+      Logger.debug(
+        'BiometricService',
+        `PIN accessibility migration: ${migrated ? 'ok' : 'retry-next-unlock'}`
+      );
+    }
+
+    return { success: true, pin };
   }
 
   /**
@@ -174,9 +191,10 @@ class BiometricService {
     success: boolean;
     pin?: string;
     error?: string;
-    // True when the device has biometric hardware but it is not usable for this
-    // app (Face ID/Touch ID off-for-app, unenrolled, or locked out). The caller
-    // uses this to nudge the user to Settings rather than show a passcode sheet.
+    // True only when a biometric IS enrolled on the device but turned OFF for
+    // this app (the per-app Face ID/Touch ID toggle in iOS Settings is off).
+    // The caller nudges the user to Settings rather than show a passcode sheet.
+    // Not-enrolled / lockout do NOT set this - they proceed to normal unlock.
     biometricOffForApp?: boolean;
     biometricType?: 'face' | 'fingerprint' | 'iris' | null;
   }> {
@@ -207,27 +225,43 @@ class BiometricService {
       };
     }
 
-    // If the device HAS biometric hardware but the biometric is not usable for
-    // this app AND is not merely locked out (i.e. Face ID/Touch ID is turned off
-    // for the app in Settings, or no biometric is enrolled), iOS's
-    // deviceOwnerAuthentication policy would silently fall through to the
-    // device-passcode sheet with no biometric attempt - which reads to the user
-    // as "Face ID stopped working". Surface it so the caller can nudge the user
-    // to Settings instead.
-    //
-    // We deliberately EXCLUDE the lockout case (enrolled but temporarily locked
-    // after failed scans): that must fall through to authenticate() below so the
-    // device-passcode sheet can clear the lockout and unlock. A passcode-only
-    // device has no biometric hardware, so this never trips for the intended
-    // passcode-based Device Login.
+    // The device has biometric hardware but our level check reports it is not
+    // usable. The level alone does NOT say WHY, and the cases need different
+    // handling, so we ask iOS directly with a biometrics-only evaluation. When
+    // biometrics cannot be evaluated this resolves immediately WITHOUT presenting
+    // any UI, and the error code is the precise reason:
+    //   not_available -> a biometric IS enrolled on the device but turned OFF for
+    //                    this app (the sticky "Don't Allow"). The Settings toggle
+    //                    exists, so nudge the user there instead of silently
+    //                    dropping to the device-passcode sheet.
+    //   not_enrolled  -> no biometric is set up on the device at all. This is a
+    //                    legitimate passcode-only Device Login user; there is
+    //                    nothing to enable, so fall through to the normal
+    //                    device-credential unlock (no nudge, no regression).
+    //   lockout/other -> transient; fall through so the passcode sheet can clear
+    //                    the lockout and unlock.
+    // If the level check was a transient false-negative and biometrics actually
+    // work, this performs the real Face ID / Touch ID auth and we use its success.
     const status = await this.getBiometricStatus();
-    if (status.hasBiometricHardware && !status.biometricUsable && !status.biometricEnrolled) {
-      return {
-        success: false,
-        error: 'Biometric unlock is unavailable for this app',
-        biometricOffForApp: true,
-        biometricType: status.biometricType,
-      };
+    if (status.hasBiometricHardware && !status.biometricUsable) {
+      const probe = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Unlock your wallet',
+        cancelLabel: 'Cancel',
+        disableDeviceFallback: true,
+      });
+      if (probe.success) {
+        return this.retrieveStoredPinAfterAuth();
+      }
+      if (probe.error === 'not_available') {
+        return {
+          success: false,
+          error: 'Biometric unlock is turned off for this app',
+          biometricOffForApp: true,
+          biometricType: status.biometricType,
+        };
+      }
+      // not_enrolled / lockout / user_cancel / etc -> fall through to the normal
+      // device-credential unlock so passcode-only users are never blocked.
     }
 
     // Perform device authentication
@@ -239,31 +273,7 @@ class BiometricService {
       };
     }
 
-    // Retrieve the PIN
-    const pin = await SeedStorageService.getStoredPin();
-    if (!pin) {
-      return {
-        success: false,
-        error: 'Failed to retrieve stored PIN',
-      };
-    }
-
-    // Migrate PINs stored under a legacy accessibility class to the current
-    // one. Gated by an AsyncStorage version marker so we only re-write when
-    // needed, and the flag only advances when the write succeeds (set inside
-    // storePinSecurely itself).
-    if (await SeedStorageService.needsPinAccessibilityMigration()) {
-      const migrated = await SeedStorageService.migratePinAccessibility(pin);
-      Logger.debug(
-        'BiometricService',
-        `PIN accessibility migration: ${migrated ? 'ok' : 'retry-next-unlock'}`
-      );
-    }
-
-    return {
-      success: true,
-      pin,
-    };
+    return this.retrieveStoredPinAfterAuth();
   }
 
   /**
