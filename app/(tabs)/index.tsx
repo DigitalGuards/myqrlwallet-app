@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform, BackHandler } from 'react-native';
+import { StyleSheet, View as RNView, StatusBar, AppState, AppStateStatus, Alert, InteractionManager, Platform, BackHandler, Linking } from 'react-native';
 import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
@@ -46,6 +46,8 @@ export default function WalletScreen() {
   const pinChangeTriggered = useRef(false);
   // Track settings navigation (to avoid false positive re-auth on iOS tab switch)
   const isNavigatingToSettings = useRef(false);
+  // Show the "biometric is off for this app" hint at most once per app session
+  const biometricOffNudgeShown = useRef(false);
 
   // Navigate to settings
   const navigateToSettings = useCallback(() => {
@@ -60,6 +62,36 @@ export default function WalletScreen() {
     }, NAVIGATE_TO_SETTINGS_FLAG_RESET_MS);
   }, []);
 
+  // Hint shown only when a biometric IS enrolled on the device but turned OFF
+  // for this app (the per-app Face ID / Touch ID toggle in Settings is off, from
+  // a sticky "Don't Allow"). BiometricService classifies this precisely via a
+  // biometrics-only probe, so not-enrolled and lockout never reach here. Without
+  // the nudge, iOS silently presents the device-passcode sheet and the user
+  // concludes Face ID is broken. Shown at most once per session.
+  const showBiometricOffNudge = useCallback((biometricType?: 'face' | 'fingerprint' | 'iris' | null) => {
+    if (biometricOffNudgeShown.current) return;
+    biometricOffNudgeShown.current = true;
+    const isIOS = Platform.OS === 'ios';
+    const label =
+      biometricType === 'fingerprint'
+        ? (isIOS ? 'Touch ID' : 'fingerprint unlock')
+        : biometricType === 'iris'
+        ? 'iris unlock'
+        : biometricType === 'face'
+        ? (isIOS ? 'Face ID' : 'face unlock')
+        : 'biometric unlock';
+    InteractionManager.runAfterInteractions(() => {
+      Alert.alert(
+        `${label} is turned off for MyQRLWallet`,
+        `Turn ${label} back on for MyQRLWallet in Settings to unlock with it. You can still unlock by entering your wallet PIN.`,
+        [
+          { text: 'Open Settings', onPress: () => { Linking.openSettings().catch(() => {}); } },
+          { text: 'Not Now', style: 'cancel' },
+        ]
+      );
+    });
+  }, []);
+
   // Handle device login unlock and send PIN to web
   const performDeviceLoginUnlock = useCallback(async () => {
     Logger.debug('WalletScreen', 'Device Login unlock requested');
@@ -69,8 +101,11 @@ export default function WalletScreen() {
       NativeBridge.sendUnlockWithPin(result.pin);
     } else {
       Logger.debug('WalletScreen', 'Device Login failed or cancelled', result.error);
+      if (result.biometricOffForApp) {
+        showBiometricOffNudge(result.biometricType);
+      }
     }
-  }, []);
+  }, [showBiometricOffNudge]);
 
   // Handle PIN modal submission
   const handlePinSubmit = useCallback(async (pin: string) => {
@@ -201,6 +236,11 @@ export default function WalletScreen() {
           } else {
             // Device Login failed, but still allow access (user can enter PIN manually)
             setIsAuthorized(true);
+            // If biometrics exist but are off for this app, tell the user how to
+            // restore Face ID / Touch ID instead of leaving them confused.
+            if (result.biometricOffForApp) {
+              showBiometricOffNudge(result.biometricType);
+            }
           }
         } else if (hasWallet) {
           // Wallet exists but Device Login not set up
@@ -231,7 +271,7 @@ export default function WalletScreen() {
     if (isFocused && !isAuthorized) {
       authCheck();
     }
-  }, [isFocused, isAuthorized, promptDeviceLoginSetup]);
+  }, [isFocused, isAuthorized, promptDeviceLoginSetup, showBiometricOffNudge]);
 
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
