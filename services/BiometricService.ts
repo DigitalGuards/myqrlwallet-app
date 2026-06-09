@@ -26,8 +26,10 @@ class BiometricService {
   async isBiometricAvailable(): Promise<boolean> {
     try {
       const securityLevel = await LocalAuthentication.getEnrolledLevelAsync();
-      // SecurityLevel.NONE is 0, .SECRET is 1, .BIOMETRIC is 2.
-      // Any level greater than NONE means some form of authentication is enrolled.
+      // SecurityLevel.NONE=0, .SECRET=1 (passcode/PIN/pattern), .BIOMETRIC_WEAK=2,
+      // .BIOMETRIC_STRONG=3. iOS reports BIOMETRIC_STRONG(3) for a usable Face ID /
+      // Touch ID. Any level greater than NONE means some form of authentication is
+      // enrolled - "Device Login" deliberately covers passcode-only devices too.
       return securityLevel > LocalAuthentication.SecurityLevel.NONE;
     } catch (error) {
       Logger.error('BiometricService', 'Device authentication availability check failed:', error);
@@ -60,6 +62,67 @@ class BiometricService {
     } catch (error) {
       Logger.error('BiometricService', 'Failed to get biometric types:', error);
       return [];
+    }
+  }
+
+  /**
+   * Inspect whether the device has biometric hardware and whether that biometric
+   * is currently USABLE BY THIS APP.
+   *
+   * The distinction is the crux of the "Face ID stopped working" report: on iOS,
+   * supportedAuthenticationTypesAsync() reflects the hardware (it reads
+   * LAContext.biometryType), so it still reports Face ID even when the user has
+   * turned Face ID OFF for this app in Settings (a sticky "Don't Allow"), or has
+   * not enrolled a face, or is locked out. In every one of those states
+   * getEnrolledLevelAsync() drops to SECRET. The gap between "hardware present"
+   * and "level >= biometric" is how we detect "this device has Face ID but it
+   * is not available to us right now" and steer the user to Settings instead of
+   * letting iOS silently present the device-passcode sheet.
+   *
+   * `biometricEnrolled` (isEnrolledAsync) disambiguates the SECRET sub-states:
+   * iOS reports enrolled=true for a usable biometric AND for a temporary LOCKOUT
+   * (too many failed scans), but false for off-for-app / not-enrolled. We use it
+   * so the caller can treat lockout differently - a lockout must fall through to
+   * the device-passcode sheet (which clears it and unlocks), not get a useless
+   * "turn it on in Settings" nudge.
+   */
+  async getBiometricStatus(): Promise<{
+    hasBiometricHardware: boolean;
+    biometricUsable: boolean;
+    biometricEnrolled: boolean;
+    biometricType: 'face' | 'fingerprint' | 'iris' | null;
+  }> {
+    try {
+      const [level, types, enrolled] = await Promise.all([
+        LocalAuthentication.getEnrolledLevelAsync(),
+        LocalAuthentication.supportedAuthenticationTypesAsync(),
+        LocalAuthentication.isEnrolledAsync(),
+      ]);
+
+      let biometricType: 'face' | 'fingerprint' | 'iris' | null = null;
+      if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+        biometricType = 'face';
+      } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+        biometricType = 'fingerprint';
+      } else if (types.includes(LocalAuthentication.AuthenticationType.IRIS)) {
+        biometricType = 'iris';
+      }
+
+      return {
+        hasBiometricHardware: biometricType !== null,
+        // >= BIOMETRIC_WEAK(2) counts as usable: iOS reports STRONG(3) for Face ID /
+        // Touch ID; Android may report WEAK(2) for a Class 2 face unlock. SECRET(1)
+        // means only the device credential is usable - which is also what we see
+        // when biometrics are off-for-app / unenrolled / locked out.
+        biometricUsable: level >= LocalAuthentication.SecurityLevel.BIOMETRIC_WEAK,
+        // true for a usable biometric OR a locked-out one; false for off-for-app
+        // and not-enrolled. Combined with !biometricUsable this isolates lockout.
+        biometricEnrolled: enrolled,
+        biometricType,
+      };
+    } catch (error) {
+      Logger.error('BiometricService', 'Biometric status check failed:', error);
+      return { hasBiometricHardware: false, biometricUsable: false, biometricEnrolled: false, biometricType: null };
     }
   }
 
@@ -111,6 +174,11 @@ class BiometricService {
     success: boolean;
     pin?: string;
     error?: string;
+    // True when the device has biometric hardware but it is not usable for this
+    // app (Face ID/Touch ID off-for-app, unenrolled, or locked out). The caller
+    // uses this to nudge the user to Settings rather than show a passcode sheet.
+    biometricOffForApp?: boolean;
+    biometricType?: 'face' | 'fingerprint' | 'iris' | null;
   }> {
     // First check if device login is available
     const available = await this.isBiometricAvailable();
@@ -136,6 +204,29 @@ class BiometricService {
       return {
         success: false,
         error: 'No PIN stored for Device Login',
+      };
+    }
+
+    // If the device HAS biometric hardware but the biometric is not usable for
+    // this app AND is not merely locked out (i.e. Face ID/Touch ID is turned off
+    // for the app in Settings, or no biometric is enrolled), iOS's
+    // deviceOwnerAuthentication policy would silently fall through to the
+    // device-passcode sheet with no biometric attempt - which reads to the user
+    // as "Face ID stopped working". Surface it so the caller can nudge the user
+    // to Settings instead.
+    //
+    // We deliberately EXCLUDE the lockout case (enrolled but temporarily locked
+    // after failed scans): that must fall through to authenticate() below so the
+    // device-passcode sheet can clear the lockout and unlock. A passcode-only
+    // device has no biometric hardware, so this never trips for the intended
+    // passcode-based Device Login.
+    const status = await this.getBiometricStatus();
+    if (status.hasBiometricHardware && !status.biometricUsable && !status.biometricEnrolled) {
+      return {
+        success: false,
+        error: 'Biometric unlock is unavailable for this app',
+        biometricOffForApp: true,
+        biometricType: status.biometricType,
       };
     }
 
