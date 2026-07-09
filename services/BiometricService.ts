@@ -244,24 +244,37 @@ class BiometricService {
     // work, this performs the real Face ID / Touch ID auth and we use its success.
     const status = await this.getBiometricStatus();
     if (status.hasBiometricHardware && !status.biometricUsable) {
-      const probe = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Unlock your wallet',
-        cancelLabel: 'Cancel',
-        disableDeviceFallback: true,
-      });
-      if (probe.success) {
-        return this.retrieveStoredPinAfterAuth();
+      try {
+        const probe = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Unlock your wallet',
+          cancelLabel: 'Cancel',
+          disableDeviceFallback: true,
+        });
+        if (probe.success) {
+          return this.retrieveStoredPinAfterAuth();
+        }
+        if (probe.error === 'not_available') {
+          return {
+            success: false,
+            error: 'Biometric unlock is turned off for this app',
+            biometricOffForApp: true,
+            biometricType: status.biometricType,
+          };
+        }
+        if (probe.error === 'user_cancel') {
+          // The probe presented real biometric UI (the level check was a
+          // transient false-negative) and the user dismissed it. Cancel means
+          // cancel: do not immediately raise the device-credential sheet.
+          return { success: false, error: 'Authentication cancelled' };
+        }
+      } catch (error) {
+        // Never let a native probe failure kill the unlock attempt; fall
+        // through to the normal device-credential unlock below.
+        Logger.error('BiometricService', 'Biometric probe failed:', error);
       }
-      if (probe.error === 'not_available') {
-        return {
-          success: false,
-          error: 'Biometric unlock is turned off for this app',
-          biometricOffForApp: true,
-          biometricType: status.biometricType,
-        };
-      }
-      // not_enrolled / lockout / user_cancel / etc -> fall through to the normal
-      // device-credential unlock so passcode-only users are never blocked.
+      // not_enrolled / lockout / user_fallback / etc -> fall through to the
+      // normal device-credential unlock so passcode-only users are never
+      // blocked (user_fallback IS a request for the passcode sheet).
     }
 
     // Perform device authentication
