@@ -9,11 +9,11 @@ export const PIN_MAX_LENGTH = 6;
 // WebView. Structure over pixel-parity: navy wells, slate borders, brand
 // orange focus ring.
 const C = {
-  box: '#0f172a',
-  boxBorder: '#334155',
-  boxBorderActive: '#ff8700',
-  dot: '#f8fafc',
-  helper: '#94a3b8',
+  box: '#09090c',
+  boxBorder: '#22232a',
+  boxBorderActive: '#fa761e',
+  dot: '#f5f3f0',
+  helper: '#9c9dab',
 };
 
 type PinBoxInputProps = {

@@ -92,7 +92,7 @@ const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
             styles.matrixChar,
             {
               opacity: index === 0 ? 1 : 0.5 + (index / chars.length) * 0.4,
-              color: index === 0 ? '#ff8700' : '#ff8700aa',
+              color: index === 0 ? '#fa761e' : '#fa761eaa',
             },
           ]}
         >
@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-    color: '#ff8700',
+    color: '#fa761e',
     marginBottom: 40,
     letterSpacing: 2,
     textTransform: 'uppercase',
@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#ff8700',
+    backgroundColor: '#fa761e',
     marginHorizontal: 4,
   },
 });

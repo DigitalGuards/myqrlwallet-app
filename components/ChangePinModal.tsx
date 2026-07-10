@@ -15,13 +15,13 @@ import { PinBoxInput, PIN_MIN_LENGTH, PIN_MAX_LENGTH } from './PinBoxInput';
 
 const C = {
   overlay: 'rgba(0, 0, 0, 0.7)',
-  card: '#1e293b',
-  input: '#273548',
-  divider: '#334155',
-  textPrimary: '#f8fafc',
-  textSecondary: '#94a3b8',
-  textTertiary: '#64748b',
-  brandOrange: '#ff8700',
+  card: '#0f1014',
+  input: '#16171d',
+  divider: '#22232a',
+  textPrimary: '#f5f3f0',
+  textSecondary: '#9c9dab',
+  textTertiary: '#6a6b7c',
+  brandOrange: '#fa761e',
   red: '#ef4444',
 };
 

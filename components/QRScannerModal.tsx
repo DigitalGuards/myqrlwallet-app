@@ -63,7 +63,7 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
     if (!permission.granted) {
       return (
         <View style={styles.centeredContent}>
-          <Ionicons name="camera-outline" size={64} color="#ff8700" />
+          <Ionicons name="camera-outline" size={64} color="#fa761e" />
           <Text style={styles.text}>Camera access is required to scan QR codes</Text>
           <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
             <Text style={styles.permissionButtonText}>Grant Permission</Text>
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   permissionButton: {
-    backgroundColor: '#ff8700',
+    backgroundColor: '#fa761e',
     paddingVertical: 14,
     paddingHorizontal: 32,
     borderRadius: 8,
@@ -208,28 +208,28 @@ const styles = StyleSheet.create({
     left: 0,
     borderTopWidth: CORNER_WIDTH,
     borderLeftWidth: CORNER_WIDTH,
-    borderColor: '#ff8700',
+    borderColor: '#fa761e',
   },
   topRight: {
     top: 0,
     right: 0,
     borderTopWidth: CORNER_WIDTH,
     borderRightWidth: CORNER_WIDTH,
-    borderColor: '#ff8700',
+    borderColor: '#fa761e',
   },
   bottomLeft: {
     bottom: 0,
     left: 0,
     borderBottomWidth: CORNER_WIDTH,
     borderLeftWidth: CORNER_WIDTH,
-    borderColor: '#ff8700',
+    borderColor: '#fa761e',
   },
   bottomRight: {
     bottom: 0,
     right: 0,
     borderBottomWidth: CORNER_WIDTH,
     borderRightWidth: CORNER_WIDTH,
-    borderColor: '#ff8700',
+    borderColor: '#fa761e',
   },
   instructionText: {
     color: '#f8fafc',
