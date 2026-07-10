@@ -11,9 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-const PIN_MIN_LENGTH = 4;
-const PIN_MAX_LENGTH = 6;
+import { PinBoxInput, PIN_MIN_LENGTH, PIN_MAX_LENGTH } from './PinBoxInput';
 
 const C = {
   overlay: 'rgba(0, 0, 0, 0.7)',
@@ -35,39 +33,22 @@ interface ChangePinModalProps {
 
 interface PinFieldProps {
   label: string;
-  inputRef: React.RefObject<TextInput | null>;
   value: string;
   onChangeText: (v: string) => void;
-  returnKeyType?: 'next' | 'done';
-  onSubmitEditing?: () => void;
+  inputRef: React.RefObject<TextInput | null>;
+  onFilled?: () => void;
 }
 
-function PinField({
-  label,
-  inputRef,
-  value,
-  onChangeText,
-  returnKeyType,
-  onSubmitEditing,
-}: PinFieldProps) {
+function PinField({ label, value, onChangeText, inputRef, onFilled }: PinFieldProps) {
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        ref={inputRef}
-        style={styles.input}
+      <PinBoxInput
         value={value}
         onChangeText={onChangeText}
-        placeholder={`${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`}
-        placeholderTextColor={C.textTertiary}
-        keyboardType="number-pad"
-        secureTextEntry
-        maxLength={PIN_MAX_LENGTH}
-        autoComplete="off"
-        autoCorrect={false}
-        textContentType="none"
-        returnKeyType={returnKeyType}
-        onSubmitEditing={onSubmitEditing}
+        inputRef={inputRef}
+        accessibilityLabel={label}
+        onFilled={onFilled}
       />
     </View>
   );
@@ -104,7 +85,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
     newPin !== currentPin;
 
   const handlePinChange = (text: string, setter: (value: string) => void) => {
-    setter(text.replace(/[^0-9]/g, '').slice(0, PIN_MAX_LENGTH));
+    setter(text);
     setError(null);
   };
 
@@ -147,34 +128,31 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
             </View>
             <Text style={styles.title}>Change PIN</Text>
             <Text style={styles.message}>
-              Enter your current PIN and choose a new one.
+              Enter your current PIN, then choose a new {PIN_MIN_LENGTH}-{PIN_MAX_LENGTH} digit
+              PIN. Your seed stays encrypted with this PIN.
             </Text>
 
             <PinField
               label="Current PIN"
-              inputRef={currentPinRef}
               value={currentPin}
               onChangeText={(t) => handlePinChange(t, setCurrentPin)}
-              returnKeyType="next"
-              onSubmitEditing={() => newPinRef.current?.focus()}
+              inputRef={currentPinRef}
+              onFilled={() => newPinRef.current?.focus()}
             />
 
             <PinField
               label="New PIN"
-              inputRef={newPinRef}
               value={newPin}
               onChangeText={(t) => handlePinChange(t, setNewPin)}
-              returnKeyType="next"
-              onSubmitEditing={() => confirmPinRef.current?.focus()}
+              inputRef={newPinRef}
+              onFilled={() => confirmPinRef.current?.focus()}
             />
 
             <PinField
               label="Confirm New PIN"
-              inputRef={confirmPinRef}
               value={confirmPin}
               onChangeText={(t) => handlePinChange(t, setConfirmPin)}
-              returnKeyType="done"
-              onSubmitEditing={handleSubmit}
+              inputRef={confirmPinRef}
             />
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -259,26 +237,15 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   fieldWrap: {
-    marginTop: 10,
+    marginTop: 14,
   },
   label: {
     fontSize: 12,
     fontWeight: '600',
     color: C.textSecondary,
-    marginBottom: 6,
+    marginBottom: 8,
     marginLeft: 4,
     letterSpacing: 0.2,
-  },
-  input: {
-    backgroundColor: C.input,
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    fontSize: 18,
-    fontWeight: '600',
-    color: C.textPrimary,
-    textAlign: 'center',
-    letterSpacing: 6,
   },
   error: {
     color: C.red,
