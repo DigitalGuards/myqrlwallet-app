@@ -280,6 +280,9 @@ export default function SettingsScreen() {
                   onPress: async () => {
                     try {
                       await SeedStorageService.clearWallet();
+                      // Full wipe includes the contacts backup; contacts
+                      // otherwise persist across sessions by design.
+                      await WebViewService.clearContactsBackup();
 
                       const clearConfirmed = await new Promise<boolean>((resolve) => {
                         const timeout = setTimeout(() => {
@@ -474,6 +477,19 @@ export default function SettingsScreen() {
 
         {/* Connections */}
         <Section title="Connections">
+          <Row
+            icon="book"
+            tint={C.brandOrange}
+            title="Address Book"
+            subtitle="Saved recipients for quick transfers"
+            onPress={() => {
+              // The address book lives in the web wallet; queue the
+              // navigation and return to the WebView tab (the queued
+              // message processes once the WebView is foregrounded).
+              NativeBridge.sendNavigate('/address-book');
+              router.back();
+            }}
+          />
           <Row
             icon="apps"
             tint={C.teal}

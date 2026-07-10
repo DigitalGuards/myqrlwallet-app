@@ -5,6 +5,7 @@ const STORAGE_KEYS = {
   COOKIES: '@MyQRLWallet:cookies',
   LAST_SESSION: '@MyQRLWallet:lastSession',
   USER_PREFERENCES: '@MyQRLWallet:userPreferences',
+  CONTACTS_BACKUP: '@MyQRLWallet:contactsBackup',
 };
 
 export interface UserPreferences {
@@ -125,6 +126,38 @@ class WebViewService {
       Logger.debug('WebViewService', 'Session data cleared successfully');
     } catch (error) {
       Logger.error('WebViewService', 'Failed to clear session data:', error);
+    }
+  }
+
+  /**
+   * Durable backup of the web wallet's address book (JSON array of
+   * contacts; plain public data). Written on every CONTACTS_UPDATED,
+   * pushed back on WEB_APP_READY, deleted only by Remove All Wallets.
+   */
+  async saveContactsBackup(contactsJson: string): Promise<void> {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.CONTACTS_BACKUP, contactsJson);
+      Logger.debug('WebViewService', 'Contacts backup saved');
+    } catch (error) {
+      Logger.error('WebViewService', 'Failed to save contacts backup:', error);
+    }
+  }
+
+  async getContactsBackup(): Promise<string | null> {
+    try {
+      return await AsyncStorage.getItem(STORAGE_KEYS.CONTACTS_BACKUP);
+    } catch (error) {
+      Logger.error('WebViewService', 'Failed to read contacts backup:', error);
+      return null;
+    }
+  }
+
+  async clearContactsBackup(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.CONTACTS_BACKUP);
+      Logger.debug('WebViewService', 'Contacts backup cleared');
+    } catch (error) {
+      Logger.error('WebViewService', 'Failed to clear contacts backup:', error);
     }
   }
 }
