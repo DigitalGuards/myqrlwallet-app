@@ -5,7 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
-import { View } from 'react-native';
+import { View, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
@@ -39,9 +39,14 @@ export default function RootLayout() {
         } catch (error) {
           Logger.error('RootLayout', 'Failed to initialize screen security:', error);
         }
-        // Load dApp connection history (triggers 30-day cleanup)
-        DAppConnectionStore.load().catch((err) => {
-          Logger.error('RootLayout', 'Failed to load dApp connections:', err);
+        // Load dApp connection history (triggers 30-day cleanup). Deferred
+        // past first paint: nothing needs it at boot, and its AsyncStorage
+        // reads/writes were part of the concurrent first-150ms storm inside
+        // the fragile TurboModule-init window (iOS 26 cold-start SIGABRT).
+        InteractionManager.runAfterInteractions(() => {
+          DAppConnectionStore.load().catch((err) => {
+            Logger.error('RootLayout', 'Failed to load dApp connections:', err);
+          });
         });
         // One-shot: mirror the legacy-install keychain PIN into the
         // AsyncStorage existence marker so hasPinStored() never needs to hit
@@ -75,15 +80,29 @@ export default function RootLayout() {
       }
     };
 
-    // Handle deep links that opened the app
-    Linking.getInitialURL().then((url) => {
-      if (url) handleDeepLink({ url });
-    });
-
-    // Handle deep links while app is running
+    // Registered synchronously so no 'url' event emitted during the boot
+    // window can be missed; registration itself is a main-queue call and not
+    // part of the fragile background-queue init window.
     const subscription = Linking.addEventListener('url', handleDeepLink);
 
+    // The initial-URL retrieval IS deferred past first paint: a URL-launched
+    // cold start otherwise piles its forwarding chain onto the boot storage
+    // storm inside the fragile TurboModule-init window (intermittent iOS 26
+    // cold-start SIGABRT; see patches/react-native for the companion fix).
+    // Nothing is lost: the WebView takes seconds to become ready and
+    // waitForWebAppReady already spans the gap.
+    const task = InteractionManager.runAfterInteractions(() => {
+      Linking.getInitialURL()
+        .then((url) => {
+          if (url) handleDeepLink({ url });
+        })
+        .catch((err) => {
+          Logger.error('RootLayout', 'Failed to get initial URL:', err);
+        });
+    });
+
     return () => {
+      task.cancel();
       subscription.remove();
     };
   }, []);

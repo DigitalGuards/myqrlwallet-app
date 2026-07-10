@@ -1,0 +1,27 @@
+diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+index 2a67797..eb28bb9 100644
+--- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
++++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+@@ -435,7 +435,21 @@ void ObjCTurboModule::performVoidMethodInvocation(
+     @try {
+       [inv invokeWithTarget:strongModule];
+     } @catch (NSException *exception) {
+-      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      if (shouldVoidMethodsExecuteSync_) {
++        // Sync invocation: the JS caller is above us and can catch this.
++        throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      }
++      // Async invocation: we are on the TurboModule background queue where a
++      // rethrow is guaranteed uncaught -> std::terminate -> SIGABRT (observed
++      // as intermittent iOS 26 cold-start crashes; RN issues #54859/#53960;
++      // upstream PR #50193 only guarded the promise path). Log and drop the
++      // exception instead of killing the process.
++      NSLog(
++          @"[MyQRLWallet patch] Suppressed uncaught NSException in async void TurboModule method %s.%s: %@ (%@)",
++          moduleName,
++          methodNameStr.c_str(),
++          exception.name,
++          exception.reason);
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+     }
