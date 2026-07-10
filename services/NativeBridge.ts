@@ -26,6 +26,7 @@ export type WebToNativeMessageType =
   | 'WEB_APP_READY'           // Web app is fully initialized and ready to receive data
   | 'PIN_VERIFIED'            // Web responds to PIN verification request
   | 'PIN_CHANGED'             // Web responds to PIN change request
+  | 'CONTACTS_UPDATED'        // Web address book changed, native should back it up
   // Navigation messages
   | 'OPEN_NATIVE_SETTINGS'    // Request native app to open its settings screen
   // DApp Connect messages
@@ -56,7 +57,9 @@ export type NativeToWebMessageType =
   // DApp Connect messages
   | 'DAPP_URI'                // Deep link URI forwarded to WebView
   | 'DAPP_DISCONNECT'         // Request web to disconnect a specific dApp session
-  | 'SET_DISPLAY_PREFS';      // Set Home card visibility (showTokensCard / showNftsCard)
+  | 'SET_DISPLAY_PREFS'       // Set Home card visibility (showTokensCard / showNftsCard)
+  | 'RESTORE_CONTACTS'        // Send the backed-up address book to the web wallet
+  | 'NAVIGATE';               // Ask the web wallet to navigate to an in-app route
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -403,6 +406,19 @@ class NativeBridge {
         break;
       }
 
+      case 'CONTACTS_UPDATED': {
+        // Durable backup of the web address book (plain public data:
+        // names + addresses). Survives WebView data loss; deleted only by
+        // the Remove All Wallets wipe.
+        const contacts = payload?.contacts;
+        if (!Array.isArray(contacts)) {
+          Logger.warn('NativeBridge', 'CONTACTS_UPDATED payload.contacts is not an array');
+          return;
+        }
+        await WebViewService.saveContactsBackup(JSON.stringify(contacts));
+        break;
+      }
+
       case 'REQUEST_BIOMETRIC_UNLOCK':
         await this.handleBiometricUnlockRequest();
         break;
@@ -431,6 +447,21 @@ class NativeBridge {
           });
         } catch (error) {
           Logger.error('NativeBridge', 'Failed to push display prefs on WEB_APP_READY:', error);
+        }
+
+        // Initial sync: restore the address-book backup. The web side
+        // merges (union by address), so a healthy web copy is unaffected
+        // and an evicted one comes back.
+        try {
+          const contactsJson = await WebViewService.getContactsBackup();
+          if (contactsJson) {
+            const contacts: unknown = JSON.parse(contactsJson);
+            if (Array.isArray(contacts) && contacts.length > 0) {
+              this.sendToWeb({ type: 'RESTORE_CONTACTS', payload: { contacts } });
+            }
+          }
+        } catch (error) {
+          Logger.error('NativeBridge', 'Failed to push contacts backup on WEB_APP_READY:', error);
         }
 
         if (this.webAppReadyCallback) {
@@ -811,6 +842,16 @@ class NativeBridge {
     this.sendToWeb({
       type: 'RESTORE_SEED',
       payload: { address, encryptedSeed, blockchain },
+    });
+  }
+
+  /**
+   * Ask the web wallet to navigate to an in-app route (e.g. /address-book)
+   */
+  sendNavigate(path: string) {
+    this.sendToWeb({
+      type: 'NAVIGATE',
+      payload: { path },
     });
   }
 
