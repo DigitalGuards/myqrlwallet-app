@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native';
 
 export const PIN_MIN_LENGTH = 4;
 export const PIN_MAX_LENGTH = 6;
@@ -25,6 +25,8 @@ type PinBoxInputProps = {
   accessibilityLabel?: string;
   /** Fires once when the value reaches PIN_MAX_LENGTH (used to auto-advance). */
   onFilled?: () => void;
+  /** Android's numeric keyboard has a Next/Done action key; iOS's does not. */
+  onSubmitEditing?: () => void;
 };
 
 export function PinBoxInput({
@@ -34,8 +36,11 @@ export function PinBoxInput({
   inputRef,
   accessibilityLabel,
   onFilled,
+  onSubmitEditing,
 }: PinBoxInputProps) {
   const [focused, setFocused] = useState(false);
+  const localRef = useRef<TextInput>(null);
+  const fieldRef = inputRef ?? localRef;
 
   const handleChange = (text: string) => {
     const clean = text.replace(/[^0-9]/g, '').slice(0, PIN_MAX_LENGTH);
@@ -46,7 +51,16 @@ export function PinBoxInput({
 
   return (
     <View>
-      <View style={styles.boxRow} importantForAccessibility="no-hide-descendants">
+      {/* Only the decorative boxes are hidden from screen readers; the
+          TextInput stays an accessible sibling so VoiceOver/TalkBack users
+          can focus and fill the PIN. Presses on the boxes focus the input
+          programmatically; the input itself never intercepts touches. */}
+      <Pressable
+        style={styles.boxRow}
+        onPress={() => fieldRef.current?.focus()}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
         {Array.from({ length: PIN_MAX_LENGTH }).map((_, i) => {
           const filled = i < value.length;
           const active = focused && i === value.length;
@@ -59,26 +73,25 @@ export function PinBoxInput({
             </View>
           );
         })}
-        {/* Invisible input stretched over the boxes: taps anywhere on the row
-            focus it, digits fill the boxes. iOS number-pad has no return key,
-            so commit stays on the modal buttons. */}
-        <TextInput
-          ref={inputRef}
-          style={styles.hiddenInput}
-          value={value}
-          onChangeText={handleChange}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          keyboardType="number-pad"
-          maxLength={PIN_MAX_LENGTH}
-          caretHidden
-          autoComplete="off"
-          autoCorrect={false}
-          textContentType="none"
-          contextMenuHidden
-          accessibilityLabel={accessibilityLabel}
-        />
-      </View>
+      </Pressable>
+      <TextInput
+        ref={fieldRef}
+        style={styles.hiddenInput}
+        pointerEvents="none"
+        value={value}
+        onChangeText={handleChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        keyboardType="number-pad"
+        maxLength={PIN_MAX_LENGTH}
+        caretHidden
+        autoComplete="off"
+        autoCorrect={false}
+        textContentType="none"
+        contextMenuHidden
+        accessibilityLabel={accessibilityLabel}
+        onSubmitEditing={onSubmitEditing}
+      />
       {helper ? <Text style={styles.helper}>{helper}</Text> : null}
     </View>
   );
