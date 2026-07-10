@@ -1,8 +1,8 @@
 diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-index 2a67797..eb28bb9 100644
+index 2a67797..e740b40 100644
 --- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
 +++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-@@ -435,7 +435,21 @@ void ObjCTurboModule::performVoidMethodInvocation(
+@@ -435,7 +435,39 @@ void ObjCTurboModule::performVoidMethodInvocation(
      @try {
        [inv invokeWithTarget:strongModule];
      } @catch (NSException *exception) {
@@ -11,17 +11,35 @@ index 2a67797..eb28bb9 100644
 +        // Sync invocation: the JS caller is above us and can catch this.
 +        throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
 +      }
-+      // Async invocation: we are on the TurboModule background queue where a
-+      // rethrow is guaranteed uncaught -> std::terminate -> SIGABRT (observed
-+      // as intermittent iOS 26 cold-start crashes; RN issues #54859/#53960;
-+      // upstream PR #50193 only guarded the promise path). Log and drop the
-+      // exception instead of killing the process.
++      // Async invocation: upstream converts this to a C++ JSError whose
++      // unwind off the TurboModule queue is guaranteed uncaught, destroying
++      // the ObjC exception's name/reason in the crash log (RN issues
++      // #54859/#53960; PR #50193 fixed only the promise path). Suppressing it
++      // instead (builds 22-23) turned fatal boot errors into an unreportable
++      // zombie app behind the splash. Correct semantics: persist diagnostics,
++      // then rethrow the ORIGINAL NSException like the fixed promise path,
++      // so the process still dies but the crash log carries the real reason
++      // (for RCTFatal that includes the JS message and stack).
++      NSArray<NSString *> *symbols = exception.callStackSymbols ?: @[];
++      NSDictionary *record = @{
++        @"module" : @(moduleName),
++        @"method" : @(methodNameStr.c_str()),
++        @"name" : exception.name ?: @"",
++        @"reason" : exception.reason ?: @"",
++        @"stack" : [[symbols subarrayWithRange:NSMakeRange(0, MIN((NSUInteger)8, symbols.count))]
++            componentsJoinedByString:@"\n"],
++        @"timestamp" : @([[NSDate date] timeIntervalSince1970]),
++      };
++      NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
++      [defaults setObject:record forKey:@"MyQRLWalletLastFatalNSException"];
++      [defaults synchronize];
 +      NSLog(
-+          @"[MyQRLWallet patch] Suppressed uncaught NSException in async void TurboModule method %s.%s: %@ (%@)",
++          @"[MyQRLWallet patch] Fatal NSException in async void TurboModule method %s.%s: %@ (%@)",
 +          moduleName,
 +          methodNameStr.c_str(),
 +          exception.name,
 +          exception.reason);
++      @throw exception;
      } @finally {
        [retainedObjectsForInvocation removeAllObjects];
      }
