@@ -35,15 +35,35 @@ const BOOT_STEP_TIMEOUT_MS = 4000;
 const SPLASH_FAILSAFE_MS = 8000;
 
 function withBootTimeout(promise: Promise<unknown>, label: string): Promise<unknown> {
-  return Promise.race([
-    promise,
-    new Promise<void>((resolve) => {
-      setTimeout(() => {
-        Logger.error('RootLayout', `Boot step timed out after ${BOOT_STEP_TIMEOUT_MS}ms: ${label}`);
-        resolve();
-      }, BOOT_STEP_TIMEOUT_MS);
-    }),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+
+  const timeout = new Promise<void>((resolve) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      Logger.error('RootLayout', `Boot step timed out after ${BOOT_STEP_TIMEOUT_MS}ms: ${label}`);
+      resolve();
+    }, BOOT_STEP_TIMEOUT_MS);
+  });
+
+  // Settle handling: clear the timer on completion so a healthy step does
+  // not log a false timeout 4s later, and absorb rejections that arrive
+  // after the race already moved on (would otherwise be unhandled).
+  const settled = promise
+    .then((value) => {
+      clearTimeout(timeoutId);
+      return value;
+    })
+    .catch((err: unknown) => {
+      clearTimeout(timeoutId);
+      if (timedOut) {
+        Logger.warn('RootLayout', `Boot step ${label} rejected after timeout:`, err);
+        return;
+      }
+      throw err;
+    });
+
+  return Promise.race([settled, timeout]);
 }
 
 export default function RootLayout() {
@@ -84,6 +104,8 @@ export default function RootLayout() {
               const record = Settings.get('MyQRLWalletLastFatalNSException');
               if (record) {
                 Logger.error('RootLayout', 'Previous launch fatal native exception:', record);
+                // One-shot: clear it so healthy launches stop re-logging.
+                Settings.set({ MyQRLWalletLastFatalNSException: null });
               }
             } catch {
               // Settings unavailable; nothing to surface.

@@ -94,6 +94,7 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
             helper={`Enter your ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digit PIN`}
             inputRef={inputRef}
             accessibilityLabel="Wallet PIN"
+            onSubmitEditing={handleSubmit}
           />
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
