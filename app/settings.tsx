@@ -28,22 +28,22 @@ import Logger from '../services/Logger';
 
 // Visual tokens — kept local to this screen per user scope.
 const C = {
-  bg: '#0f172a',
-  card: '#1e293b',
-  cardPressed: '#273548',
-  divider: '#334155',
-  textPrimary: '#f8fafc',
-  textSecondary: '#94a3b8',
-  textTertiary: '#64748b',
-  chevron: '#64748b',
-  brandOrange: '#ff8700',
-  pinOrange: '#ff9500',
+  bg: '#09090c',
+  card: '#0f1014',
+  cardPressed: '#16171d',
+  divider: '#22232a',
+  textPrimary: '#f5f3f0',
+  textSecondary: '#9c9dab',
+  textTertiary: '#6a6b7c',
+  chevron: '#6a6b7c',
+  brandOrange: '#fa761e',
+  pinOrange: '#fb8b41',
   blue: '#3b82f6',
   purple: '#a855f7',
   teal: '#06b6d4',
   green: '#22c55e',
   red: '#ef4444',
-  gray: '#64748b',
+  gray: '#6a6b7c',
   github: '#6e7681',
 };
 
@@ -346,7 +346,7 @@ export default function SettingsScreen() {
   };
 
   const switchTrack = { false: C.divider, true: `${C.brandOrange}66` };
-  const switchThumb = (on: boolean) => (on ? C.brandOrange : '#94a3b8');
+  const switchThumb = (on: boolean) => (on ? C.brandOrange : '#9c9dab');
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
