@@ -323,16 +323,15 @@ export default function SettingsScreen() {
 
   const clearCache = async () => {
     Alert.alert(
-      'Clear Session',
-      'This will clear your current session and log you out. You will need to log in again. Continue?',
+      'Clear Web Cache',
+      'This clears the saved web session data (cookies and cached state). Your wallet, seed, and PIN are not affected. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear',
-          style: 'destructive',
           onPress: async () => {
             await WebViewService.clearSessionData();
-            Alert.alert('Session Cleared', 'Your session has been cleared.');
+            Alert.alert('Web Cache Cleared', 'Saved web session data has been cleared.');
           },
         },
       ]
@@ -499,8 +498,8 @@ export default function SettingsScreen() {
           <Row
             icon="refresh"
             tint={C.gray}
-            title="Clear Session"
-            subtitle="Log out and refresh app state"
+            title="Clear Web Cache"
+            subtitle="Clears saved web session data. Your wallet is not affected."
             onPress={clearCache}
           />
         </Section>
