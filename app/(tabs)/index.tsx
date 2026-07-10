@@ -496,7 +496,7 @@ export default function WalletScreen() {
 
   return (
     <RNView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
+      <StatusBar barStyle="light-content" backgroundColor="#09090c" />
       {/* Keep the WebView mounted AND on-screen at full size even while locked.
           Moving it off-screen (left/top:-9999) throttles its JS, which stalled
           the dApp-connect relay reconnect (reconnectAll) during re-auth on
@@ -532,7 +532,7 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#09090c',
   },
   webViewVisible: {
     flex: 1,
@@ -546,6 +546,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#09090c',
   },
 });

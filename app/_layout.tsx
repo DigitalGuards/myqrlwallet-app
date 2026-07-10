@@ -14,8 +14,8 @@ import SeedStorageService from '../services/SeedStorageService';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 
-const APP_BACKGROUND = '#0f172a';
-const APP_TEXT = '#f8fafc';
+const APP_BACKGROUND = '#09090c';
+const APP_TEXT = '#f5f3f0';
 const APP_ACCENT = '#f5a623';
 const HEADER_TITLE_STYLE = {
   fontWeight: 'bold' as const,

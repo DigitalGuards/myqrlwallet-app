@@ -343,7 +343,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 8,
     marginTop: 10,
-    backgroundColor: '#ff8700',
+    backgroundColor: '#fa761e',
   },
   retryButtonText: {
     fontSize: 16,
