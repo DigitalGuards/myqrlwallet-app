@@ -3,7 +3,7 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 import { View, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
@@ -25,17 +25,46 @@ const HEADER_TITLE_STYLE = {
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
+// Boot resilience: the iOS 26 cold-start NSException is suppressed instead of
+// crashing (see patches/react-native), but the native module that threw can
+// leave its in-flight promise unsettled forever. Every awaited boot step is
+// therefore raced against a timeout, and splash-hide has an independent
+// failsafe, so a single wedged native call degrades boot instead of freezing
+// the app on the splash screen (TestFlight feedback 2026-07-10, build 22).
+const BOOT_STEP_TIMEOUT_MS = 4000;
+const SPLASH_FAILSAFE_MS = 8000;
+
+function withBootTimeout(promise: Promise<unknown>, label: string): Promise<unknown> {
+  return Promise.race([
+    promise,
+    new Promise<void>((resolve) => {
+      setTimeout(() => {
+        Logger.error('RootLayout', `Boot step timed out after ${BOOT_STEP_TIMEOUT_MS}ms: ${label}`);
+        resolve();
+      }, BOOT_STEP_TIMEOUT_MS);
+    }),
+  ]);
+}
+
 export default function RootLayout() {
-  const [loaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
+  // Font loading is a native round-trip too; if it neither resolves nor
+  // rejects within the timeout, render with system fonts rather than never.
+  const [fontsTimedOut, setFontsTimedOut] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setFontsTimedOut(true), BOOT_STEP_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  const bootReady = fontsLoaded || fontError != null || fontsTimedOut;
 
   useEffect(() => {
-    if (loaded) {
+    if (bootReady) {
       (async () => {
         // Initialize screen security (screenshot prevention)
         try {
-          await ScreenSecurityService.initialize();
+          await withBootTimeout(ScreenSecurityService.initialize(), 'screen security');
         } catch (error) {
           Logger.error('RootLayout', 'Failed to initialize screen security:', error);
         }
@@ -51,17 +80,29 @@ export default function RootLayout() {
         // One-shot: mirror the legacy-install keychain PIN into the
         // AsyncStorage existence marker so hasPinStored() never needs to hit
         // the keychain again. Awaited before splash-hide so the initial
-        // authCheck in WalletScreen sees a consistent marker — otherwise
+        // authCheck in WalletScreen sees a consistent marker; otherwise
         // 1.2.1 upgraders can race into the redundant Device Login setup
         // prompt even though they already have it enabled.
-        await SeedStorageService.repairPinExistsMarker().catch((err) => {
-          Logger.error('RootLayout', 'Failed pin_exists marker repair:', err);
-        });
+        await withBootTimeout(
+          SeedStorageService.repairPinExistsMarker().catch((err) => {
+            Logger.error('RootLayout', 'Failed pin_exists marker repair:', err);
+          }),
+          'pin_exists marker repair',
+        );
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();
       })();
     }
-  }, [loaded]);
+  }, [bootReady]);
+
+  // Last-resort splash release, independent of the boot chain above.
+  // hideAsync is idempotent, so this is a no-op on healthy boots.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, SPLASH_FAILSAFE_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Listen for qrlconnect:// deep links and forward to WebView
   useEffect(() => {
@@ -69,8 +110,10 @@ export default function RootLayout() {
       const { url } = event;
       if (url.startsWith('qrlconnect:')) {
         Logger.debug('RootLayout', 'qrlconnect deep link received:', url);
-        // Wait for WebView to be ready, then forward the URI
-        NativeBridge.waitForWebAppReady(10000)
+        // Wait for WebView to be ready, then forward the URI. Generous
+        // timeout: a degraded boot (timed-out boot steps above) can delay
+        // WebView mount by several seconds.
+        NativeBridge.waitForWebAppReady(20000)
           .then(() => {
             NativeBridge.sendDAppURI(url);
           })
@@ -107,7 +150,7 @@ export default function RootLayout() {
     };
   }, []);
 
-  if (!loaded) {
+  if (!bootReady) {
     return null;
   }
 
