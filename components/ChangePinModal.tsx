@@ -37,9 +37,10 @@ interface PinFieldProps {
   onChangeText: (v: string) => void;
   inputRef: React.RefObject<TextInput | null>;
   onFilled?: () => void;
+  onSubmitEditing?: () => void;
 }
 
-function PinField({ label, value, onChangeText, inputRef, onFilled }: PinFieldProps) {
+function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEditing }: PinFieldProps) {
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.label}>{label}</Text>
@@ -49,6 +50,7 @@ function PinField({ label, value, onChangeText, inputRef, onFilled }: PinFieldPr
         inputRef={inputRef}
         accessibilityLabel={label}
         onFilled={onFilled}
+        onSubmitEditing={onSubmitEditing}
       />
     </View>
   );
@@ -138,6 +140,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
               onChangeText={(t) => handlePinChange(t, setCurrentPin)}
               inputRef={currentPinRef}
               onFilled={() => newPinRef.current?.focus()}
+              onSubmitEditing={() => newPinRef.current?.focus()}
             />
 
             <PinField
@@ -146,6 +149,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
               onChangeText={(t) => handlePinChange(t, setNewPin)}
               inputRef={newPinRef}
               onFilled={() => confirmPinRef.current?.focus()}
+              onSubmitEditing={() => confirmPinRef.current?.focus()}
             />
 
             <PinField
@@ -153,6 +157,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
               value={confirmPin}
               onChangeText={(t) => handlePinChange(t, setConfirmPin)}
               inputRef={confirmPinRef}
+              onSubmitEditing={handleSubmit}
             />
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
