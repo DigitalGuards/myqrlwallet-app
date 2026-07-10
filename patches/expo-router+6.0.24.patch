@@ -1,0 +1,25 @@
+diff --git a/node_modules/expo-router/build/fork/extractPathFromURL.js b/node_modules/expo-router/build/fork/extractPathFromURL.js
+index f0c9b99..544f25b 100644
+--- a/node_modules/expo-router/build/fork/extractPathFromURL.js
++++ b/node_modules/expo-router/build/fork/extractPathFromURL.js
+@@ -96,7 +96,19 @@ function fromDeepLink(url) {
+     const qs = !res.search
+         ? ''
+         : // @ts-ignore: `entries` is not on `URLSearchParams` in some typechecks.
+-            [...res.searchParams.entries()].map(([k, v]) => `${k}=${decodeURIComponent(v)}`).join('&');
++            [...res.searchParams.entries()].map(([k, v]) => {
++                // searchParams.entries() already decoded once; a raw '%' in the
++                // original value (legal in deep links) makes this second decode
++                // throw URIError and fatally break URL-launched cold starts.
++                // Fall back to the once-decoded value (unmerged upstream fix,
++                // expo/expo#42114).
++                try {
++                    return `${k}=${decodeURIComponent(v)}`;
++                }
++                catch {
++                    return `${k}=${v}`;
++                }
++            }).join('&');
+     if (qs) {
+         results += '?' + qs;
+     }
