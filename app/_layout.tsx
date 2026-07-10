@@ -80,25 +80,30 @@ export default function RootLayout() {
       }
     };
 
-    // Deferred past first paint: a URL-launched cold start otherwise piles
-    // Linking traffic onto the boot storage storm inside the fragile
-    // TurboModule-init window (intermittent iOS 26 cold-start SIGABRT; see
-    // patches/react-native for the companion fix). Nothing is lost: the
-    // WebView takes seconds to become ready and waitForWebAppReady already
-    // spans the gap, so the initial URL is still forwarded in time.
-    let subscription: { remove: () => void } | null = null;
+    // Registered synchronously so no 'url' event emitted during the boot
+    // window can be missed; registration itself is a main-queue call and not
+    // part of the fragile background-queue init window.
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+
+    // The initial-URL retrieval IS deferred past first paint: a URL-launched
+    // cold start otherwise piles its forwarding chain onto the boot storage
+    // storm inside the fragile TurboModule-init window (intermittent iOS 26
+    // cold-start SIGABRT; see patches/react-native for the companion fix).
+    // Nothing is lost: the WebView takes seconds to become ready and
+    // waitForWebAppReady already spans the gap.
     const task = InteractionManager.runAfterInteractions(() => {
-      // Handle deep links that opened the app
-      Linking.getInitialURL().then((url) => {
-        if (url) handleDeepLink({ url });
-      });
-      // Handle deep links while app is running
-      subscription = Linking.addEventListener('url', handleDeepLink);
+      Linking.getInitialURL()
+        .then((url) => {
+          if (url) handleDeepLink({ url });
+        })
+        .catch((err) => {
+          Logger.error('RootLayout', 'Failed to get initial URL:', err);
+        });
     });
 
     return () => {
       task.cancel();
-      subscription?.remove();
+      subscription.remove();
     };
   }, []);
 
