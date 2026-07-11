@@ -40,7 +40,9 @@ export interface QRLWebViewRef {
 }
 
 // Minimum time to show loading screen (in ms)
-const MIN_LOADING_TIME = 3000;
+// Long enough for the entrance animation to land, short enough that a
+// warm cache load is not artificially delayed (was 3000ms of forced wait).
+const MIN_LOADING_TIME = 1200;
 
 const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri = __DEV__ ? DEV_URL : 'https://qrlwallet.com',
@@ -52,6 +54,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(true);
   const [showLoadingScreen, setShowLoadingScreen] = useState(!skipLoadingScreen);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
 
@@ -288,6 +291,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               mixedContentMode="compatibility"
               onLoadStart={handleLoadStart}
               onLoadEnd={handleLoadEnd}
+              onLoadProgress={({ nativeEvent }) =>
+                setLoadProgress(nativeEvent.progress)
+              }
               onNavigationStateChange={handleNavigationStateChange}
               onMessage={handleMessage}
               onError={handleError}
@@ -303,7 +309,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               accessibilityLabel="QRL Wallet web content"
               nestedScrollEnabled={true}
             />
-            <QuantumLoadingScreen visible={showLoadingScreen} />
+            <QuantumLoadingScreen visible={showLoadingScreen} progress={loadProgress} />
           </>
         )}
       </View>
