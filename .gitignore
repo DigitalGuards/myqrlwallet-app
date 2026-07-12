@@ -47,3 +47,6 @@ ios/*
 .claude/*
 ralph.sh
 .env
+
+# Local operating notes; never tracked (private infrastructure detail)
+CLAUDE.md
