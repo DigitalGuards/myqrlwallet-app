@@ -26,7 +26,7 @@ import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
 
-// Visual tokens — kept local to this screen per user scope.
+// Visual tokens are kept local to this screen per user scope.
 const C = {
   bg: '#09090c',
   card: '#0f1014',
@@ -278,41 +278,20 @@ export default function SettingsScreen() {
                   text: 'Yes, Delete All',
                   style: 'destructive',
                   onPress: async () => {
+                    BiometricService.clearPendingSecurityOperations();
                     try {
-                      await SeedStorageService.clearWallet();
-                      // Full wipe includes the contacts backup; contacts
-                      // otherwise persist across sessions by design.
-                      await WebViewService.clearContactsBackup();
-
-                      const clearConfirmed = await new Promise<boolean>((resolve) => {
-                        const timeout = setTimeout(() => {
-                          NativeBridge.offWalletCleared();
-                          resolve(false);
-                        }, 3000);
-
-                        NativeBridge.onWalletCleared(() => {
-                          clearTimeout(timeout);
-                          NativeBridge.offWalletCleared();
-                          resolve(true);
-                        });
-
-                        NativeBridge.sendClearWallet();
-                      });
+                      await NativeBridge.clearWalletDurably(20000);
 
                       setHasWallet(false);
                       setDeviceLoginEnabled(false);
-
-                      if (clearConfirmed) {
-                        Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
-                      } else {
-                        Alert.alert(
-                          'Wallet Removed',
-                          'Your wallet has been removed. Web data may need manual clearing.'
-                        );
-                      }
+                      Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
                     } catch (error) {
                       Logger.error('Settings', 'Failed to remove wallet:', error);
-                      Alert.alert('Error', 'Failed to remove wallet. Please try again.', [{ text: 'OK' }]);
+                      Alert.alert(
+                        'Removal Incomplete',
+                        'Wallet removal has not reached all storage layers yet. Keep the app open and try again. The app will resume the wipe after restart.',
+                        [{ text: 'OK' }],
+                      );
                     }
                   },
                 },

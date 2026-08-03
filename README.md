@@ -12,7 +12,7 @@ A React Native/Expo mobile application that wraps [MyQRLWallet](https://qrlwalle
 - **Screenshot Prevention** - Block screenshots and screen recording (FLAG_SECURE on Android, secure text field on iOS)
 - **QR Code Scanner** - Native camera for scanning wallet addresses
 - **Haptic Feedback** - Native device vibration for UI feedback
-- **Secure Seed Storage** - Encrypted seeds backed up to device SecureStore
+- **Secure Seed Storage** - PIN-encrypted backups plus a device-only Keychain/Keystore factor
 - **Native Bridge** - Two-way communication between web app and native features
 - **Clipboard & Share** - Native clipboard and share sheet integration
 - **Dark Theme** - QRL-branded dark theme with quantum loading screen
@@ -139,7 +139,8 @@ myqrlwallet-app/
 | `COPY_TO_CLIPBOARD` | `{ text }` | Copy text to clipboard |
 | `SHARE` | `{ title?, text?, url? }` | Open native share sheet |
 | `TX_CONFIRMED` | `{ txHash, type }` | Notify of confirmed transaction |
-| `SEED_STORED` | `{ address, encryptedSeed, blockchain }` | Backup encrypted seed to native |
+| `SEED_STORED` | `{ requestId, address, encryptedSeed, blockchain, revision, ciphertextHash }` | Backup one exact encrypted-seed revision to native |
+| `DEVICE_CREDENTIAL_REQUEST` | `{ requestId, createIfMissing, candidate? }` | Get or durably escrow the v5 device factor |
 | `REQUEST_BIOMETRIC_UNLOCK` | - | Request Device Login unlock |
 | `WALLET_CLEARED` | - | Confirm wallet data cleared |
 | `PIN_VERIFIED` | `{ success, error? }` | PIN verification result |
@@ -152,9 +153,11 @@ myqrlwallet-app/
 |---------|---------|-------------|
 | `QR_RESULT` | `{ address }` | Scanned QR code data |
 | `UNLOCK_WITH_PIN` | `{ pin }` | PIN after Device Login success |
-| `RESTORE_SEED` | `{ address, encryptedSeed, blockchain }` | Restore seed from backup |
+| `RESTORE_SEED` | `{ address, encryptedSeed, blockchain, revision, ciphertextHash? }` | Merge a missing or newer seed backup into web storage |
+| `SEED_STORED_RESPONSE` | `{ requestId, success, revision?, ciphertextHash?, error? }` | Acknowledge native hash verification and storage read-back |
 | `CLEAR_WALLET` | - | Request web to clear wallet data |
 | `VERIFY_PIN` | `{ pin }` | Verify PIN can decrypt seed |
+| `DEVICE_CREDENTIAL_RESPONSE` | `{ requestId, credential?, error? }` | Return confirmed Keychain/Keystore factor state |
 | `BIOMETRIC_SUCCESS` | `{ authenticated }` | Auth result |
 | `APP_STATE` | `{ state }` | App foregrounded/backgrounded |
 | `CLIPBOARD_SUCCESS` | - | Clipboard operation succeeded |
@@ -267,12 +270,20 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 
 ## Security
 
-- **Domain Restriction**: WebView only loads qrlwallet.com
-- **HTTPS Only**: All connections are encrypted
-- **Secure Seed Storage**: Encrypted seeds stored in native SecureStore (iOS Keychain / Android Keystore)
+- **Domain Restriction**: Production WebView navigation and bridge messages accept only the exact `https://qrlwallet.com` and `https://www.qrlwallet.com` origins on the default port
+- **HTTPS Only**: Production mixed-content loading is disabled
+- **Two-Factor Seed Storage**: PIN-encrypted seed backups live in AsyncStorage; their independent random v5 factor is device-only in Keychain/Keystore
 - **Device Login**: Optional Face ID / Touch ID / PIN / pattern protection
 - **Auto-Lock**: App locks when backgrounded, requires re-auth on return
 - **PIN Verification**: PIN verified with web app before storing (ensures correct PIN)
+
+### Residual WebView Trust Boundary
+
+The hosted wallet document still receives raw PIN, device-factor, and decrypted-seed material while it performs signing. Exact-origin bridge checks prevent another origin from directly exercising that bridge, but they do not contain same-origin XSS, a compromised production bundle, or a compromised dependency served as part of `qrlwallet.com`. Such code can access wallet material in the JavaScript runtime and use the trusted bridge.
+
+The long-term mitigation is to move key custody, decryption, and signing into an isolated native signer and expose only narrowly typed signing requests to the hosted document. That architectural redesign is intentionally outside this hardening pass.
+
+PIN rotation uses revision checks, storage read-back acknowledgements, and compensating rollback. It still spans WebView localStorage, native AsyncStorage, and SecureStore without a shared atomic transaction. An abrupt process or device loss in the narrow interval between those commits can require recovery with the old or new PIN. A durable native two-phase rotation journal would close that remaining crash-consistency gap.
 - **Screenshot Prevention**: Optional blocking of screenshots and screen recording (disabled by default)
 - **Wallet Removal Protection**: Device authentication required to remove wallet when Device Login is enabled
 - **Secure Bridge**: Messages validated before processing

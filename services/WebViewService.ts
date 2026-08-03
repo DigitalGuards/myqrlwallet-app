@@ -8,6 +8,8 @@ const STORAGE_KEYS = {
   CONTACTS_BACKUP: '@MyQRLWallet:contactsBackup',
 };
 
+const MAX_CONTACTS_BACKUP_CHARS = 256 * 1024;
+
 export interface UserPreferences {
   notificationsEnabled?: boolean;
   // Home screen card visibility (mirrors the web wallet's Show Tokens/NFTs
@@ -20,6 +22,17 @@ export interface UserPreferences {
  * Service class for managing WebView session data
  */
 class WebViewService {
+  private contactsMutationQueue: Promise<void> = Promise.resolve();
+
+  private enqueueContactsMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.contactsMutationQueue.catch(() => undefined).then(operation);
+    this.contactsMutationQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   /**
    * Save cookies from WebView for session persistence
    * @param cookies - Cookies string to store
@@ -93,7 +106,7 @@ class WebViewService {
   async getUserPreferences(): Promise<UserPreferences> {
     try {
       const storedPreferences = await AsyncStorage.getItem(STORAGE_KEYS.USER_PREFERENCES);
-      
+
       if (storedPreferences) {
         return JSON.parse(storedPreferences);
       }
@@ -136,11 +149,24 @@ class WebViewService {
    */
   async saveContactsBackup(contactsJson: string): Promise<void> {
     try {
-      await AsyncStorage.setItem(STORAGE_KEYS.CONTACTS_BACKUP, contactsJson);
+      await this.saveContactsBackupStrict(contactsJson);
       Logger.debug('WebViewService', 'Contacts backup saved');
     } catch (error) {
       Logger.error('WebViewService', 'Failed to save contacts backup:', error);
     }
+  }
+
+  async saveContactsBackupStrict(contactsJson: string): Promise<void> {
+    if (contactsJson.length > MAX_CONTACTS_BACKUP_CHARS) {
+      throw new Error('Contacts backup exceeds storage budget');
+    }
+    return this.enqueueContactsMutation(async () => {
+      await AsyncStorage.setItem(STORAGE_KEYS.CONTACTS_BACKUP, contactsJson);
+      const confirmed = await AsyncStorage.getItem(STORAGE_KEYS.CONTACTS_BACKUP);
+      if (confirmed !== contactsJson) {
+        throw new Error('Contacts backup persistence could not be confirmed');
+      }
+    });
   }
 
   async getContactsBackup(): Promise<string | null> {
@@ -154,12 +180,21 @@ class WebViewService {
 
   async clearContactsBackup(): Promise<void> {
     try {
-      await AsyncStorage.removeItem(STORAGE_KEYS.CONTACTS_BACKUP);
+      await this.clearContactsBackupStrict();
       Logger.debug('WebViewService', 'Contacts backup cleared');
     } catch (error) {
       Logger.error('WebViewService', 'Failed to clear contacts backup:', error);
     }
   }
+
+  async clearContactsBackupStrict(): Promise<void> {
+    return this.enqueueContactsMutation(async () => {
+      await AsyncStorage.removeItem(STORAGE_KEYS.CONTACTS_BACKUP);
+      if ((await AsyncStorage.getItem(STORAGE_KEYS.CONTACTS_BACKUP)) !== null) {
+        throw new Error('Contacts backup removal could not be confirmed');
+      }
+    });
+  }
 }
 
-export default new WebViewService(); 
+export default new WebViewService();

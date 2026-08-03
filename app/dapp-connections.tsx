@@ -218,8 +218,10 @@ export default function DAppConnectionsScreen() {
             style: 'destructive',
             onPress: async () => {
               try {
-                NativeBridge.sendDAppDisconnect(channelId);
-                await DAppConnectionStore.onDisconnected(channelId, true);
+                const result = await NativeBridge.requestDAppDisconnect(channelId);
+                if (!result.success) {
+                  throw new Error(result.error || 'Disconnect was not confirmed');
+                }
                 await loadConnections();
               } catch (err) {
                 Logger.error('DAppConnections', 'Failed to disconnect:', err);
