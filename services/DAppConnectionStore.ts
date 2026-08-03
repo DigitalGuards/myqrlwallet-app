@@ -5,7 +5,10 @@ const STORAGE_KEY = '@dapp_connection_history';
 const TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_RECORDS = 300;
 const MAX_STORAGE_CHARS = 500_000;
-const MAX_FIELD_LENGTH = 256;
+const MAX_NAME_LENGTH = 128;
+const MAX_URL_LENGTH = 2048;
+const Q40_ADDRESS = /^Q[0-9a-fA-F]{40}$/;
+const CHANNEL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface DAppConnectionRecord {
   channelId: string;
@@ -20,20 +23,41 @@ export interface DAppConnectionRecord {
 class DAppConnectionStore {
   private records: DAppConnectionRecord[] = [];
   private loaded = false;
+  private loadPromise: Promise<void> | null = null;
   private writeChain: Promise<void> = Promise.resolve();
-
-  private clampText(value: string): string {
-    return value.slice(0, MAX_FIELD_LENGTH);
-  }
 
   private sanitizeRecord(record: DAppConnectionRecord): DAppConnectionRecord {
     return {
       ...record,
-      channelId: this.clampText(record.channelId),
-      name: this.clampText(record.name),
-      url: this.clampText(record.url),
-      connectedAccount: this.clampText(record.connectedAccount),
+      channelId: record.channelId.slice(0, 36),
+      name: record.name.slice(0, MAX_NAME_LENGTH),
+      url: record.url.slice(0, MAX_URL_LENGTH),
+      connectedAccount: record.connectedAccount.slice(0, 41),
     };
+  }
+
+  private isStoredRecord(value: unknown): value is DAppConnectionRecord {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as Partial<DAppConnectionRecord>;
+    return (
+      typeof record.channelId === 'string' &&
+      CHANNEL_ID_PATTERN.test(record.channelId) &&
+      typeof record.name === 'string' &&
+      record.name.length > 0 &&
+      record.name.length <= MAX_NAME_LENGTH &&
+      typeof record.url === 'string' &&
+      record.url.length <= MAX_URL_LENGTH &&
+      typeof record.connectedAccount === 'string' &&
+      Q40_ADDRESS.test(record.connectedAccount) &&
+      typeof record.connectedAt === 'number' &&
+      Number.isSafeInteger(record.connectedAt) &&
+      record.connectedAt >= 0 &&
+      (record.disconnectedAt === null ||
+        (typeof record.disconnectedAt === 'number' &&
+          Number.isSafeInteger(record.disconnectedAt) &&
+          record.disconnectedAt >= 0)) &&
+      typeof record.explicitlyDisconnected === 'boolean'
+    );
   }
 
   private trimRecords(): void {
@@ -57,7 +81,9 @@ class DAppConnectionStore {
   /** Load records from AsyncStorage */
   async load(): Promise<void> {
     if (this.loaded) return;
-    try {
+    if (this.loadPromise) return this.loadPromise;
+
+    const load = (async () => {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (raw) {
         if (raw.length > MAX_STORAGE_CHARS) {
@@ -65,12 +91,19 @@ class DAppConnectionStore {
           this.records = [];
           await AsyncStorage.removeItem(STORAGE_KEY);
         } else {
-          const parsed = JSON.parse(raw);
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            Logger.warn('DAppConnectionStore', 'Stored history is malformed, resetting');
+            this.records = [];
+            await AsyncStorage.removeItem(STORAGE_KEY);
+          }
           if (Array.isArray(parsed)) {
             this.records = parsed
-              .filter((r) => r && typeof r === 'object' && typeof r.channelId === 'string')
-              .map((r) => this.sanitizeRecord(r as DAppConnectionRecord));
-          } else {
+              .filter((r) => this.isStoredRecord(r))
+              .map((r) => this.sanitizeRecord(r));
+          } else if (parsed !== undefined) {
             this.records = [];
           }
         }
@@ -79,17 +112,32 @@ class DAppConnectionStore {
       this.loaded = true;
       // Clean up expired on load
       await this.cleanExpired();
-    } catch (err) {
+    })();
+    const inFlight = load.catch((err) => {
       Logger.error('DAppConnectionStore', 'Failed to load:', err);
       this.records = [];
-      this.loaded = true;
+      this.loaded = false;
+      throw err;
+    });
+    this.loadPromise = inFlight;
+    try {
+      await inFlight;
+    } finally {
+      if (this.loadPromise === inFlight) this.loadPromise = null;
     }
   }
 
   /** Persist records to AsyncStorage */
   private async save(): Promise<void> {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(this.records));
+      const serialized = JSON.stringify(this.records);
+      if (serialized.length > MAX_STORAGE_CHARS) {
+        throw new Error('dApp connection history exceeds its storage budget');
+      }
+      await AsyncStorage.setItem(STORAGE_KEY, serialized);
+      if ((await AsyncStorage.getItem(STORAGE_KEY)) !== serialized) {
+        throw new Error('dApp connection history persistence could not be confirmed');
+      }
     } catch (err) {
       Logger.error('DAppConnectionStore', 'Failed to save:', err);
       throw err;
@@ -105,13 +153,33 @@ class DAppConnectionStore {
       return now - r.disconnectedAt < TTL_MS;
     });
     if (this.records.length !== before) {
-      Logger.debug('DAppConnectionStore', `Cleaned ${before - this.records.length} expired records`);
+      Logger.debug(
+        'DAppConnectionStore',
+        `Cleaned ${before - this.records.length} expired records`
+      );
       await this.save();
     }
   }
 
   /** Add or update a connection when a dApp connects */
-  async onConnected(record: Omit<DAppConnectionRecord, 'disconnectedAt' | 'explicitlyDisconnected'>): Promise<void> {
+  async onConnected(
+    record: Omit<DAppConnectionRecord, 'disconnectedAt' | 'explicitlyDisconnected'>
+  ): Promise<void> {
+    if (!Q40_ADDRESS.test(record.connectedAccount)) {
+      throw new Error('Invalid dApp connected account');
+    }
+    if (
+      !CHANNEL_ID_PATTERN.test(record.channelId) ||
+      typeof record.name !== 'string' ||
+      record.name.length === 0 ||
+      record.name.length > MAX_NAME_LENGTH ||
+      typeof record.url !== 'string' ||
+      record.url.length > MAX_URL_LENGTH ||
+      !Number.isSafeInteger(record.connectedAt) ||
+      record.connectedAt < 0
+    ) {
+      throw new Error('Invalid dApp connection record');
+    }
     await this.queueWrite(async () => {
       await this.load();
 
@@ -134,13 +202,14 @@ class DAppConnectionStore {
 
   /** Mark a connection as disconnected */
   async onDisconnected(channelId: string, explicit: boolean): Promise<void> {
+    if (!CHANNEL_ID_PATTERN.test(channelId)) throw new Error('Invalid dApp channel ID');
     await this.queueWrite(async () => {
       await this.load();
 
       const record = this.records.find((r) => r.channelId === channelId);
       if (record) {
         record.disconnectedAt = Date.now();
-        record.explicitlyDisconnected = explicit;
+        record.explicitlyDisconnected = record.explicitlyDisconnected || explicit;
         await this.save();
       }
     });
@@ -148,6 +217,7 @@ class DAppConnectionStore {
 
   /** Remove a specific connection record */
   async remove(channelId: string): Promise<void> {
+    if (!CHANNEL_ID_PATTERN.test(channelId)) throw new Error('Invalid dApp channel ID');
     await this.queueWrite(async () => {
       await this.load();
       this.records = this.records.filter((r) => r.channelId !== channelId);
@@ -182,6 +252,12 @@ class DAppConnectionStore {
   /** Clear all records */
   async clear(): Promise<void> {
     await this.queueWrite(async () => {
+      try {
+        await this.load();
+      } catch {
+        this.records = [];
+        this.loaded = true;
+      }
       this.records = [];
       await this.save();
     });

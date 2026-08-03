@@ -13,6 +13,7 @@ import DAppConnectionStore from '../services/DAppConnectionStore';
 import SeedStorageService from '../services/SeedStorageService';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
+import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
 
 const APP_BACKGROUND = '#09090c';
 const APP_TEXT = '#f5f3f0';
@@ -143,14 +144,14 @@ export default function RootLayout() {
   useEffect(() => {
     const handleDeepLink = (event: { url: string }) => {
       const { url } = event;
-      if (url.startsWith('qrlconnect:')) {
-        Logger.debug('RootLayout', 'qrlconnect deep link received:', url);
+      const normalizedUrl = normalizeQrlConnectDeepLink(url);
+      if (normalizedUrl) {
         // Wait for WebView to be ready, then forward the URI. Generous
         // timeout: a degraded boot (timed-out boot steps above) can delay
         // WebView mount by several seconds.
         NativeBridge.waitForWebAppReady(20000)
           .then(() => {
-            NativeBridge.sendDAppURI(url);
+            NativeBridge.sendDAppURI(normalizedUrl);
           })
           .catch((err) => {
             Logger.error('RootLayout', 'Failed to forward dApp URI:', err);
