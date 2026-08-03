@@ -10,20 +10,17 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-const PIN_MIN_LENGTH = 4;
-const PIN_MAX_LENGTH = 6;
+import { PinBoxInput, PIN_MIN_LENGTH, PIN_MAX_LENGTH } from './PinBoxInput';
 
 const C = {
   overlay: 'rgba(0, 0, 0, 0.7)',
-  card: '#1e293b',
-  input: '#273548',
-  inputFocus: '#334155',
-  divider: '#334155',
-  textPrimary: '#f8fafc',
-  textSecondary: '#94a3b8',
-  textTertiary: '#64748b',
-  brandOrange: '#ff8700',
+  card: '#0f1014',
+  input: '#16171d',
+  divider: '#22232a',
+  textPrimary: '#f5f3f0',
+  textSecondary: '#9c9dab',
+  textTertiary: '#6a6b7c',
+  brandOrange: '#fa761e',
   red: '#ef4444',
 };
 
@@ -37,7 +34,7 @@ interface PinEntryModalProps {
 
 /**
  * Secure PIN entry modal - replaces Alert.prompt for sensitive input.
- * secureTextEntry masks PIN digits.
+ * Uses the segmented PIN boxes shared with the web wallet's PIN setup UX.
  */
 export const PinEntryModal: React.FC<PinEntryModalProps> = ({
   visible,
@@ -64,14 +61,6 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
       setError(`PIN must be at least ${PIN_MIN_LENGTH} digits`);
       return;
     }
-    if (pin.length > PIN_MAX_LENGTH) {
-      setError(`PIN must be at most ${PIN_MAX_LENGTH} digits`);
-      return;
-    }
-    if (!/^\d+$/.test(pin)) {
-      setError('PIN must contain only numbers');
-      return;
-    }
     onSubmit(pin);
   };
 
@@ -96,23 +85,15 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
           <Text style={styles.title}>{title}</Text>
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
-          <TextInput
-            ref={inputRef}
-            style={styles.input}
+          <PinBoxInput
             value={pin}
-            onChangeText={(text) => {
-              setPin(text.replace(/[^0-9]/g, '').slice(0, PIN_MAX_LENGTH));
+            onChangeText={(v) => {
+              setPin(v);
               setError(null);
             }}
-            placeholder={`${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`}
-            placeholderTextColor={C.textTertiary}
-            keyboardType="number-pad"
-            secureTextEntry
-            maxLength={PIN_MAX_LENGTH}
-            autoComplete="off"
-            autoCorrect={false}
-            textContentType="none"
-            returnKeyType="done"
+            helper={`Enter your ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digit PIN`}
+            inputRef={inputRef}
+            accessibilityLabel="Wallet PIN"
             onSubmitEditing={handleSubmit}
           />
 
@@ -127,11 +108,23 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.button, styles.submitButton]}
+              style={[
+                styles.button,
+                styles.submitButton,
+                pin.length < PIN_MIN_LENGTH && styles.submitButtonDisabled,
+              ]}
               onPress={handleSubmit}
               activeOpacity={0.8}
+              disabled={pin.length < PIN_MIN_LENGTH}
             >
-              <Text style={styles.submitButtonText}>Submit</Text>
+              <Text
+                style={[
+                  styles.submitButtonText,
+                  pin.length < PIN_MIN_LENGTH && styles.submitButtonTextDisabled,
+                ]}
+              >
+                Confirm
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -181,18 +174,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 18,
   },
-  input: {
-    backgroundColor: C.input,
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    fontSize: 18,
-    fontWeight: '600',
-    color: C.textPrimary,
-    textAlign: 'center',
-    letterSpacing: 6,
-    marginBottom: 4,
-  },
   error: {
     color: C.red,
     fontSize: 12,
@@ -217,6 +198,10 @@ const styles = StyleSheet.create({
   submitButton: {
     backgroundColor: C.brandOrange,
   },
+  submitButtonDisabled: {
+    backgroundColor: '#4a3a20',
+    opacity: 0.6,
+  },
   cancelButtonText: {
     color: C.textPrimary,
     fontSize: 16,
@@ -226,6 +211,9 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  submitButtonTextDisabled: {
+    color: C.textTertiary,
   },
 });
 

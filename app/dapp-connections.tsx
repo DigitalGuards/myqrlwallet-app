@@ -18,17 +18,17 @@ import Logger from '../services/Logger';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const C = {
-  bg: '#0f172a',
-  card: '#1e293b',
-  divider: '#334155',
-  textPrimary: '#f8fafc',
-  textSecondary: '#94a3b8',
-  textTertiary: '#64748b',
-  chevron: '#64748b',
-  brandOrange: '#ff8700',
+  bg: '#09090c',
+  card: '#0f1014',
+  divider: '#22232a',
+  textPrimary: '#f5f3f0',
+  textSecondary: '#9c9dab',
+  textTertiary: '#6a6b7c',
+  chevron: '#6a6b7c',
+  brandOrange: '#fa761e',
   green: '#22c55e',
   red: '#ef4444',
-  gray: '#64748b',
+  gray: '#6a6b7c',
   blue: '#3b82f6',
 };
 
@@ -218,8 +218,10 @@ export default function DAppConnectionsScreen() {
             style: 'destructive',
             onPress: async () => {
               try {
-                NativeBridge.sendDAppDisconnect(channelId);
-                await DAppConnectionStore.onDisconnected(channelId, true);
+                const result = await NativeBridge.requestDAppDisconnect(channelId);
+                if (!result.success) {
+                  throw new Error(result.error || 'Disconnect was not confirmed');
+                }
                 await loadConnections();
               } catch (err) {
                 Logger.error('DAppConnections', 'Failed to disconnect:', err);

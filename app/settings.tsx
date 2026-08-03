@@ -26,24 +26,24 @@ import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
 
-// Visual tokens — kept local to this screen per user scope.
+// Visual tokens are kept local to this screen per user scope.
 const C = {
-  bg: '#0f172a',
-  card: '#1e293b',
-  cardPressed: '#273548',
-  divider: '#334155',
-  textPrimary: '#f8fafc',
-  textSecondary: '#94a3b8',
-  textTertiary: '#64748b',
-  chevron: '#64748b',
-  brandOrange: '#ff8700',
-  pinOrange: '#ff9500',
+  bg: '#09090c',
+  card: '#0f1014',
+  cardPressed: '#16171d',
+  divider: '#22232a',
+  textPrimary: '#f5f3f0',
+  textSecondary: '#9c9dab',
+  textTertiary: '#6a6b7c',
+  chevron: '#6a6b7c',
+  brandOrange: '#fa761e',
+  pinOrange: '#fb8b41',
   blue: '#3b82f6',
   purple: '#a855f7',
   teal: '#06b6d4',
   green: '#22c55e',
   red: '#ef4444',
-  gray: '#64748b',
+  gray: '#6a6b7c',
   github: '#6e7681',
 };
 
@@ -278,38 +278,20 @@ export default function SettingsScreen() {
                   text: 'Yes, Delete All',
                   style: 'destructive',
                   onPress: async () => {
+                    BiometricService.clearPendingSecurityOperations();
                     try {
-                      await SeedStorageService.clearWallet();
-
-                      const clearConfirmed = await new Promise<boolean>((resolve) => {
-                        const timeout = setTimeout(() => {
-                          NativeBridge.offWalletCleared();
-                          resolve(false);
-                        }, 3000);
-
-                        NativeBridge.onWalletCleared(() => {
-                          clearTimeout(timeout);
-                          NativeBridge.offWalletCleared();
-                          resolve(true);
-                        });
-
-                        NativeBridge.sendClearWallet();
-                      });
+                      await NativeBridge.clearWalletDurably(20000);
 
                       setHasWallet(false);
                       setDeviceLoginEnabled(false);
-
-                      if (clearConfirmed) {
-                        Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
-                      } else {
-                        Alert.alert(
-                          'Wallet Removed',
-                          'Your wallet has been removed. Web data may need manual clearing.'
-                        );
-                      }
+                      Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
                     } catch (error) {
                       Logger.error('Settings', 'Failed to remove wallet:', error);
-                      Alert.alert('Error', 'Failed to remove wallet. Please try again.', [{ text: 'OK' }]);
+                      Alert.alert(
+                        'Removal Incomplete',
+                        'Wallet removal has not reached all storage layers yet. Keep the app open and try again. The app will resume the wipe after restart.',
+                        [{ text: 'OK' }],
+                      );
                     }
                   },
                 },
@@ -323,16 +305,15 @@ export default function SettingsScreen() {
 
   const clearCache = async () => {
     Alert.alert(
-      'Clear Session',
-      'This will clear your current session and log you out. You will need to log in again. Continue?',
+      'Clear Web Cache',
+      'This clears the saved web session data (cookies and cached state). Your wallet, seed, and PIN are not affected. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear',
-          style: 'destructive',
           onPress: async () => {
             await WebViewService.clearSessionData();
-            Alert.alert('Session Cleared', 'Your session has been cleared.');
+            Alert.alert('Web Cache Cleared', 'Saved web session data has been cleared.');
           },
         },
       ]
@@ -344,7 +325,7 @@ export default function SettingsScreen() {
   };
 
   const switchTrack = { false: C.divider, true: `${C.brandOrange}66` };
-  const switchThumb = (on: boolean) => (on ? C.brandOrange : '#94a3b8');
+  const switchThumb = (on: boolean) => (on ? C.brandOrange : '#9c9dab');
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
@@ -476,6 +457,19 @@ export default function SettingsScreen() {
         {/* Connections */}
         <Section title="Connections">
           <Row
+            icon="book"
+            tint={C.brandOrange}
+            title="Address Book"
+            subtitle="Saved recipients for quick transfers"
+            onPress={() => {
+              // The address book lives in the web wallet; queue the
+              // navigation and return to the WebView tab (the queued
+              // message processes once the WebView is foregrounded).
+              NativeBridge.sendNavigate('/address-book');
+              router.back();
+            }}
+          />
+          <Row
             icon="apps"
             tint={C.teal}
             title="Connected dApps"
@@ -499,8 +493,8 @@ export default function SettingsScreen() {
           <Row
             icon="refresh"
             tint={C.gray}
-            title="Clear Session"
-            subtitle="Log out and refresh app state"
+            title="Clear Web Cache"
+            subtitle="Clears saved web session data. Your wallet is not affected."
             onPress={clearCache}
           />
         </Section>

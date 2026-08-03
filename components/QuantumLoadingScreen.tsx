@@ -4,146 +4,164 @@ import {
   Text,
   StyleSheet,
   Animated,
+  Easing,
   Dimensions,
   Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
-// Matrix characters - mix of symbols and numbers
-const MATRIX_CHARS = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
-
-// Security-themed loading messages
+// Boot messages, cycled while no customMessage is set.
 const LOADING_MESSAGES = [
-  'Initializing quantum-secure protocols...',
+  'Waking your wallet...',
   'Establishing post-quantum encryption...',
-  'Securing your digital assets...',
-  'Loading QRL v2 network...',
-  'Preparing your quantum-safe wallet...',
+  'Connecting to the QRL network...',
+  'Loading your accounts...',
 ];
 
-interface MatrixColumnProps {
-  delay: number;
-  speed: number;
-  x: number;
-}
+// Obsidian & Ember palette (mirrors the web wallet tokens).
+const INK = '#09090c';
+const EMBER = '#fa761e';
+const EMBER_SOFT = '#fb8b41';
+const BLUE = '#4aafff';
+const MUTED = '#9c9dab';
+const TRACK = 'rgba(245, 243, 240, 0.08)';
 
-const MatrixColumn: React.FC<MatrixColumnProps> = ({ delay, speed, x }) => {
-  const translateY = useRef(new Animated.Value(-height * 0.5)).current;
-  const [chars] = useState(() => {
-    const length = Math.floor(Math.random() * 15) + 10;
-    return Array.from({ length }, () =>
-      MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)]
-    );
-  });
+const PROGRESS_TRACK_WIDTH = 220;
+
+type EmberSpec = {
+  x: number;
+  size: number;
+  duration: number;
+  delay: number;
+  color: string;
+  drift: number;
+};
+
+/**
+ * A single ember: rises from the lower third to above the logo while
+ * fading, then loops. Transform + opacity only, so the whole field runs
+ * on the native driver.
+ */
+const Ember: React.FC<{ spec: EmberSpec }> = ({ spec }) => {
+  const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    let loopAnimation: Animated.CompositeAnimation | null = null;
-    let delayTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    // Create the looping animation
-    const createLoop = () => {
-      loopAnimation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(translateY, {
-            toValue: height,
-            duration: speed,
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateY, {
-            toValue: -height * 0.5,
-            duration: 0,
-            useNativeDriver: true,
-          }),
-        ])
+    let loop: Animated.CompositeAnimation | null = null;
+    const timeout = setTimeout(() => {
+      loop = Animated.loop(
+        Animated.timing(progress, {
+          toValue: 1,
+          duration: spec.duration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
       );
-      loopAnimation.start();
-    };
-
-    // Apply initial delay, then start looping
-    delayTimeout = setTimeout(() => {
-      createLoop();
-    }, delay);
-
+      loop.start();
+    }, spec.delay);
     return () => {
-      if (delayTimeout) {
-        clearTimeout(delayTimeout);
-      }
-      if (loopAnimation) {
-        loopAnimation.stop();
-      }
+      clearTimeout(timeout);
+      loop?.stop();
     };
-  }, [translateY, delay, speed]);
+  }, [progress, spec.delay, spec.duration]);
+
+  const translateY = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [height * 0.82, height * 0.12],
+  });
+  const translateX = progress.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, spec.drift, 0],
+  });
+  const opacity = progress.interpolate({
+    inputRange: [0, 0.12, 0.75, 1],
+    outputRange: [0, 0.85, 0.35, 0],
+  });
 
   return (
     <Animated.View
-      style={[
-        styles.matrixColumn,
-        {
-          left: x,
-          transform: [{ translateY }],
-        },
-      ]}
-    >
-      {chars.map((char, index) => (
-        <Text
-          key={index}
-          style={[
-            styles.matrixChar,
-            {
-              opacity: index === 0 ? 1 : 0.5 + (index / chars.length) * 0.4,
-              color: index === 0 ? '#ff8700' : '#ff8700aa',
-            },
-          ]}
-        >
-          {char}
-        </Text>
-      ))}
-    </Animated.View>
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: spec.x,
+        top: 0,
+        width: spec.size,
+        height: spec.size,
+        borderRadius: spec.size / 2,
+        backgroundColor: spec.color,
+        opacity,
+        transform: [{ translateY }, { translateX }],
+      }}
+    />
   );
 };
 
 interface QuantumLoadingScreenProps {
   visible: boolean;
   customMessage?: string; // When set, display this instead of cycling messages
+  /**
+   * Real load fraction (0..1). When provided the bar is determinate;
+   * without it an indeterminate ember beam sweeps the track.
+   */
+  progress?: number;
 }
 
-const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible, customMessage }) => {
+const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
+  visible,
+  customMessage,
+  progress,
+}) => {
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const logoScale = useRef(new Animated.Value(0.8)).current;
+  const logoScale = useRef(new Animated.Value(0.9)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
+  const messageOpacity = useRef(new Animated.Value(1)).current;
+  const beamPosition = useRef(new Animated.Value(0)).current;
+  const fillScale = useRef(new Animated.Value(0)).current;
   const [messageIndex, setMessageIndex] = useState(0);
-  const [columns] = useState(() => {
-    const cols = [];
-    const numColumns = Math.floor(width / 25);
-    for (let i = 0; i < numColumns; i++) {
-      cols.push({
-        x: i * 25,
-        delay: Math.random() * 2000,
-        speed: 3000 + Math.random() * 4000,
-      });
-    }
-    return cols;
-  });
 
-  // Cycle through loading messages (skip if customMessage is provided)
+  const [embers] = useState<EmberSpec[]>(() =>
+    Array.from({ length: 14 }, (_, i) => ({
+      x: Math.random() * width,
+      size: 2 + Math.random() * 3,
+      duration: 6000 + Math.random() * 5000,
+      delay: Math.random() * 4000,
+      // A couple of battery-blue sparks among the embers.
+      color: i % 7 === 3 ? BLUE : i % 2 ? EMBER : EMBER_SOFT,
+      drift: (Math.random() - 0.5) * 60,
+    })),
+  );
+
+  const isDeterminate = typeof progress === 'number';
+
+  // Cycle through loading messages with a crossfade (skip if customMessage).
   useEffect(() => {
     if (!visible || customMessage) return;
     const interval = setInterval(() => {
-      setMessageIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
-    }, 2500);
+      Animated.timing(messageOpacity, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start(() => {
+        setMessageIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
+        Animated.timing(messageOpacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }).start();
+      });
+    }, 2800);
     return () => clearInterval(interval);
-  }, [visible, customMessage]);
+  }, [visible, customMessage, messageOpacity]);
 
-  // Logo animation
+  // Logo entrance + very subtle pulse.
   useEffect(() => {
     if (!visible) return;
 
-    // Fade in and scale up logo
     Animated.parallel([
       Animated.timing(logoOpacity, {
         toValue: 1,
-        duration: 800,
+        duration: 700,
         useNativeDriver: true,
       }),
       Animated.spring(logoScale, {
@@ -154,7 +172,6 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible, cu
       }),
     ]).start();
 
-    // Subtle pulse animation (very subtle - just 2% scale change)
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(logoScale, {
@@ -167,22 +184,47 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible, cu
           duration: 2000,
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
-
-    const timeout = setTimeout(() => pulse.start(), 800);
+    const timeout = setTimeout(() => pulse.start(), 700);
     return () => {
       clearTimeout(timeout);
       pulse.stop();
     };
   }, [visible, logoOpacity, logoScale]);
 
-  // Fade out animation
+  // Indeterminate beam sweep (only mounted when no progress fraction).
+  useEffect(() => {
+    if (!visible || isDeterminate) return;
+    const sweep = Animated.loop(
+      Animated.timing(beamPosition, {
+        toValue: 1,
+        duration: 1150,
+        easing: Easing.inOut(Easing.sin),
+        useNativeDriver: true,
+      }),
+    );
+    sweep.start();
+    return () => sweep.stop();
+  }, [visible, isDeterminate, beamPosition]);
+
+  // Determinate fill: ease toward the latest real fraction.
+  useEffect(() => {
+    if (!isDeterminate) return;
+    Animated.timing(fillScale, {
+      toValue: Math.min(Math.max(progress ?? 0, 0), 1),
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [isDeterminate, progress, fillScale]);
+
+  // Fade out when hidden.
   useEffect(() => {
     if (!visible) {
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 500,
+        duration: 400,
         useNativeDriver: true,
       }).start();
     } else {
@@ -192,33 +234,40 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible, cu
 
   if (!visible) return null;
 
+  const beamTranslate = beamPosition.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-PROGRESS_TRACK_WIDTH * 0.45, PROGRESS_TRACK_WIDTH],
+  });
+
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      {/* Matrix rain background */}
-      <View style={styles.matrixContainer}>
-        {columns.map((col, index) => (
-          <MatrixColumn
-            key={index}
-            x={col.x}
-            delay={col.delay}
-            speed={col.speed}
-          />
+      {/* Atmosphere: soft ember wash above, faint cyan breath below. */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(250, 118, 30, 0.14)', 'rgba(250, 118, 30, 0.04)', 'rgba(0, 0, 0, 0)']}
+        locations={[0, 0.45, 1]}
+        style={styles.glowTop}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0, 0, 0, 0)', 'rgba(74, 175, 255, 0.05)']}
+        style={styles.glowBottom}
+      />
+
+      {/* Rising embers in place of the old matrix rain. */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {embers.map((spec, index) => (
+          <Ember key={index} spec={spec} />
         ))}
       </View>
 
-      {/* Dark overlay for readability */}
-      <View style={styles.overlay} />
-
-      {/* Content */}
       <View style={styles.content}>
         <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              opacity: logoOpacity,
-              transform: [{ scale: logoScale }],
-            },
-          ]}
+          style={{
+            opacity: logoOpacity,
+            transform: [{ scale: logoScale }],
+            marginBottom: 18,
+          }}
         >
           <Image
             source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
@@ -229,112 +278,130 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({ visible, cu
 
         <Text style={styles.subtitle}>Post-Quantum Secure</Text>
 
-        <View style={styles.messageContainer}>
-          <Text style={styles.loadingMessage}>
-            {customMessage || LOADING_MESSAGES[messageIndex]}
-          </Text>
+        <View style={styles.track}>
+          {isDeterminate ? (
+            <Animated.View
+              style={[
+                styles.fill,
+                {
+                  transform: [{ scaleX: fillScale }],
+                },
+              ]}
+            />
+          ) : (
+            <Animated.View
+              style={[
+                styles.beam,
+                { transform: [{ translateX: beamTranslate }] },
+              ]}
+            >
+              <View style={styles.beamBody} />
+              <View style={styles.beamHead} />
+            </Animated.View>
+          )}
         </View>
 
-        {/* Loading dots */}
-        <View style={styles.dotsContainer}>
-          {[0, 1, 2].map((i) => (
-            <LoadingDot key={i} delay={i * 200} />
-          ))}
+        <View style={styles.messageContainer}>
+          <Animated.Text
+            style={[styles.loadingMessage, { opacity: messageOpacity }]}
+          >
+            {customMessage || LOADING_MESSAGES[messageIndex]}
+          </Animated.Text>
         </View>
       </View>
     </Animated.View>
   );
 };
 
-const LoadingDot: React.FC<{ delay: number }> = ({ delay }) => {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const animate = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 500,
-          delay,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    animate.start();
-    return () => animate.stop();
-  }, [opacity, delay]);
-
-  return <Animated.View style={[styles.dot, { opacity }]} />;
-};
-
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0A0A17',
+    backgroundColor: INK,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
-  },
-  matrixContainer: {
-    ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
   },
-  matrixColumn: {
+  glowTop: {
     position: 'absolute',
     top: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.45,
   },
-  matrixChar: {
-    fontSize: 16,
-    fontFamily: 'monospace',
-    lineHeight: 20,
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(10, 10, 23, 0.55)',
+  glowBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: height * 0.3,
   },
   content: {
     alignItems: 'center',
     paddingHorizontal: 40,
   },
-  logoContainer: {
-    marginBottom: 20,
-  },
   logo: {
-    width: 280,
-    height: 80,
+    width: 260,
+    height: 74,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#ff8700',
-    marginBottom: 40,
-    letterSpacing: 2,
+    fontSize: 11,
+    color: MUTED,
+    marginBottom: 36,
+    letterSpacing: 4,
     textTransform: 'uppercase',
   },
+  track: {
+    width: PROGRESS_TRACK_WIDTH,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: TRACK,
+    overflow: 'hidden',
+  },
+  fill: {
+    width: PROGRESS_TRACK_WIDTH,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: EMBER,
+    transformOrigin: 'left',
+    shadowColor: EMBER,
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  beam: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: PROGRESS_TRACK_WIDTH * 0.4,
+    height: 4,
+  },
+  beamBody: {
+    flex: 1,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: EMBER,
+    shadowColor: EMBER,
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  beamHead: {
+    width: 6,
+    height: 6,
+    marginLeft: -3,
+    borderRadius: 3,
+    backgroundColor: BLUE,
+  },
   messageContainer: {
-    height: 50,
+    height: 44,
     justifyContent: 'center',
+    marginTop: 18,
   },
   loadingMessage: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 13,
+    color: MUTED,
     textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  dotsContainer: {
-    flexDirection: 'row',
-    marginTop: 20,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ff8700',
-    marginHorizontal: 4,
+    letterSpacing: 0.2,
   },
 });
 

@@ -1,6 +1,9 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import SeedStorageService from './SeedStorageService';
-import NativeBridge from './NativeBridge';
+import NativeBridge, {
+  NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
+  NATIVE_PIN_COMMIT_ERROR,
+} from './NativeBridge';
 import Logger from './Logger';
 
 /**
@@ -19,6 +22,20 @@ class BiometricService {
   private pendingPinChange: PinChangeRequest | null = null;
   // In-memory queue for Device Login setup (used during navigation from Settings to WebView tab)
   private pendingDeviceLoginPin: string | null = null;
+  private securityOperationGeneration = 0;
+
+  clearPendingSecurityOperations(): void {
+    this.securityOperationGeneration += 1;
+    this.pendingPinChange = null;
+    this.pendingDeviceLoginPin = null;
+  }
+
+  private isSecurityOperationCurrent(operationGeneration: number, walletGeneration: number): boolean {
+    return (
+      operationGeneration === this.securityOperationGeneration &&
+      SeedStorageService.isWalletGenerationCurrent(walletGeneration)
+    );
+  }
   /**
    * Check if device supports any form of authentication (biometrics, PIN, pattern, passcode)
    * @returns True if device has any authentication method available
@@ -119,25 +136,46 @@ class BiometricService {
    * migrate it to the current keychain accessibility class. Shared by the normal
    * unlock path and the biometric-probe success path.
    */
-  private async retrieveStoredPinAfterAuth(): Promise<{
+  private async retrieveStoredPinAfterAuth(walletGeneration: number): Promise<{
     success: boolean;
     pin?: string;
     error?: string;
   }> {
-    const pin = await SeedStorageService.getStoredPin();
+    if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
+      return { success: false, error: 'Wallet state changed during authentication' };
+    }
+    let pin: string | null;
+    try {
+      pin = await SeedStorageService.getStoredPin();
+    } catch {
+      return { success: false, error: 'Wallet state changed during authentication' };
+    }
     if (!pin) {
       return { success: false, error: 'Failed to retrieve stored PIN' };
+    }
+    if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
+      return { success: false, error: 'Wallet state changed during authentication' };
     }
 
     // Migrate PINs stored under a legacy accessibility class to the current one.
     // Gated by an AsyncStorage version marker; the marker only advances when the
     // write succeeds (set inside storePinSecurely itself).
-    if (await SeedStorageService.needsPinAccessibilityMigration()) {
-      const migrated = await SeedStorageService.migratePinAccessibility(pin);
-      Logger.debug(
-        'BiometricService',
-        `PIN accessibility migration: ${migrated ? 'ok' : 'retry-next-unlock'}`
-      );
+    try {
+      if (
+        SeedStorageService.isWalletGenerationCurrent(walletGeneration) &&
+        (await SeedStorageService.needsPinAccessibilityMigration())
+      ) {
+        if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
+          return { success: false, error: 'Wallet state changed during authentication' };
+        }
+        const migrated = await SeedStorageService.migratePinAccessibility(pin);
+        Logger.debug(
+          'BiometricService',
+          `PIN accessibility migration: ${migrated ? 'ok' : 'retry-next-unlock'}`
+        );
+      }
+    } catch {
+      return { success: false, error: 'Wallet state changed during authentication' };
     }
 
     return { success: true, pin };
@@ -198,6 +236,7 @@ class BiometricService {
     biometricOffForApp?: boolean;
     biometricType?: 'face' | 'fingerprint' | 'iris' | null;
   }> {
+    const walletGeneration = SeedStorageService.getWalletGeneration();
     // First check if device login is available
     const available = await this.isBiometricAvailable();
     if (!available) {
@@ -251,7 +290,7 @@ class BiometricService {
           disableDeviceFallback: true,
         });
         if (probe.success) {
-          return this.retrieveStoredPinAfterAuth();
+          return this.retrieveStoredPinAfterAuth(walletGeneration);
         }
         if (probe.error === 'not_available') {
           return {
@@ -286,7 +325,7 @@ class BiometricService {
       };
     }
 
-    return this.retrieveStoredPinAfterAuth();
+    return this.retrieveStoredPinAfterAuth(walletGeneration);
   }
 
   /**
@@ -299,6 +338,10 @@ class BiometricService {
     success: boolean;
     error?: string;
   }> {
+    const operationGeneration = this.securityOperationGeneration;
+    const walletGeneration = SeedStorageService.getWalletGeneration();
+    const isCurrent = () =>
+      this.isSecurityOperationCurrent(operationGeneration, walletGeneration);
     try {
       // Check if device login is available
       const available = await this.isBiometricAvailable();
@@ -308,6 +351,7 @@ class BiometricService {
           error: 'Device Login not available on this device',
         };
       }
+      if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
       // First verify the PIN with the web app (ensures it can decrypt the seed)
       Logger.debug('BiometricService', 'Verifying PIN with web app...');
@@ -319,6 +363,7 @@ class BiometricService {
           error: verifyResult.error || 'Incorrect PIN',
         };
       }
+      if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
       Logger.debug('BiometricService', 'PIN verified successfully');
 
       // Authenticate before storing (confirm user identity)
@@ -331,12 +376,15 @@ class BiometricService {
           error: authResult.error || 'Authentication cancelled',
         };
       }
+      if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
       // Store the PIN securely
       await SeedStorageService.storePinSecurely(pin);
+      if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
       // Enable device login
       await SeedStorageService.setBiometricEnabled(true);
+      if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
       return { success: true };
     } catch (error) {
@@ -353,6 +401,7 @@ class BiometricService {
    */
   async disableDeviceLogin(): Promise<void> {
     await SeedStorageService.setBiometricEnabled(false);
+    await SeedStorageService.clearStoredPin();
   }
 
   /**
@@ -485,25 +534,39 @@ class BiometricService {
 
       if (!result.success) {
         Logger.debug('BiometricService', 'PIN change failed:', result.error);
+        if (
+          result.error === NATIVE_PIN_COMMIT_ERROR ||
+          result.error === NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR
+        ) {
+          // The web may have reached either PIN. Its serialized compensation
+          // accepts both states and converges every ciphertext and backup on
+          // oldPin before NativeBridge commits oldPin to SecureStore.
+          const rollback = await NativeBridge.changePin(newPin, oldPin, {
+            acceptAlreadyTarget: true,
+          });
+          if (rollback.success) {
+            return {
+              success: false,
+              error: 'The PIN change could not be confirmed. No change was made; your old PIN remains active.',
+            };
+          }
+          if (rollback.error === NATIVE_PIN_COMMIT_ERROR) {
+            return {
+              success: false,
+              error: 'Your old PIN remains active, but Device Login could not be restored. Disable and re-enable Device Login before using it.',
+            };
+          }
+          return {
+            success: false,
+            error: 'PIN change recovery could not be confirmed. Try your old PIN first, then your new PIN if needed, and re-import any inaccessible account from its recovery phrase.',
+          };
+        }
         return {
           success: false,
           error: result.error || 'Failed to change PIN',
         };
       }
-
-      // Update SecureStore with the new PIN
-      try {
-        Logger.debug('BiometricService', 'Web confirmed PIN change, updating SecureStore...');
-        await SeedStorageService.storePinSecurely(newPin);
-        Logger.debug('BiometricService', 'PIN changed successfully');
-      } catch (storageError) {
-        Logger.error('BiometricService', 'Failed to store new PIN for biometrics:', storageError);
-        return {
-          success: true, // The PIN change was successful on the web side
-          error: 'PIN changed, but failed to update for Device Login. Please disable and re-enable Device Login in settings to resolve this.',
-        };
-      }
-
+      Logger.debug('BiometricService', 'PIN changed successfully');
       return { success: true };
     } catch (error) {
       Logger.error('BiometricService', 'Failed to change PIN:', error);
@@ -515,4 +578,4 @@ class BiometricService {
   }
 }
 
-export default new BiometricService(); 
+export default new BiometricService();

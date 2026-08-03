@@ -11,19 +11,17 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-const PIN_MIN_LENGTH = 4;
-const PIN_MAX_LENGTH = 6;
+import { PinBoxInput, PIN_MIN_LENGTH, PIN_MAX_LENGTH } from './PinBoxInput';
 
 const C = {
   overlay: 'rgba(0, 0, 0, 0.7)',
-  card: '#1e293b',
-  input: '#273548',
-  divider: '#334155',
-  textPrimary: '#f8fafc',
-  textSecondary: '#94a3b8',
-  textTertiary: '#64748b',
-  brandOrange: '#ff8700',
+  card: '#0f1014',
+  input: '#16171d',
+  divider: '#22232a',
+  textPrimary: '#f5f3f0',
+  textSecondary: '#9c9dab',
+  textTertiary: '#6a6b7c',
+  brandOrange: '#fa761e',
   red: '#ef4444',
 };
 
@@ -35,38 +33,23 @@ interface ChangePinModalProps {
 
 interface PinFieldProps {
   label: string;
-  inputRef: React.RefObject<TextInput | null>;
   value: string;
   onChangeText: (v: string) => void;
-  returnKeyType?: 'next' | 'done';
+  inputRef: React.RefObject<TextInput | null>;
+  onFilled?: () => void;
   onSubmitEditing?: () => void;
 }
 
-function PinField({
-  label,
-  inputRef,
-  value,
-  onChangeText,
-  returnKeyType,
-  onSubmitEditing,
-}: PinFieldProps) {
+function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEditing }: PinFieldProps) {
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        ref={inputRef}
-        style={styles.input}
+      <PinBoxInput
         value={value}
         onChangeText={onChangeText}
-        placeholder={`${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`}
-        placeholderTextColor={C.textTertiary}
-        keyboardType="number-pad"
-        secureTextEntry
-        maxLength={PIN_MAX_LENGTH}
-        autoComplete="off"
-        autoCorrect={false}
-        textContentType="none"
-        returnKeyType={returnKeyType}
+        inputRef={inputRef}
+        accessibilityLabel={label}
+        onFilled={onFilled}
         onSubmitEditing={onSubmitEditing}
       />
     </View>
@@ -104,7 +87,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
     newPin !== currentPin;
 
   const handlePinChange = (text: string, setter: (value: string) => void) => {
-    setter(text.replace(/[^0-9]/g, '').slice(0, PIN_MAX_LENGTH));
+    setter(text);
     setError(null);
   };
 
@@ -147,33 +130,33 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
             </View>
             <Text style={styles.title}>Change PIN</Text>
             <Text style={styles.message}>
-              Enter your current PIN and choose a new one.
+              Enter your current PIN, then choose a new {PIN_MIN_LENGTH}-{PIN_MAX_LENGTH} digit
+              PIN. Your seed stays encrypted with this PIN.
             </Text>
 
             <PinField
               label="Current PIN"
-              inputRef={currentPinRef}
               value={currentPin}
               onChangeText={(t) => handlePinChange(t, setCurrentPin)}
-              returnKeyType="next"
+              inputRef={currentPinRef}
+              onFilled={() => newPinRef.current?.focus()}
               onSubmitEditing={() => newPinRef.current?.focus()}
             />
 
             <PinField
               label="New PIN"
-              inputRef={newPinRef}
               value={newPin}
               onChangeText={(t) => handlePinChange(t, setNewPin)}
-              returnKeyType="next"
+              inputRef={newPinRef}
+              onFilled={() => confirmPinRef.current?.focus()}
               onSubmitEditing={() => confirmPinRef.current?.focus()}
             />
 
             <PinField
               label="Confirm New PIN"
-              inputRef={confirmPinRef}
               value={confirmPin}
               onChangeText={(t) => handlePinChange(t, setConfirmPin)}
-              returnKeyType="done"
+              inputRef={confirmPinRef}
               onSubmitEditing={handleSubmit}
             />
 
@@ -259,26 +242,15 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   fieldWrap: {
-    marginTop: 10,
+    marginTop: 14,
   },
   label: {
     fontSize: 12,
     fontWeight: '600',
     color: C.textSecondary,
-    marginBottom: 6,
+    marginBottom: 8,
     marginLeft: 4,
     letterSpacing: 0.2,
-  },
-  input: {
-    backgroundColor: C.input,
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    fontSize: 18,
-    fontWeight: '600',
-    color: C.textPrimary,
-    textAlign: 'center',
-    letterSpacing: 6,
   },
   error: {
     color: C.red,

@@ -6,6 +6,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import NativeBridge, { BridgeMessage } from '../services/NativeBridge';
 import Logger from '../services/Logger';
+import {
+  isAllowedWalletDocumentUrl,
+  walletUrlOriginForLog,
+} from '../services/WalletWebOrigin';
 import QuantumLoadingScreen from './QuantumLoadingScreen';
 
 // ============================================================
@@ -31,6 +35,7 @@ interface QRLWebViewProps {
   userAgent?: string;
   onQRScanRequest?: () => void;
   onLoad?: () => void;  // Called when WebView content is loaded
+  onDocumentLoadStart?: () => void;
   skipLoadingScreen?: boolean;  // Skip the quantum loading animation
 }
 
@@ -40,18 +45,23 @@ export interface QRLWebViewRef {
 }
 
 // Minimum time to show loading screen (in ms)
-const MIN_LOADING_TIME = 3000;
+// Long enough for the entrance animation to land, short enough that a
+// warm cache load is not artificially delayed (was 3000ms of forced wait).
+const MIN_LOADING_TIME = 1200;
+export const MAX_BRIDGE_MESSAGE_CHARS = 300 * 1024;
 
 const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri = __DEV__ ? DEV_URL : 'https://qrlwallet.com',
   userAgent,
   onQRScanRequest,
   onLoad,
+  onDocumentLoadStart,
   skipLoadingScreen = false
 }, ref) => {
   const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(true);
   const [showLoadingScreen, setShowLoadingScreen] = useState(!skipLoadingScreen);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
 
@@ -67,7 +77,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // Allowed domains for security
   const ALLOWED_DOMAINS = __DEV__
     ? ['10.0.2.2', 'localhost', '127.0.0.1', getDevHostname()]
-    : ['qrlwallet.com', 'www.qrlwallet.com'];
+    : ['qrlwallet.com'];
 
   // Custom user agent to improve compatibility
   const customUserAgent = userAgent || 
@@ -166,6 +176,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   }));
 
   const handleLoadStart = () => {
+    NativeBridge.resetWebAppReady();
+    onDocumentLoadStart?.();
     setIsLoading(true);
     setError(null);
   };
@@ -181,7 +193,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   };
 
   const handleNavigationStateChange = (newNavState: { url: string; loading: boolean }) => {
-    Logger.debug('QRLWebView', 'Navigation state changed', { url: newNavState.url, loading: newNavState.loading });
+    Logger.debug('QRLWebView', 'Navigation state changed', {
+      origin: walletUrlOriginForLog(newNavState.url),
+      loading: newNavState.loading,
+    });
     // If page has loaded completely, ensure loading indicator is hidden
     if (newNavState.loading === false) {
       setIsLoading(false);
@@ -204,9 +219,29 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     }
   };
 
+  // Check if a URL belongs to the one document allowed to hold wallet bridge
+  // authority. Production requires the exact HTTPS origins, including the
+  // default port; hostname-only checks would accept an HTTP downgrade or an
+  // attacker-controlled service on an alternate port.
+  const isUrlAllowed = (url: string): boolean => {
+    return isAllowedWalletDocumentUrl(url, __DEV__, ALLOWED_DOMAINS);
+  };
+
   // Handle messages from the WebView
-  const handleMessage = (event: WebViewMessageEvent) => {
-    const { data } = event.nativeEvent;
+  const handleMessage = async (event: WebViewMessageEvent) => {
+    const { data, url } = event.nativeEvent;
+    if (typeof url !== 'string' || !isUrlAllowed(url)) {
+      Logger.warn(
+        'QRLWebView',
+        'Dropped bridge message from an untrusted document',
+        walletUrlOriginForLog(url),
+      );
+      return;
+    }
+    if (typeof data !== 'string' || data.length > MAX_BRIDGE_MESSAGE_CHARS) {
+      Logger.warn('QRLWebView', 'Dropped bridge message outside the size budget');
+      return;
+    }
 
     // Handle legacy PAGE_LOADED message
     if (data === 'PAGE_LOADED') {
@@ -215,23 +250,28 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       return;
     }
 
-    // Try to parse as JSON bridge message
+    let message: BridgeMessage;
     try {
-      const message: BridgeMessage = JSON.parse(data);
-      Logger.debug('QRLWebView', 'Bridge message received', message.type);
-      NativeBridge.handle(message);
+      message = JSON.parse(data) as BridgeMessage;
     } catch {
       // Not a JSON message - ignore
+      return;
     }
-  };
-
-  // Check if URL is allowed
-  const isUrlAllowed = (url: string): boolean => {
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      typeof message.type !== 'string' ||
+      (message.payload !== undefined &&
+        (!message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload)))
+    ) {
+      Logger.warn('QRLWebView', 'Dropped malformed bridge message');
+      return;
+    }
+    Logger.debug('QRLWebView', 'Bridge message received', message.type);
     try {
-      const urlObj = new URL(url);
-      return ALLOWED_DOMAINS.includes(urlObj.hostname);
-    } catch {
-      return false;
+      await NativeBridge.handle(message);
+    } catch (error) {
+      Logger.error('QRLWebView', 'Bridge message handling failed:', error);
     }
   };
 
@@ -241,7 +281,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     const allowed = isUrlAllowed(url);
 
     if (!allowed) {
-      Logger.warn('QRLWebView', 'Blocked navigation to disallowed URL', url);
+      Logger.warn(
+        'QRLWebView',
+        'Blocked navigation to disallowed URL',
+        walletUrlOriginForLog(url),
+      );
     }
 
     // Allow initial load and allowed domains
@@ -269,7 +313,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               ref={webViewRef}
               source={{ uri }}
               style={styles.webView}
-              originWhitelist={__DEV__ ? ['http://*', 'https://*'] : ['https://qrlwallet.com', 'https://www.qrlwallet.com']}
+              originWhitelist={__DEV__ ? ['http://*', 'https://*'] : ['https://qrlwallet.com']}
               userAgent={customUserAgent}
               onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
               javaScriptEnabled={true}
@@ -285,9 +329,12 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               showsHorizontalScrollIndicator={false}
               showsVerticalScrollIndicator={true}
               cacheEnabled={true}
-              mixedContentMode="compatibility"
+              mixedContentMode={__DEV__ ? 'compatibility' : 'never'}
               onLoadStart={handleLoadStart}
               onLoadEnd={handleLoadEnd}
+              onLoadProgress={({ nativeEvent }) =>
+                setLoadProgress(nativeEvent.progress)
+              }
               onNavigationStateChange={handleNavigationStateChange}
               onMessage={handleMessage}
               onError={handleError}
@@ -297,13 +344,18 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               thirdPartyCookiesEnabled={false}
               pullToRefreshEnabled={false} // Disabled to fix Android scroll issues; feature is also blocked by frontend CSS.
               javaScriptCanOpenWindowsAutomatically={false}
+              setSupportMultipleWindows={false}
+              saveFormDataDisabled={true}
+              allowFileAccess={false}
+              allowFileAccessFromFileURLs={false}
+              allowUniversalAccessFromFileURLs={false}
               allowsInlineMediaPlayback={true}
               mediaPlaybackRequiresUserAction={true}
               accessible={true}
               accessibilityLabel="QRL Wallet web content"
               nestedScrollEnabled={true}
             />
-            <QuantumLoadingScreen visible={showLoadingScreen} />
+            <QuantumLoadingScreen visible={showLoadingScreen} progress={loadProgress} />
           </>
         )}
       </View>
@@ -343,7 +395,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 8,
     marginTop: 10,
-    backgroundColor: '#ff8700',
+    backgroundColor: '#fa761e',
   },
   retryButtonText: {
     fontSize: 16,
