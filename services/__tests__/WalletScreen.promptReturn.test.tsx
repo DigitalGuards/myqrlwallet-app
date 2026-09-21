@@ -117,6 +117,13 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     await act(async () => {
       screen = create(<WalletScreen />);
     });
+    // The native wrapper establishes the first document context before the
+    // screen can start OS authentication. No web-ready message is required.
+    expect(LocalAuthentication.authenticateAsync).not.toHaveBeenCalled();
+    await act(async () => {
+      NativeBridge.invalidateAuthorization();
+      screen.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
+    });
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
   });
   afterEach(async () => {
@@ -353,7 +360,28 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
   });
 
-  it('keeps an initial document load during authentication on usable manual retry', async () => {
+  it('unlocks on the first attempt after the initial document starts', async () => {
+    await transition('inactive');
+    await act(async () => {
+      prompts[0]({ success: true });
+      jest.advanceTimersByTime(350);
+    });
+    expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+    await transition('active');
+    expect(state()).toMatchObject({
+      promptCount: 1,
+      deliveredUnlocks: 1,
+      authorized: true,
+      lockOverlay: false,
+      spinner: false,
+    });
+    expect(NativeBridge.sendUnlockWithPinIfReady).toHaveBeenCalledWith(
+      '4826',
+      NativeBridge.captureSecurityContext()
+    );
+  });
+
+  it('keeps a later document load during authentication on usable manual retry', async () => {
     await act(async () => {
       // QRLWebView resets document authority before notifying the screen.
       NativeBridge.invalidateAuthorization();

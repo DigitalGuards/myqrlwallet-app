@@ -114,6 +114,11 @@ describe('wallet screen deferred foreground reauthentication', () => {
     await act(async () => {
       screen = create(<WalletScreen />);
     });
+    expect(getPin).not.toHaveBeenCalled();
+    await act(async () => {
+      NativeBridge.invalidateAuthorization();
+      screen.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
+    });
     expect(getPin).toHaveBeenCalledTimes(1);
     return { oldAuth, freshAuth };
   }
