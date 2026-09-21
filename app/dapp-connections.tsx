@@ -11,9 +11,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import DAppConnectionStore, { DAppConnectionRecord } from '../services/DAppConnectionStore';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
+import { formatQrlAddressFingerprint } from '../services/QrlAddress';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -56,11 +58,6 @@ function relativeTime(ts: number, now: number): string {
   if (days === 1) return 'yesterday';
   if (days < 7) return `${days}d ago`;
   return absoluteTime(ts);
-}
-
-function truncateAddress(address: string): string {
-  if (!address || address.length < 14) return address || '';
-  return `${address.slice(0, 8)}…${address.slice(-6)}`;
 }
 
 function hostname(url: string): string {
@@ -120,6 +117,23 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
   const abs = absoluteTime(ts);
   const tileColor = isActive ? C.green : C.gray;
 
+  const revealConnectedAccount = () => {
+    if (!record.connectedAccount) return;
+    const address = record.connectedAccount;
+    Alert.alert('Connected account', address, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Copy address',
+        onPress: () => {
+          Clipboard.setStringAsync(address).catch(err => {
+            Logger.error('DAppConnections', 'Failed to copy connected account:', err);
+            Alert.alert('Error', 'Failed to copy the address. Please try again.');
+          });
+        },
+      },
+    ]);
+  };
+
   return (
     <View style={styles.row}>
       <View style={[styles.tile, { backgroundColor: tileColor }]}>
@@ -134,8 +148,22 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
         </View>
         <Text style={styles.dappUrl} numberOfLines={1}>
           {hostname(record.url)}
-          {record.connectedAccount ? ` · ${truncateAddress(record.connectedAccount)}` : ''}
         </Text>
+        {record.connectedAccount ? (
+          <TouchableOpacity
+            activeOpacity={0.6}
+            style={styles.accountButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Connected account"
+            accessibilityHint="Shows the full address and a copy action"
+            onPress={revealConnectedAccount}
+          >
+            <Text style={styles.accountFingerprint} numberOfLines={2}>
+              {formatQrlAddressFingerprint(record.connectedAccount)}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         <Text style={styles.timestamp} numberOfLines={1}>
           {verb} {rel}
           {rel !== abs ? ` · ${abs}` : ''}
@@ -339,7 +367,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 14,
-    minHeight: 72,
+    minHeight: 96,
   },
   tile: {
     width: 32,
@@ -369,6 +397,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: C.textSecondary,
     marginTop: 2,
+  },
+  accountFingerprint: {
+    color: C.textSecondary,
+    fontFamily: 'monospace',
+    fontSize: 10,
+    lineHeight: 13,
+    marginTop: 3,
+  },
+  accountButton: {
+    justifyContent: 'center',
+    minHeight: 28,
+    paddingVertical: 3,
   },
   timestamp: {
     fontSize: 11,

@@ -24,7 +24,7 @@ interface QRScannerModalProps {
 export default function QRScannerModal({ visible, onScan, onClose }: QRScannerModalProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
-  // Synchronous lock — state updates are async, so without a ref the camera
+  // Synchronous lock: state updates are async, so without a ref the camera
   // fires onBarcodeScanned many times for the same code before React can
   // re-render with scanned=true and swap the prop to undefined.
   const scanLock = useRef(false);

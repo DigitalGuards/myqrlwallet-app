@@ -25,6 +25,7 @@ import { ChangePinModal } from '../components/ChangePinModal';
 import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
+import { authorizeWalletRemoval } from '../services/WalletRemoval';
 
 // Visual tokens are kept local to this screen per user scope.
 const C = {
@@ -255,14 +256,16 @@ export default function SettingsScreen() {
   };
 
   const removeWallet = async () => {
-    if (deviceLoginEnabled) {
-      const authResult = await BiometricService.authenticate('Authenticate to remove wallet');
-      if (!authResult.success) return;
+    try {
+      if (!(await authorizeWalletRemoval())) return;
+    } catch {
+      Alert.alert('Unable to Verify Wallet Protection', 'Please try again before removing wallets.');
+      return;
     }
 
     Alert.alert(
       'Remove All Wallets',
-      'This will permanently delete ALL imported wallets from this device. Device Login will be disabled and you will need to re-import each wallet to access them again.\n\nMake sure you have backed up your seed phrases before continuing!',
+      'This will permanently delete ALL imported wallets from this device, including preserved earlier wallet backups. Device Login will be disabled and you will need to re-import each wallet to access them again.\n\nMake sure you have backed up your seed phrases before continuing!',
       [
         { text: 'Cancel', style: 'cancel' },
         {
