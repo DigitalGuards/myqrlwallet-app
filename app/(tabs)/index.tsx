@@ -69,6 +69,7 @@ export default function WalletScreen() {
   const pinChangeTriggered = useRef(false);
   // Show the "biometric is off for this app" hint at most once per app session
   const biometricOffNudgeShown = useRef(false);
+  const initialDocumentStarted = useRef(false);
   const authAttemptGeneration = useRef(0);
   const mounted = useRef(true);
 
@@ -116,6 +117,7 @@ export default function WalletScreen() {
   const resumePendingReauth = useCallback(() => {
     if (
       !needsReauth.current ||
+      !initialDocumentStarted.current ||
       manualRetryRequired.current ||
       isAuthenticating.current ||
       AppState.currentState !== 'active'
@@ -338,6 +340,7 @@ export default function WalletScreen() {
   useEffect(() => {
     if (
       !isFocused ||
+      !initialDocumentStarted.current ||
       isAuthorized ||
       manualRetryRequired.current ||
       isAuthenticating.current ||
@@ -352,7 +355,16 @@ export default function WalletScreen() {
       mounted.current &&
       !cancelled &&
       attemptGeneration === authAttemptGeneration.current;
-    const isAttemptCurrent = () => isAttemptBound() && AppState.currentState === 'active';
+    const isAttemptCurrent = () => {
+      if (!isAttemptBound()) return false;
+      if (AppState.currentState !== 'active') {
+        // A short inactive interval can finish a storage read before the
+        // background lock runs. Resume this preflight when active returns.
+        needsReauth.current = true;
+        return false;
+      }
+      return true;
+    };
 
     const authCheck = async () => {
       setIsUnlocking(true);
@@ -603,11 +615,15 @@ export default function WalletScreen() {
   }, []);
 
   const handleDocumentLoadStart = useCallback(() => {
+    // The wrapper has reset bridge document authority before this callback.
+    // Start initial auth in that context without waiting for authorized-only
+    // WEB_APP_READY delivery. Later loads still invalidate every old attempt.
+    initialDocumentStarted.current = true;
     manualRetryRequired.current =
       manualRetryRequired.current ||
       isAuthenticating.current ||
       pinVerificationGeneration.current !== null;
-    needsReauth.current = false;
+    needsReauth.current = !manualRetryRequired.current && AppState.currentState !== 'active';
     pinVerificationGeneration.current = null;
     setIsVerifyingPin(false);
     setPinModalVisible(false);
