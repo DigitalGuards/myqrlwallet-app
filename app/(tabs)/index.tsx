@@ -47,6 +47,8 @@ export default function WalletScreen() {
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [isDeviceAuthenticating, setIsDeviceAuthenticating] = useState(false);
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [authCheckNonce, setAuthCheckNonce] = useState(0);
   const isFocused = useIsFocused();
   const pathname = usePathname();
@@ -56,6 +58,8 @@ export default function WalletScreen() {
   const hasRestoredSeeds = useRef<boolean>(false);
   const deviceLoginSetupTriggered = useRef<boolean>(false);
   const needsReauth = useRef(AppState.currentState !== 'active');
+  const manualRetryRequired = useRef(false);
+  const pinVerificationGeneration = useRef<number | null>(null);
   const activeQrScan = useRef<NativeQrScanRequest | null>(null);
   // Track when biometric auth is showing - iOS marks app as 'inactive' during biometric prompt
   const isAuthenticating = useRef(false);
@@ -112,6 +116,7 @@ export default function WalletScreen() {
   const resumePendingReauth = useCallback(() => {
     if (
       !needsReauth.current ||
+      manualRetryRequired.current ||
       isAuthenticating.current ||
       AppState.currentState !== 'active'
     ) {
@@ -136,8 +141,9 @@ export default function WalletScreen() {
       NativeBridge.isSecurityContextCurrent(context);
     Logger.debug('WalletScreen', 'Device Login unlock requested');
     isAuthenticating.current = true;
+    setIsDeviceAuthenticating(true);
     try {
-      const result = await BiometricService.getPinWithBiometric();
+      const result = await BiometricService.getPinWithBiometric(isAttemptBound);
       if (!(await waitForForegroundAuthorization(isAttemptBound))) return;
       if (
         result.success &&
@@ -153,6 +159,7 @@ export default function WalletScreen() {
       }
     } finally {
       isAuthenticating.current = false;
+      if (mounted.current) setIsDeviceAuthenticating(false);
       resumePendingReauth();
     }
   }, [resumePendingReauth, showBiometricOffNudge]);
@@ -161,8 +168,8 @@ export default function WalletScreen() {
   const handlePinSubmit = useCallback(async (pin: string) => {
     setPinModalVisible(false);
     if (pendingPinAction) {
-      await pendingPinAction(pin);
       setPendingPinAction(null);
+      await pendingPinAction(pin);
     }
   }, [pendingPinAction]);
 
@@ -276,6 +283,10 @@ export default function WalletScreen() {
   }, [pathname]);
 
   const handleWalletClearStarted = useCallback(() => {
+    manualRetryRequired.current = true;
+    needsReauth.current = false;
+    pinVerificationGeneration.current = null;
+    setIsVerifyingPin(false);
     authAttemptGeneration.current += 1;
     BiometricService.clearPendingSecurityOperations();
     pendingUnlockPin.current = null;
@@ -291,6 +302,18 @@ export default function WalletScreen() {
     closeQrScanner();
   }, [closeQrScanner]);
 
+  const handleWalletCleared = useCallback(() => {
+    if (!mounted.current) return;
+    authAttemptGeneration.current += 1;
+    manualRetryRequired.current = false;
+    needsReauth.current = true;
+    pendingUnlockPin.current = null;
+    setAuthError(null);
+    // NativeBridge emits completion only after native and hosted storage agree.
+    // A fresh state check can then open the empty wallet for a new import.
+    resumePendingReauth();
+  }, [resumePendingReauth]);
+
   // Register bridge callbacks
   useEffect(() => {
     NativeBridge.onBiometricUnlockRequest(performDeviceLoginUnlock);
@@ -299,6 +322,7 @@ export default function WalletScreen() {
     NativeBridge.onQRScanRequest(handleQRScanRequest);
     NativeBridge.onDAppShowWebView(handleDAppShowWebView);
     NativeBridge.onWalletClearStarted(handleWalletClearStarted);
+    NativeBridge.onWalletCleared(handleWalletCleared);
   }, [
     performDeviceLoginUnlock,
     handleSeedStored,
@@ -306,6 +330,7 @@ export default function WalletScreen() {
     navigateToSettings,
     handleDAppShowWebView,
     handleWalletClearStarted,
+    handleWalletCleared,
   ]);
 
   // Check wallet state and authenticate. Every error leaves an existing wallet
@@ -314,6 +339,8 @@ export default function WalletScreen() {
     if (
       !isFocused ||
       isAuthorized ||
+      manualRetryRequired.current ||
+      isAuthenticating.current ||
       AppState.currentState !== 'active'
     ) {
       return;
@@ -322,6 +349,7 @@ export default function WalletScreen() {
     let cancelled = false;
     const attemptGeneration = ++authAttemptGeneration.current;
     const isAttemptBound = () =>
+      mounted.current &&
       !cancelled &&
       attemptGeneration === authAttemptGeneration.current;
     const isAttemptCurrent = () => isAttemptBound() && AppState.currentState === 'active';
@@ -354,19 +382,30 @@ export default function WalletScreen() {
         if (deviceLoginEnabled) {
           const context = NativeBridge.captureSecurityContext();
           isAuthenticating.current = true;
+          setIsDeviceAuthenticating(true);
           let result;
           try {
-            result = await BiometricService.getPinWithBiometric();
-            if (!(await waitForForegroundAuthorization(() =>
-              isAttemptBound() && NativeBridge.isSecurityContextCurrent(context)))) return;
+            const isContextCurrent = () =>
+              isAttemptBound() && NativeBridge.isSecurityContextCurrent(context);
+            result = await BiometricService.getPinWithBiometric(isContextCurrent);
+            // Successful login waits for foreground inside the service before
+            // it reads the PIN. Keep a final delivery fence for all callers.
+            if (result.success && !(await waitForForegroundAuthorization(isContextCurrent))) {
+              if (isAttemptBound()) {
+                manualRetryRequired.current = true;
+                needsReauth.current = false;
+                setAuthError('Device Login was interrupted. Try again or use your wallet PIN.');
+              }
+              return;
+            }
           } finally {
             isAuthenticating.current = false;
-            // Foreground may have arrived before this interrupted prompt settled.
+            if (mounted.current) setIsDeviceAuthenticating(false);
             resumePendingReauth();
           }
-          if (!isAttemptCurrent() || !NativeBridge.isSecurityContextCurrent(context)) return;
+          if (!isAttemptBound() || !NativeBridge.isSecurityContextCurrent(context)) return;
 
-          if (result.success && result.pin) {
+          if (result.success && result.pin && isAttemptCurrent()) {
             const pending = { pin: result.pin, context };
             if (!NativeBridge.sendUnlockWithPinIfReady(result.pin, context)) {
               pendingUnlockPin.current = pending;
@@ -375,6 +414,8 @@ export default function WalletScreen() {
             return;
           }
 
+          manualRetryRequired.current = true;
+          needsReauth.current = false;
           setAuthError(result.error || 'Device Login did not complete. Try again or use your wallet PIN.');
           if (result.biometricOffForApp) {
             showBiometricOffNudge(result.biometricType);
@@ -393,7 +434,9 @@ export default function WalletScreen() {
         if (deviceLoginAvailable && !promptAlreadyShown) promptDeviceLoginSetup();
       } catch (error) {
         Logger.error('WalletScreen', 'Wallet authorization check failed:', error);
-        if (isAttemptCurrent()) {
+        if (isAttemptBound()) {
+          manualRetryRequired.current = true;
+          needsReauth.current = false;
           setIsAuthorized(false);
           setAuthError('Wallet security state could not be verified. Please try again.');
         }
@@ -405,6 +448,13 @@ export default function WalletScreen() {
     authCheck();
     return () => {
       cancelled = true;
+      if (mounted.current && attemptGeneration === authAttemptGeneration.current) {
+        setIsUnlocking(false);
+        if (isAuthenticating.current) {
+          manualRetryRequired.current = true;
+          needsReauth.current = false;
+        }
+      }
     };
   }, [
     authCheckNonce,
@@ -416,6 +466,13 @@ export default function WalletScreen() {
   ]);
 
   const retryAuthentication = useCallback(() => {
+    if (
+      isAuthenticating.current ||
+      pinVerificationGeneration.current !== null ||
+      AppState.currentState !== 'active'
+    ) return;
+    manualRetryRequired.current = false;
+    needsReauth.current = false;
     authAttemptGeneration.current += 1;
     NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
     pendingUnlockPin.current = null;
@@ -425,22 +482,32 @@ export default function WalletScreen() {
   }, []);
 
   const unlockWithWalletPin = useCallback(() => {
+    if (pinVerificationGeneration.current !== null || AppState.currentState !== 'active') return;
+    // Choosing PIN immediately supersedes a pending Device Login result,
+    // including when the user later cancels the PIN dialog.
+    manualRetryRequired.current = true;
+    needsReauth.current = false;
+    const attemptGeneration = ++authAttemptGeneration.current;
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
+    const context = NativeBridge.captureSecurityContext();
+    pendingUnlockPin.current = null;
+    setIsUnlocking(false);
+    setAuthError(null);
     showPinModal(
       async (pin: string) => {
-        const attemptGeneration = ++authAttemptGeneration.current;
-        NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
-        const context = NativeBridge.captureSecurityContext();
+        const isCurrent = () =>
+          mounted.current &&
+          attemptGeneration === authAttemptGeneration.current &&
+          AppState.currentState === 'active' &&
+          NativeBridge.isSecurityContextCurrent(context);
+        if (!isCurrent() || pinVerificationGeneration.current !== null) return;
+        pinVerificationGeneration.current = attemptGeneration;
+        setIsVerifyingPin(true);
         setIsUnlocking(true);
         setAuthError(null);
         try {
           const result = await NativeBridge.verifyPin(pin, 30000);
-          if (
-            attemptGeneration !== authAttemptGeneration.current ||
-            AppState.currentState !== 'active' ||
-            !NativeBridge.isSecurityContextCurrent(context)
-          ) {
-            return;
-          }
+          if (!isCurrent()) return;
           if (!result.success) {
             setAuthError(result.error || 'Incorrect wallet PIN.');
             return;
@@ -449,9 +516,16 @@ export default function WalletScreen() {
           if (!NativeBridge.sendUnlockWithPinIfReady(pin, context)) {
             pendingUnlockPin.current = { pin, context };
           }
+          manualRetryRequired.current = false;
           setIsAuthorized(true);
+        } catch {
+          if (isCurrent()) setAuthError('Wallet PIN could not be verified. Please try again.');
         } finally {
-          if (attemptGeneration === authAttemptGeneration.current) {
+          if (pinVerificationGeneration.current === attemptGeneration) {
+            pinVerificationGeneration.current = null;
+            if (mounted.current) setIsVerifyingPin(false);
+          }
+          if (mounted.current && attemptGeneration === authAttemptGeneration.current) {
             setIsUnlocking(false);
           }
         }
@@ -464,13 +538,22 @@ export default function WalletScreen() {
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
-    needsReauth.current = true;
+    manualRetryRequired.current =
+      manualRetryRequired.current ||
+      isAuthenticating.current ||
+      pinVerificationGeneration.current !== null;
+    needsReauth.current = !manualRetryRequired.current;
+    pinVerificationGeneration.current = null;
+    setIsVerifyingPin(false);
+    if (manualRetryRequired.current) {
+      setAuthError('Login was interrupted. Try again or use your wallet PIN.');
+    }
     authAttemptGeneration.current += 1;
     NativeBridge.invalidateAuthorization();
     BiometricService.clearPendingSecurityOperations();
     hasRestoredSeeds.current = false;
     // Drop any PIN held between a successful biometric unlock and WEB_APP_READY.
-    // If the user returns, authCheck will re-run and repopulate this post-auth.
+    // A later authorized attempt must repopulate it.
     pendingUnlockPin.current = null;
     setPinModalVisible(false);
     setPendingPinAction(null);
@@ -487,7 +570,7 @@ export default function WalletScreen() {
     const backgroundLock = createBackgroundLock({
       isIOS: Platform.OS === 'ios',
       getCurrentState: () => AppState.currentState,
-      isAuthenticating: () => BiometricService.isAuthenticationPromptActive(),
+      isAuthenticating: () => BiometricService.isAuthenticationTransitionActive(),
       onLock: markForReauth,
     });
     const unsubscribeAuthentication = BiometricService.onAuthenticationPromptSettled(
@@ -496,7 +579,7 @@ export default function WalletScreen() {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       backgroundLock.onChange(appState.current, nextAppState);
 
-      // An in-flight biometric prompt defers this retry until its finally block.
+      // A previously unlocked session may authenticate once when it returns.
       if (appState.current !== 'active' && nextAppState === 'active') {
         resumePendingReauth();
       }
@@ -520,6 +603,15 @@ export default function WalletScreen() {
   }, []);
 
   const handleDocumentLoadStart = useCallback(() => {
+    manualRetryRequired.current =
+      manualRetryRequired.current ||
+      isAuthenticating.current ||
+      pinVerificationGeneration.current !== null;
+    needsReauth.current = false;
+    pinVerificationGeneration.current = null;
+    setIsVerifyingPin(false);
+    setPinModalVisible(false);
+    setPendingPinAction(null);
     authAttemptGeneration.current += 1;
     // resetWebAppReady already discarded intents bound to an earlier document.
     NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
@@ -733,7 +825,7 @@ export default function WalletScreen() {
               <TouchableOpacity
                 style={[styles.lockButton, styles.lockButtonPrimary]}
                 onPress={retryAuthentication}
-                disabled={isUnlocking}
+                disabled={isUnlocking || isDeviceAuthenticating}
                 accessibilityRole="button"
               >
                 <Text style={styles.lockButtonPrimaryText}>Try Device Login Again</Text>
@@ -741,7 +833,7 @@ export default function WalletScreen() {
               <TouchableOpacity
                 style={[styles.lockButton, styles.lockButtonSecondary]}
                 onPress={unlockWithWalletPin}
-                disabled={isUnlocking}
+                disabled={isVerifyingPin}
                 accessibilityRole="button"
               >
                 <Text style={styles.lockButtonSecondaryText}>Use Wallet PIN</Text>

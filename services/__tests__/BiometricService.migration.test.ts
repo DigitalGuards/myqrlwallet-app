@@ -38,6 +38,7 @@ jest.mock('../Logger', () => ({
 }));
 
 import * as LocalAuthentication from 'expo-local-authentication';
+import { AppState, type AppStateStatus } from 'react-native';
 import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
 
@@ -64,7 +65,10 @@ const mockMigrate = SeedStorageService.migratePinAccessibility as jest.MockedFun
 >;
 
 describe('BiometricService PIN accessibility migration', () => {
+  let originalState: AppStateStatus;
   beforeEach(() => {
+    originalState = AppState.currentState;
+    AppState.currentState = 'active';
     jest.clearAllMocks();
     (SeedStorageService.getWalletGeneration as jest.Mock).mockReturnValue(7);
     (SeedStorageService.isWalletGenerationCurrent as jest.Mock).mockReturnValue(true);
@@ -77,6 +81,10 @@ describe('BiometricService PIN accessibility migration', () => {
     mockAuthenticate.mockResolvedValue({ success: true });
     mockGetStoredPin.mockResolvedValue('1234');
     mockNeedsMigration.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    AppState.currentState = originalState;
   });
 
   it('still unlocks with the authenticated PIN when migration must retry later', async () => {

@@ -28,6 +28,7 @@ jest.mock('../SeedStorageService', () => ({
 jest.mock('../BiometricService', () => ({
   getPinWithBiometric: jest.fn(async () => ({ success: false, error: 'Cancelled test prompt' })),
   isAuthenticationPromptActive: jest.fn(() => false),
+  isAuthenticationTransitionActive: jest.fn(() => false),
   onAuthenticationPromptSettled: jest.fn(() => jest.fn()),
   clearPendingSecurityOperations: jest.fn(),
 }));
@@ -51,6 +52,7 @@ jest.mock('../NativeBridge', () => ({
   onQRScanRequest: jest.fn(),
   onDAppShowWebView: jest.fn(),
   onWalletClearStarted: jest.fn(),
+  onWalletCleared: jest.fn(),
   onWebAppReady: jest.fn(),
 }));
 

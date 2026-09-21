@@ -1,5 +1,5 @@
 import React, { act } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, Text, TouchableOpacity, type AppStateStatus } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import WalletScreen from '../../app/(tabs)/index';
 import BiometricService from '../BiometricService';
@@ -31,6 +31,7 @@ jest.mock('../SeedStorageService', () => ({
 jest.mock('../BiometricService', () => ({
   getPinWithBiometric: jest.fn(),
   isAuthenticationPromptActive: jest.fn(() => false),
+  isAuthenticationTransitionActive: jest.fn(() => false),
   onAuthenticationPromptSettled: jest.fn(() => jest.fn()),
   clearPendingSecurityOperations: jest.fn(),
 }));
@@ -58,6 +59,7 @@ jest.mock('../NativeBridge', () => {
     onAuthorizationInvalidated: jest.fn(() => jest.fn()),
     onDAppShowWebView: jest.fn(),
     onWalletClearStarted: jest.fn(),
+    onWalletCleared: jest.fn(),
     onWebAppReady: jest.fn(),
   };
 });
@@ -116,7 +118,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
     return { oldAuth, freshAuth };
   }
 
-  it('retries once when foreground arrives before the interrupted prompt settles', async () => {
+  it('requires an explicit retry when background interrupted a prompt', async () => {
     const { oldAuth, freshAuth } = await mountWithPendingAuth();
     await transition('inactive');
     await transition('background');
@@ -127,8 +129,15 @@ describe('wallet screen deferred foreground reauthentication', () => {
     await act(async () => {
       oldAuth.resolve({ success: true, pin: 'old-pin' });
     });
-    expect(getPin).toHaveBeenCalledTimes(2);
+    expect(getPin).toHaveBeenCalledTimes(1);
     expect(NativeBridge.sendUnlockWithPinIfReady).not.toHaveBeenCalled();
+
+    await act(async () => {
+      screen.root.findAllByType(TouchableOpacity as never).find((button) =>
+        button.findByType(Text as never).props.children === 'Try Device Login Again'
+      )!.props.onPress();
+    });
+    expect(getPin).toHaveBeenCalledTimes(2);
 
     await act(async () => {
       freshAuth.resolve({ success: true, pin: 'fresh-pin' });
@@ -143,7 +152,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
     expect(getPin).toHaveBeenCalledTimes(2);
   });
 
-  it('waits for foreground when the interrupted prompt settles in the background', async () => {
+  it('keeps manual retry when the interrupted prompt settles in the background', async () => {
     const { oldAuth } = await mountWithPendingAuth();
     await transition('inactive');
     await transition('background');
@@ -152,7 +161,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
     });
     expect(getPin).toHaveBeenCalledTimes(1);
     await transition('active');
-    expect(getPin).toHaveBeenCalledTimes(2);
+    expect(getPin).toHaveBeenCalledTimes(1);
     expect(NativeBridge.sendUnlockWithPinIfReady).not.toHaveBeenCalled();
   });
 
@@ -187,7 +196,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
     await transition('background');
     expect(NativeBridge.sendUnlockWithPinIfReady).not.toHaveBeenCalled();
     await transition('active');
-    expect(getPin).toHaveBeenCalledTimes(2);
+    expect(getPin).toHaveBeenCalledTimes(1);
     expect(NativeBridge.setNativeAuthorization).toHaveBeenLastCalledWith(false);
   });
 
@@ -218,7 +227,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
     expect(NativeBridge.setNativeAuthorization).toHaveBeenLastCalledWith(false);
   });
 
-  it('also resumes after an interrupted WebView-requested biometric prompt settles', async () => {
+  it('keeps manual retry after an interrupted WebView-requested prompt settles', async () => {
     const { oldAuth, freshAuth: webAuth } = await mountWithPendingAuth();
     await act(async () => {
       oldAuth.resolve({ success: true, pin: 'initial-pin' });
@@ -238,7 +247,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
       webAuth.resolve({ success: false });
       await webUnlock;
     });
-    expect(getPin).toHaveBeenCalledTimes(3);
+    expect(getPin).toHaveBeenCalledTimes(2);
     expect(NativeBridge.sendUnlockWithPinForContext).not.toHaveBeenCalled();
   });
 });
