@@ -3,6 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import WalletScreen from '../../app/(tabs)/index';
 import BiometricService from '../BiometricService';
+import SeedStorageService from '../SeedStorageService';
 import NativeBridge, { type NativeQrScanRequest } from '../NativeBridge';
 
 const mockInvalidationListeners = new Set<() => void>();
@@ -62,6 +63,7 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
   let original: AppStateStatus;
 
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     listeners.clear();
     mockInvalidationListeners.clear();
@@ -76,12 +78,21 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
     screen = undefined;
     AppState.currentState = original;
     jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
-  async function mount(state: AppStateStatus = 'active') {
+  async function mount(state: AppStateStatus = 'active', startDocument = true) {
     AppState.currentState = state;
     await act(async () => {
       screen = create(<WalletScreen />);
+    });
+    expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+    if (startDocument) await documentLoadStart();
+  }
+  async function documentLoadStart() {
+    await act(async () => {
+      NativeBridge.invalidateAuthorization();
+      screen!.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
     });
   }
   async function transition(next: AppStateStatus) {
@@ -105,7 +116,7 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
     return { request, callbacks: scanner() };
   }
 
-  it.each(['inactive', 'background', 'unknown'] as AppStateStatus[])(
+  it.each(['inactive', 'background', 'unknown', null] as AppStateStatus[])(
     'starts authentication once when first mounted %s and then activated',
     async (state) => {
       await mount(state);
@@ -117,10 +128,46 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
     }
   );
 
-  it('starts once on an active initial mount', async () => {
+  it('starts once after the first document load on an active initial mount', async () => {
     await mount();
     expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['inactive', 'unknown', null] as AppStateStatus[])(
+    'waits for the first document if %s becomes active before it starts',
+    async (state) => {
+      await mount(state, false);
+      await transition('active');
+      expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+      await documentLoadStart();
+      expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([
+    ['getPendingWalletWipe', null],
+    ['hasWallet', true],
+    ['isBiometricEnabled', true],
+  ] as const)(
+    'resumes a live %s preflight after a short inactive interval',
+    async (method, value) => {
+      let finishRead!: (result: typeof value) => void;
+      const read = new Promise<typeof value>((resolve) => { finishRead = resolve; });
+      jest.mocked(SeedStorageService[method]).mockImplementationOnce(() => read as never);
+      await mount();
+      expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+      await transition('inactive');
+      await act(async () => {
+        finishRead(value);
+        jest.advanceTimersByTime(100);
+      });
+      expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+      await transition('active');
+      expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
+      await transition('active');
+      expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it.each(['authorization', 'background', 'wallet-clear', 'document'])(
     'closes scanner on %s and rejects retained camera callbacks',

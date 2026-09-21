@@ -112,6 +112,9 @@ describe('Device Login setup through the wallet screen lifecycle', () => {
     await act(async () => {
       screen = create(<WalletScreen />);
     });
+    await act(async () => {
+      screen!.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
+    });
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
   }
 
@@ -152,6 +155,9 @@ describe('Device Login setup through the wallet screen lifecycle', () => {
     BiometricService.queueDeviceLoginSetup('1234');
     await act(async () => {
       screen = create(<WalletScreen />);
+    });
+    await act(async () => {
+      screen!.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
     });
     await transition('inactive');
     await transition('active');
