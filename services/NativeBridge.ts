@@ -231,6 +231,7 @@ interface PendingPinChangeRequest {
 interface PendingPinVerification {
   requestId: string;
   context: NativeSecurityContext;
+  expiresAt: number;
   finish: PinVerifiedCallback;
 }
 
@@ -443,6 +444,16 @@ class NativeBridge {
     const pending = this.pendingPinVerification;
     this.pendingPinVerification = null;
     if (pending) pending.finish(false, error);
+  }
+
+  private isPendingPinVerificationCurrent(pending: PendingPinVerification): boolean {
+    return (
+      this.pendingPinVerification === pending &&
+      this.isWebAppReady &&
+      pending.context.documentId !== null &&
+      Date.now() < pending.expiresAt &&
+      this.isSecurityContextCurrent(pending.context)
+    );
   }
 
   private cancelDocumentRequests(
@@ -734,7 +745,22 @@ class NativeBridge {
       return;
     }
 
-    if (!this.nativeAuthorized && !LOCKED_ALLOWED_MESSAGE_TYPES.has(type)) {
+    // PIN verification needs the existing factor before the native lock can
+    // open. Only the current native-initiated verification may read it while
+    // locked; creating or replacing a factor still requires authorization.
+    const lockedPinVerification =
+      !this.nativeAuthorized &&
+      type === 'DEVICE_CREDENTIAL_REQUEST' &&
+      payload?.createIfMissing === false &&
+      this.pendingPinVerification &&
+      this.isPendingPinVerificationCurrent(this.pendingPinVerification)
+        ? this.pendingPinVerification
+        : null;
+    if (
+      !this.nativeAuthorized &&
+      !LOCKED_ALLOWED_MESSAGE_TYPES.has(type) &&
+      !lockedPinVerification
+    ) {
       Logger.warn('NativeBridge', `Dropped ${type} while the native wallet lock is active`);
       return;
     }
@@ -911,16 +937,24 @@ class NativeBridge {
           return;
         }
 
+        const context = this.captureSecurityContext();
+        const mayRespond = () =>
+          this.isSecurityContextCurrent(context) &&
+          (lockedPinVerification
+            ? this.isPendingPinVerificationCurrent(lockedPinVerification)
+            : this.nativeAuthorized);
         try {
           const credential = createIfMissing
             ? await SeedStorageService.getOrCreateDeviceCredential(candidate as string)
             : await SeedStorageService.getDeviceCredential();
+          if (!mayRespond()) return;
           if (!credential) {
             this.sendDeviceCredentialResponse(requestId, undefined, 'NOT_FOUND');
           } else {
             this.sendDeviceCredentialResponse(requestId, credential);
           }
         } catch (error) {
+          if (!mayRespond()) return;
           Logger.error('NativeBridge', 'Device credential request failed:', error);
           this.sendDeviceCredentialResponse(requestId, undefined, 'STORAGE_ERROR');
         }
@@ -1086,7 +1120,7 @@ class NativeBridge {
           !pending ||
           !REQUEST_ID_PATTERN.test(requestId) ||
           requestId !== pending.requestId ||
-          !this.isSecurityContextCurrent(pending.context)
+          !this.isPendingPinVerificationCurrent(pending)
         ) {
           Logger.warn('NativeBridge', 'Ignoring stale or unsolicited PIN verification response');
           break;
@@ -1810,6 +1844,9 @@ class NativeBridge {
       }
     }
 
+    // Readiness may have bound the first document after the initial capture.
+    // The verification itself must be scoped to that authenticated document.
+    const verificationContext = this.captureSecurityContext();
     const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
       const requestId = createRequestId();
       let settled = false;
@@ -1828,7 +1865,12 @@ class NativeBridge {
       }, timeoutMs);
 
       // Set up callback for response
-      this.pendingPinVerification = { requestId, context, finish };
+      this.pendingPinVerification = {
+        requestId,
+        context: verificationContext,
+        expiresAt: Date.now() + timeoutMs,
+        finish,
+      };
 
       // Send verification request to web
       if (!this.sendToWeb({ type: 'VERIFY_PIN', payload: { requestId, pin } })) {

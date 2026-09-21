@@ -30,6 +30,8 @@ jest.mock('../SeedStorageService', () => ({
 }));
 jest.mock('../BiometricService', () => ({
   getPinWithBiometric: jest.fn(),
+  isAuthenticationPromptActive: jest.fn(() => false),
+  onAuthenticationPromptSettled: jest.fn(() => jest.fn()),
   clearPendingSecurityOperations: jest.fn(),
 }));
 jest.mock('../NativeBridge', () => {

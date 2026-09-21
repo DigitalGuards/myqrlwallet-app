@@ -20,6 +20,16 @@ export function createBackgroundLock(options: BackgroundLockOptions) {
     }
   };
 
+  const scheduleInactiveLock = () => {
+    clearTimer();
+    inactiveTimer = setTimeout(() => {
+      inactiveTimer = null;
+      if (options.getCurrentState() !== 'active' && !options.isAuthenticating()) {
+        options.onLock();
+      }
+    }, IOS_INACTIVE_TIMEOUT_MS);
+  };
+
   return {
     onChange(previous: AppStateStatus, next: AppStateStatus): void {
       if (previous === next) return;
@@ -38,12 +48,14 @@ export function createBackgroundLock(options: BackgroundLockOptions) {
         next === 'inactive' &&
         !options.isAuthenticating()
       ) {
-        inactiveTimer = setTimeout(() => {
-          inactiveTimer = null;
-          if (options.getCurrentState() !== 'active' && !options.isAuthenticating()) {
-            options.onLock();
-          }
-        }, IOS_INACTIVE_TIMEOUT_MS);
+        scheduleInactiveLock();
+      }
+    },
+    onAuthenticationSettled(): void {
+      // iOS may settle the prompt before reporting active. Recheck after the
+      // normal grace so a cancelled prompt cannot leave an inactive app open.
+      if (options.isIOS && options.getCurrentState() === 'inactive') {
+        scheduleInactiveLock();
       }
     },
     dispose: clearTimer,

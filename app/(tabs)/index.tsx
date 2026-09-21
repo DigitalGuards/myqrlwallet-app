@@ -462,9 +462,12 @@ export default function WalletScreen() {
     const backgroundLock = createBackgroundLock({
       isIOS: Platform.OS === 'ios',
       getCurrentState: () => AppState.currentState,
-      isAuthenticating: () => isAuthenticating.current,
+      isAuthenticating: () => BiometricService.isAuthenticationPromptActive(),
       onLock: markForReauth,
     });
+    const unsubscribeAuthentication = BiometricService.onAuthenticationPromptSettled(
+      () => backgroundLock.onAuthenticationSettled(),
+    );
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       backgroundLock.onChange(appState.current, nextAppState);
 
@@ -480,6 +483,7 @@ export default function WalletScreen() {
 
     return () => {
       subscription.remove();
+      unsubscribeAuthentication();
       backgroundLock.dispose();
     };
   }, [markForReauth, resumePendingReauth]);

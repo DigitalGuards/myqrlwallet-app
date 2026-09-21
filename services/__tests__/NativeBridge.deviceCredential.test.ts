@@ -146,6 +146,186 @@ describe('NativeBridge device credential protocol', () => {
     send.mockRestore();
   });
 
+  it('reads the existing credential during a native-initiated locked PIN verification', async () => {
+    mockGetDeviceCredential.mockResolvedValue(CREDENTIAL);
+    NativeBridge.invalidateAuthorization();
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    const verification = NativeBridge.verifyPin('1234');
+    await Promise.resolve();
+
+    try {
+      const verifyRequest = send.mock.calls.find(([message]) => message.type === 'VERIFY_PIN')?.[0];
+      expect(verifyRequest).toBeDefined();
+      await handleBridge({
+        type: 'DEVICE_CREDENTIAL_REQUEST',
+        payload: { requestId: REQUEST_ID, createIfMissing: false },
+      });
+
+      expect(mockGetDeviceCredential).toHaveBeenCalledTimes(1);
+      expect(mockGetOrCreate).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith({
+        type: 'DEVICE_CREDENTIAL_RESPONSE',
+        payload: { requestId: REQUEST_ID, credential: CREDENTIAL },
+      });
+      await handleBridge({
+        type: 'PIN_VERIFIED',
+        payload: { requestId: verifyRequest?.payload?.requestId, success: true },
+      });
+      await expect(verification).resolves.toEqual({ success: true, error: undefined });
+    } finally {
+      NativeBridge.invalidateAuthorization();
+      await verification;
+      send.mockRestore();
+    }
+  });
+
+  describe('locked device credential boundaries', () => {
+    let send: jest.SpyInstance;
+
+    beforeEach(() => {
+      NativeBridge.invalidateAuthorization();
+      mockGetDeviceCredential.mockReset().mockResolvedValue(CREDENTIAL);
+      mockGetOrCreate.mockReset();
+      send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+      NativeBridge.invalidateAuthorization();
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    });
+
+    async function startVerification(timeoutMs = 1000) {
+      const result = NativeBridge.verifyPin('1234', timeoutMs);
+      await Promise.resolve();
+      const request = [...send.mock.calls].reverse()
+        .find(([message]) => message.type === 'VERIFY_PIN')?.[0];
+      expect(request).toBeDefined();
+      return { result, requestId: request.payload.requestId as string };
+    }
+
+    const readCredential = () => handleBridge({
+      type: 'DEVICE_CREDENTIAL_REQUEST',
+      payload: { requestId: REQUEST_ID, createIfMissing: false },
+    });
+
+    const credentialResponses = () => send.mock.calls
+      .filter(([message]) => message.type === 'DEVICE_CREDENTIAL_RESPONSE');
+
+    it('does not read an existing factor without a pending native PIN verification', async () => {
+      await readCredential();
+      expect(mockGetDeviceCredential).not.toHaveBeenCalled();
+      expect(mockGetOrCreate).not.toHaveBeenCalled();
+      expect(credentialResponses()).toHaveLength(0);
+    });
+
+    it('does not create a factor even during a pending native PIN verification', async () => {
+      const verification = await startVerification();
+      await handleBridge({
+        type: 'DEVICE_CREDENTIAL_REQUEST',
+        payload: { requestId: REQUEST_ID, createIfMissing: true, candidate: CREDENTIAL },
+      });
+      expect(mockGetDeviceCredential).not.toHaveBeenCalled();
+      expect(mockGetOrCreate).not.toHaveBeenCalled();
+      expect(credentialResponses()).toHaveLength(0);
+      NativeBridge.invalidateAuthorization();
+      await verification.result;
+    });
+
+    it('does not read for a different document during a pending verification', async () => {
+      const verification = await startVerification();
+      await nativeHandle({
+        type: 'DEVICE_CREDENTIAL_REQUEST',
+        payload: { requestId: REQUEST_ID, createIfMissing: false, documentId: 'ff'.repeat(16) },
+      });
+      expect(mockGetDeviceCredential).not.toHaveBeenCalled();
+      expect(credentialResponses()).toHaveLength(0);
+      NativeBridge.invalidateAuthorization();
+      await verification.result;
+    });
+
+    it('reports a missing factor without creating one during verification', async () => {
+      mockGetDeviceCredential.mockResolvedValue(null);
+      const verification = await startVerification();
+      await readCredential();
+      expect(mockGetOrCreate).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith({
+        type: 'DEVICE_CREDENTIAL_RESPONSE',
+        payload: { requestId: REQUEST_ID, error: 'NOT_FOUND' },
+      });
+      NativeBridge.invalidateAuthorization();
+      await verification.result;
+    });
+
+    it('does not read after the deadline even if the timeout callback has not run', async () => {
+      jest.useFakeTimers();
+      const verification = await startVerification();
+      jest.setSystemTime(Date.now() + 1000);
+      await readCredential();
+      expect(mockGetDeviceCredential).not.toHaveBeenCalled();
+      expect(credentialResponses()).toHaveLength(0);
+      NativeBridge.invalidateAuthorization();
+      await verification.result;
+    });
+
+    it.each(['authorization', 'document', 'wallet wipe', 'completion', 'replacement', 'deadline']) (
+      'discards a pending credential read after %s changes',
+      async change => {
+        jest.useFakeTimers();
+        let resolveRead!: (value: string) => void;
+        mockGetDeviceCredential.mockReturnValue(new Promise(resolve => { resolveRead = resolve; }));
+        const verification = await startVerification();
+        const handled = readCredential();
+        expect(mockGetDeviceCredential).toHaveBeenCalledTimes(1);
+
+        let replacement: Awaited<ReturnType<typeof startVerification>> | undefined;
+        if (change === 'authorization') NativeBridge.invalidateAuthorization();
+        if (change === 'document') NativeBridge.resetWebAppReady();
+        if (change === 'wallet wipe') NativeBridge.beginWalletClear();
+        if (change === 'deadline') jest.setSystemTime(Date.now() + 1000);
+        if (change === 'completion' || change === 'replacement') {
+          await handleBridge({
+            type: 'PIN_VERIFIED',
+            payload: { requestId: verification.requestId, success: true },
+          });
+          await verification.result;
+          if (change === 'replacement') replacement = await startVerification();
+        }
+
+        resolveRead(CREDENTIAL);
+        await handled;
+        expect(credentialResponses()).toHaveLength(0);
+        expect(mockGetOrCreate).not.toHaveBeenCalled();
+        NativeBridge.invalidateAuthorization();
+        await verification.result;
+        if (replacement) await replacement.result;
+      },
+    );
+
+    it('discards a delayed storage error after the verification is invalidated', async () => {
+      let rejectRead!: (error: Error) => void;
+      mockGetDeviceCredential.mockReturnValue(new Promise((_resolve, reject) => { rejectRead = reject; }));
+      const verification = await startVerification();
+      const handled = readCredential();
+      NativeBridge.invalidateAuthorization();
+      rejectRead(new Error('Test storage unavailable'));
+      await handled;
+      await verification.result;
+      expect(credentialResponses()).toHaveLength(0);
+    });
+
+    it('discards an authorized read if the app locks before storage resolves', async () => {
+      NativeBridge.setNativeAuthorization(true);
+      let resolveRead!: (value: string) => void;
+      mockGetDeviceCredential.mockReturnValue(new Promise(resolve => { resolveRead = resolve; }));
+      const handled = readCredential();
+      NativeBridge.invalidateAuthorization();
+      resolveRead(CREDENTIAL);
+      await handled;
+      expect(credentialResponses()).toHaveLength(0);
+    });
+  });
+
   it('injects a PIN only after the current WebView is ready', async () => {
     NativeBridge.resetWebAppReady();
     NativeBridge.setNativeAuthorization(true);
