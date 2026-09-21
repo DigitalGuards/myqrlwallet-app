@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import NativeBridge, { BridgeMessage } from '../services/NativeBridge';
 import Logger from '../services/Logger';
+import { NATIVE_WEBVIEW_INJECTED_OBJECT } from '../services/NativeWalletProfile';
 import {
   isAllowedWalletDocumentUrl,
   walletUrlOriginForLog,
@@ -312,6 +313,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
             <WebView
               ref={webViewRef}
               source={{ uri }}
+              injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}
               style={styles.webView}
               originWhitelist={__DEV__ ? ['http://*', 'https://*'] : ['https://qrlwallet.com']}
               userAgent={customUserAgent}

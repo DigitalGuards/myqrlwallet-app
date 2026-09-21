@@ -2,32 +2,35 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import Logger from './Logger';
+import { isQrlAddress, qrlAddressStorageKey, requireQrlAddress } from './QrlAddress';
+import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 
 /**
  * Storage keys
  */
 const LEGACY_SEED_BACKUP_PREFIX = 'seed_backup_';
-const SEED_BACKUP_PREFIX = 'seed_backup_v2_';
-const PIN_KEY = 'wallet_pin';
-const DEVICE_CREDENTIAL_KEY = 'wallet_device_credential_v1';
-const BIOMETRIC_ENABLED_KEY = 'biometric_enabled';
-const BIOMETRIC_PROMPT_SHOWN_KEY = 'biometric_prompt_shown';
-const WALLET_METADATA_KEY = 'wallet_metadata';
+const SEED_BACKUP_PREFIX = 'seed_backup_v3_';
+const PIN_KEY = 'wallet_pin_v3';
+const DEVICE_CREDENTIAL_KEY = 'wallet_device_credential_v3';
+const BIOMETRIC_ENABLED_KEY = 'biometric_enabled_v3';
+const BIOMETRIC_PROMPT_SHOWN_KEY = 'biometric_prompt_shown_v3';
+const WALLET_METADATA_KEY = 'wallet_metadata_v3';
 const WALLET_WIPE_PENDING_KEY = 'wallet_wipe_pending_v1';
 // AsyncStorage mirror of "does the Keychain hold a PIN?". Maintained alongside
 // every storePinSecurely / clearWallet so hasPinStored() can answer without
 // hitting SecureStore. A background Keychain read during the lock transition
 // raises errSecInteractionNotAllowed and pollutes logs.
-const PIN_EXISTS_KEY = 'pin_exists';
+const PIN_EXISTS_KEY = 'pin_exists_v3';
 // AsyncStorage marker for the accessibility class the stored PIN was written
 // under. Bumped whenever we change the class. Used to decide whether a running
 // session should silently re-write the PIN with the current class.
-const PIN_ACCESSIBILITY_VERSION_KEY = 'pin_accessibility_version';
+const PIN_ACCESSIBILITY_VERSION_KEY = 'pin_accessibility_version_v3';
 const CURRENT_PIN_ACCESSIBILITY_VERSION = 'v2';
 const DEVICE_CREDENTIAL_PATTERN = /^[0-9a-f]{64}$/;
 const CIPHERTEXT_HASH_PATTERN = /^[0-9a-f]{64}$/;
-const Q_ADDRESS_PATTERN = /^Q[0-9a-fA-F]{40}$/;
-const SUPPORTED_BLOCKCHAINS = new Set(['TEST_NET', 'MAIN_NET']);
+const LEGACY_Q40_ADDRESS_PATTERN = /^Q[0-9a-fA-F]{40}$/;
+const SUPPORTED_BLOCKCHAINS = new Set<string>([NATIVE_WALLET_BLOCKCHAIN]);
+const LEGACY_BLOCKCHAINS = new Set(['TEST_NET', 'MAIN_NET']);
 const MAX_ENCRYPTED_SEED_LENGTH = 256 * 1024;
 const MAX_SEED_BACKUPS = 64;
 const REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/;
@@ -83,27 +86,25 @@ export class SecureStorageUnavailableError extends Error {
   }
 }
 
-function normalizeAddress(address: string): string {
-  if (!Q_ADDRESS_PATTERN.test(address)) throw new Error('Invalid QRL wallet address');
-  return `Q${address.slice(1).toLowerCase()}`;
-}
-
 function backupKey(blockchain: string, address: string): string {
   if (!SUPPORTED_BLOCKCHAINS.has(blockchain)) throw new Error('Unsupported wallet blockchain');
-  return `${SEED_BACKUP_PREFIX}${blockchain}_${normalizeAddress(address).toLowerCase()}`;
+  return `${SEED_BACKUP_PREFIX}${blockchain}_${qrlAddressStorageKey(address)}`;
 }
 
-function parseBackup(data: string): SeedBackup | null {
+function parseBackupWithAddressValidator(
+  data: string,
+  isValidAddress: (value: unknown) => value is string,
+  blockchains: ReadonlySet<string>,
+): SeedBackup | null {
   try {
     const parsed = JSON.parse(data) as Partial<SeedBackup>;
     if (
-      typeof parsed.address !== 'string' ||
-      !Q_ADDRESS_PATTERN.test(parsed.address) ||
+      !isValidAddress(parsed.address) ||
       typeof parsed.encryptedSeed !== 'string' ||
       parsed.encryptedSeed.length === 0 ||
       parsed.encryptedSeed.length > MAX_ENCRYPTED_SEED_LENGTH ||
       typeof parsed.blockchain !== 'string' ||
-      !SUPPORTED_BLOCKCHAINS.has(parsed.blockchain) ||
+      !blockchains.has(parsed.blockchain) ||
       typeof parsed.storedAt !== 'number' ||
       !Number.isSafeInteger(parsed.storedAt) ||
       parsed.storedAt < 0
@@ -121,7 +122,7 @@ function parseBackup(data: string): SeedBackup | null {
         : undefined;
     if (revision > 0 && ciphertextHash === undefined) return null;
     return {
-      address: normalizeAddress(parsed.address),
+      address: parsed.address,
       encryptedSeed: parsed.encryptedSeed,
       blockchain: parsed.blockchain,
       storedAt: parsed.storedAt,
@@ -133,13 +134,25 @@ function parseBackup(data: string): SeedBackup | null {
   }
 }
 
+function parseBackup(data: string): SeedBackup | null {
+  return parseBackupWithAddressValidator(data, isQrlAddress, SUPPORTED_BLOCKCHAINS);
+}
+
+function isLegacyQ40Address(value: unknown): value is string {
+  return typeof value === 'string' && LEGACY_Q40_ADDRESS_PATTERN.test(value);
+}
+
+function parseLegacyQ40Backup(data: string): SeedBackup | null {
+  return parseBackupWithAddressValidator(data, isLegacyQ40Address, LEGACY_BLOCKCHAINS);
+}
+
 function parseWalletMetadata(data: string): WalletMetadata | null {
   try {
     const parsed = JSON.parse(data) as Partial<WalletMetadata>;
     if (
       !Array.isArray(parsed.addresses) ||
       parsed.addresses.length > MAX_SEED_BACKUPS ||
-      !parsed.addresses.every((address) => typeof address === 'string' && Q_ADDRESS_PATTERN.test(address)) ||
+      !parsed.addresses.every(isQrlAddress) ||
       typeof parsed.hasWallet !== 'boolean' ||
       typeof parsed.lastUpdated !== 'number' ||
       !Number.isSafeInteger(parsed.lastUpdated) ||
@@ -148,7 +161,7 @@ function parseWalletMetadata(data: string): WalletMetadata | null {
       return null;
     }
     return {
-      addresses: parsed.addresses.map(normalizeAddress),
+      addresses: parsed.addresses,
       hasWallet: parsed.hasWallet,
       lastUpdated: parsed.lastUpdated,
     };
@@ -253,8 +266,8 @@ class SeedStorageService {
     if (!CIPHERTEXT_HASH_PATTERN.test(ciphertextHash)) {
       throw new Error('Invalid encrypted seed hash');
     }
-    const normalizedAddress = normalizeAddress(address);
-    const key = backupKey(blockchain, normalizedAddress);
+    const validatedAddress = requireQrlAddress(address);
+    const key = backupKey(blockchain, validatedAddress);
 
     return this.enqueueWalletOperation(async () => {
       const actualCiphertextHash = await Crypto.digestStringAsync(
@@ -284,14 +297,14 @@ class SeedStorageService {
       const targetAlreadyExists = currentBackups.some(
         (backup) =>
           backup.blockchain === blockchain &&
-          backup.address.toLowerCase() === normalizedAddress.toLowerCase(),
+          backup.address.toLowerCase() === validatedAddress.toLowerCase(),
       );
       if (!targetAlreadyExists && currentBackups.length >= MAX_SEED_BACKUPS) {
         throw new Error('Maximum native seed backup count reached');
       }
 
       const backup: SeedBackup = {
-        address: normalizedAddress,
+        address: validatedAddress,
         encryptedSeed,
         blockchain,
         storedAt: Date.now(),
@@ -314,17 +327,10 @@ class SeedStorageService {
         throw new Error('Seed backup persistence could not be confirmed');
       }
 
-      // Remove the address-only legacy slot only after the chain-scoped record
-      // is confirmed. The v2 key prevents TEST_NET and MAIN_NET from clobbering
-      // one another when they use the same Q-address.
-      const legacyKey = `${LEGACY_SEED_BACKUP_PREFIX}${normalizedAddress.toLowerCase()}`;
-      const legacyData = await AsyncStorage.getItem(legacyKey);
-      const legacy = legacyData ? parseBackup(legacyData) : null;
-      if (legacy?.blockchain === blockchain) {
-        await AsyncStorage.removeItem(legacyKey);
-      }
+      // Q+40 backup keys cannot be expanded into their Q+128 identity safely.
+      // Keep every pre-QIP-55 record intact until a seed-aware recovery flow is defined.
       await this.rebuildWalletMetadataRaw();
-      Logger.debug('SeedStorage', `Backed up seed for ${normalizedAddress} (${blockchain})`);
+      Logger.debug('SeedStorage', `Backed up seed for ${validatedAddress} (${blockchain})`);
       return confirmed;
     });
   }
@@ -348,13 +354,23 @@ class SeedStorageService {
     return this.enqueueWalletOperation(() => this.getAllBackupsRaw());
   }
 
-  async getRestoreSnapshot(): Promise<{ generation: number; backups: SeedBackup[] }> {
+  /**
+   * Q+40 records stay outside the restore list because their Q+128 identity
+   * cannot be derived from the truncated address. The count lets a future
+   * seed-aware recovery flow surface those preserved records explicitly.
+   */
+  async getRestoreSnapshot(): Promise<{
+    generation: number;
+    backups: SeedBackup[];
+    legacyAddressBackupCount: number;
+  }> {
     const generation = this.walletGeneration;
     const backups = await this.getAllBackups();
+    const legacyAddressBackupCount = await this.getLegacyAddressBackupCountRaw();
     if (!this.isWalletGenerationCurrent(generation)) {
       throw new Error('Wallet changed while preparing seed restore');
     }
-    return { generation, backups };
+    return { generation, backups, legacyAddressBackupCount };
   }
 
   /**
@@ -576,6 +592,21 @@ class SeedStorageService {
     }
   }
 
+  /** Removing all namespaces preserves Device Login protection from earlier installs. */
+  async requiresWalletRemovalAuthentication(): Promise<boolean> {
+    const [currentEnabled, legacySetting] = await Promise.all([
+      this.isBiometricEnabled(),
+      AsyncStorage.getItem('biometric_enabled'),
+    ]);
+    if (currentEnabled) return true;
+    if (legacySetting === null) return false;
+    try {
+      return JSON.parse(legacySetting) !== false;
+    } catch {
+      return true;
+    }
+  }
+
   /**
    * Set whether the biometric setup prompt has been shown
    */
@@ -601,11 +632,7 @@ class SeedStorageService {
 
   private async getAllBackupsRaw(): Promise<SeedBackup[]> {
     const keys = await AsyncStorage.getAllKeys();
-    const seedKeys = keys.filter(
-      key =>
-        key.startsWith(SEED_BACKUP_PREFIX) ||
-        (key.startsWith(LEGACY_SEED_BACKUP_PREFIX) && !key.startsWith(SEED_BACKUP_PREFIX)),
-    );
+    const seedKeys = keys.filter(key => key.startsWith(SEED_BACKUP_PREFIX));
     if (seedKeys.length === 0) return [];
 
     const results = await AsyncStorage.multiGet(seedKeys);
@@ -625,6 +652,25 @@ class SeedStorageService {
       }
     }
     return [...newestByScope.values()];
+  }
+
+  private async getLegacyAddressBackupCountRaw(): Promise<number> {
+    const keys = await AsyncStorage.getAllKeys();
+    const legacyKeys = keys.filter(
+      key =>
+        key.startsWith(LEGACY_SEED_BACKUP_PREFIX) && !key.startsWith(SEED_BACKUP_PREFIX),
+    );
+    if (legacyKeys.length === 0) return 0;
+
+    const results = await AsyncStorage.multiGet(legacyKeys);
+    const scopes = new Set<string>();
+    for (const [, data] of results) {
+      if (!data) continue;
+      const backup = parseLegacyQ40Backup(data);
+      if (!backup) continue;
+      scopes.add(`${backup.blockchain}\u0000${backup.address.toLowerCase()}`);
+    }
+    return scopes.size;
   }
 
   private async rebuildWalletMetadataRaw(): Promise<void> {
@@ -658,8 +704,9 @@ class SeedStorageService {
     // A negative or malformed cache is never authoritative. Scan the seed
     // records and repair metadata so a stale false value cannot bypass lock.
     const backups = await this.getAllBackups();
+    const legacyAddressBackupCount = await this.getLegacyAddressBackupCountRaw();
     await this.enqueueWalletOperation(() => this.rebuildWalletMetadataRaw());
-    return backups.length > 0;
+    return backups.length > 0 || legacyAddressBackupCount > 0;
   }
 
   /** Read the durable marker that makes a partially completed wipe resumable. */
@@ -738,13 +785,11 @@ class SeedStorageService {
         const seedKeys = keys.filter(key => key.startsWith(LEGACY_SEED_BACKUP_PREFIX));
         await AsyncStorage.multiRemove(seedKeys);
 
-        await SecureStore.deleteItemAsync(PIN_KEY);
-        await SecureStore.deleteItemAsync(DEVICE_CREDENTIAL_KEY);
-        const [storedPin, storedCredential] = await Promise.all([
-          SecureStore.getItemAsync(PIN_KEY),
-          SecureStore.getItemAsync(DEVICE_CREDENTIAL_KEY),
-        ]);
-        if (storedPin !== null || storedCredential !== null) {
+        // Remove All Wallets is the explicit destructive operation for both namespaces.
+        const secureKeys = [PIN_KEY, DEVICE_CREDENTIAL_KEY, 'wallet_pin', 'wallet_device_credential_v1'];
+        for (const key of secureKeys) await SecureStore.deleteItemAsync(key);
+        const remainingCredentials = await Promise.all(secureKeys.map(key => SecureStore.getItemAsync(key)));
+        if (remainingCredentials.some(value => value !== null)) {
           throw new Error('Secure wallet credential removal could not be confirmed');
         }
 
@@ -754,6 +799,11 @@ class SeedStorageService {
           WALLET_METADATA_KEY,
           PIN_EXISTS_KEY,
           PIN_ACCESSIBILITY_VERSION_KEY,
+          'biometric_enabled',
+          'biometric_prompt_shown',
+          'wallet_metadata',
+          'pin_exists',
+          'pin_accessibility_version',
         ];
         await AsyncStorage.multiRemove(markerKeys);
         const remaining = await AsyncStorage.multiGet([...seedKeys, ...markerKeys]);
@@ -777,27 +827,20 @@ class SeedStorageService {
    * Remove a specific seed backup
    */
   async removeBackup(address: string, blockchain?: string): Promise<void> {
-    const normalizedAddress = normalizeAddress(address);
+    const validatedAddress = requireQrlAddress(address);
     return this.enqueueWalletOperation(async () => {
-      const legacyKey = `${LEGACY_SEED_BACKUP_PREFIX}${normalizedAddress.toLowerCase()}`;
       if (blockchain) {
-        await AsyncStorage.removeItem(backupKey(blockchain, normalizedAddress));
-        const legacyData = await AsyncStorage.getItem(legacyKey);
-        const legacy = legacyData ? parseBackup(legacyData) : null;
-        if (legacy?.blockchain === blockchain) {
-          await AsyncStorage.removeItem(legacyKey);
-        }
+        await AsyncStorage.removeItem(backupKey(blockchain, validatedAddress));
       } else {
         const keys = await AsyncStorage.getAllKeys();
-        const suffix = `_${normalizedAddress.toLowerCase()}`;
+        const suffix = `_${qrlAddressStorageKey(validatedAddress)}`;
         const scoped = keys.filter(
           key => key.startsWith(SEED_BACKUP_PREFIX) && key.endsWith(suffix),
         );
         await AsyncStorage.multiRemove(scoped);
-        await AsyncStorage.removeItem(legacyKey);
       }
       await this.rebuildWalletMetadataRaw();
-      Logger.debug('SeedStorage', `Removed backup for ${normalizedAddress}`);
+      Logger.debug('SeedStorage', `Removed backup for ${validatedAddress}`);
     });
   }
 }

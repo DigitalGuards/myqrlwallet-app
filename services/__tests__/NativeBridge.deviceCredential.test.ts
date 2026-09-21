@@ -63,7 +63,7 @@ const mockStorePin = SeedStorageService.storePinSecurely as jest.MockedFunction<
 
 const REQUEST_ID = '12'.repeat(16);
 const CREDENTIAL = 'ab'.repeat(32);
-const ADDRESS = `Q${'12'.repeat(20)}`;
+const ADDRESS = `Q${'aB'.repeat(64)}`;
 const CIPHERTEXT_HASH = 'cd'.repeat(32);
 const DOCUMENT_ID = 'de'.repeat(16);
 const nativeHandle = NativeBridge.handle.bind(NativeBridge);
@@ -189,7 +189,7 @@ describe('NativeBridge device credential protocol', () => {
           resolve({
             address: ADDRESS,
             encryptedSeed: 'ciphertext',
-            blockchain: 'TEST_NET',
+            blockchain: 'TEST_NET_V3',
             revision: 7,
             ciphertextHash: CIPHERTEXT_HASH,
             storedAt: 1,
@@ -204,7 +204,7 @@ describe('NativeBridge device credential protocol', () => {
         requestId: REQUEST_ID,
         address: ADDRESS,
         encryptedSeed: 'ciphertext',
-        blockchain: 'TEST_NET',
+        blockchain: 'TEST_NET_V3',
         revision: 7,
         ciphertextHash: CIPHERTEXT_HASH,
       },
@@ -216,7 +216,7 @@ describe('NativeBridge device credential protocol', () => {
     expect(mockBackupSeed).toHaveBeenCalledWith(
       ADDRESS,
       'ciphertext',
-      'TEST_NET',
+      'TEST_NET_V3',
       7,
       CIPHERTEXT_HASH,
     );
@@ -232,29 +232,53 @@ describe('NativeBridge device credential protocol', () => {
     send.mockRestore();
   });
 
-  it('rejects a lowercase-q seed address before native persistence', async () => {
-    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+  it.each([`q${'12'.repeat(64)}`, `Q${'12'.repeat(20)}`])(
+    'rejects a non-Q+128 seed address before native persistence',
+    async (address) => {
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
 
+      await handleBridge({
+        type: 'SEED_STORED',
+        payload: {
+          requestId: REQUEST_ID,
+          address,
+          encryptedSeed: 'ciphertext',
+          blockchain: 'TEST_NET_V3',
+          revision: 7,
+          ciphertextHash: CIPHERTEXT_HASH,
+        },
+      });
+
+      expect(mockBackupSeed).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith({
+        type: 'SEED_STORED_RESPONSE',
+        payload: {
+          requestId: REQUEST_ID,
+          success: false,
+          error: 'INVALID_REQUEST',
+        },
+      });
+      send.mockRestore();
+    },
+  );
+
+  it.each(['TEST_NET', 'MAIN_NET', 'TEST_NET_V4'])('rejects a seed backup for an unqualified network: %s', async blockchain => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
     await handleBridge({
       type: 'SEED_STORED',
       payload: {
         requestId: REQUEST_ID,
-        address: `q${'12'.repeat(20)}`,
+        address: ADDRESS,
         encryptedSeed: 'ciphertext',
-        blockchain: 'TEST_NET',
-        revision: 7,
+        blockchain,
+        revision: 1,
         ciphertextHash: CIPHERTEXT_HASH,
       },
     });
-
     expect(mockBackupSeed).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith({
       type: 'SEED_STORED_RESPONSE',
-      payload: {
-        requestId: REQUEST_ID,
-        success: false,
-        error: 'INVALID_REQUEST',
-      },
+      payload: { requestId: REQUEST_ID, success: false, error: 'INVALID_REQUEST' },
     });
     send.mockRestore();
   });
@@ -269,7 +293,7 @@ describe('NativeBridge device credential protocol', () => {
         requestId: REQUEST_ID,
         address: ADDRESS,
         encryptedSeed: 'ciphertext',
-        blockchain: 'MAIN_NET',
+        blockchain: 'TEST_NET_V3',
         revision: 3,
         ciphertextHash: CIPHERTEXT_HASH,
       },

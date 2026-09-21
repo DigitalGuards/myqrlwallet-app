@@ -48,7 +48,24 @@ describe('WebViewService contact wipe ordering', () => {
     releaseWrite?.();
     await save;
     await clear;
-    expect(mockRemove).toHaveBeenCalledTimes(1);
+    expect(mockRemove).toHaveBeenCalledTimes(2);
     expect(stored).toBeNull();
+  });
+
+  it('stores v3 contacts separately and leaves the earlier backup intact', async () => {
+    jest.clearAllMocks();
+    const oldKey = '@MyQRLWallet:contactsBackup';
+    const oldContacts = '[{"id":"legacy-contact"}]';
+    const data = new Map([[oldKey, oldContacts]]);
+    mockSet.mockImplementation(async (key, value) => { data.set(key, value); });
+    mockGet.mockImplementation(async key => data.get(key) ?? null);
+    mockRemove.mockImplementation(async key => { data.delete(key); });
+
+    expect(await WebViewService.getContactsBackup()).toBeNull();
+    await WebViewService.saveContactsBackupStrict('[{"id":"v3-contact"}]');
+    expect(data.get(oldKey)).toBe(oldContacts);
+    expect(data.get('@MyQRLWallet:v3:contactsBackup')).toBe('[{"id":"v3-contact"}]');
+    await WebViewService.clearContactsBackupStrict();
+    expect(data.size).toBe(0);
   });
 });

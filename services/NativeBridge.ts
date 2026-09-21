@@ -8,12 +8,13 @@ import SeedStorageService from './SeedStorageService';
 import DAppConnectionStore from './DAppConnectionStore';
 import WebViewService from './WebViewService';
 import Logger from './Logger';
+import { isQrlAddress } from './QrlAddress';
+import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 
 export const NATIVE_PIN_COMMIT_ERROR = 'Native secure PIN commit failed';
 export const NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR = 'Native PIN change outcome is ambiguous';
 
 const REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/;
-const Q40_ADDRESS_PATTERN = /^Q[0-9a-fA-F]{40}$/;
 const CHANNEL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PIN_PATTERN = /^\d{4,6}$/;
 const MAX_CLIPBOARD_CHARS = 64 * 1024;
@@ -48,7 +49,7 @@ function isValidContact(value: unknown): boolean {
     contact.name.length > 0 &&
     contact.name.length <= 128 &&
     typeof contact.address === 'string' &&
-    Q40_ADDRESS_PATTERN.test(contact.address) &&
+    isQrlAddress(contact.address) &&
     typeof contact.createdAt === 'number' &&
     Number.isSafeInteger(contact.createdAt) &&
     contact.createdAt >= 0
@@ -400,10 +401,20 @@ class NativeBridge {
         if (
           Array.isArray(contacts) &&
           contacts.length <= MAX_CONTACTS &&
-          contacts.every(isValidContact) &&
           contactsJson.length <= MAX_CONTACTS_JSON_CHARS
         ) {
-          this.sendToWeb({ type: 'RESTORE_CONTACTS', payload: { contacts } });
+          // Restore whatever is still valid; a single stale record must not
+          // block every other contact from coming back.
+          const validContacts = contacts.filter(isValidContact);
+          if (validContacts.length < contacts.length) {
+            Logger.warn(
+              'NativeBridge',
+              `Contacts restore skipped ${contacts.length - validContacts.length} invalid record(s)`,
+            );
+          }
+          if (validContacts.length > 0) {
+            this.sendToWeb({ type: 'RESTORE_CONTACTS', payload: { contacts: validContacts } });
+          }
         }
       }
 
@@ -838,13 +849,12 @@ class NativeBridge {
         if (
           typeof requestId !== 'string' ||
           !REQUEST_ID_PATTERN.test(requestId) ||
-          typeof address !== 'string' ||
-          !Q40_ADDRESS_PATTERN.test(address) ||
+          !isQrlAddress(address) ||
           typeof encryptedSeed !== 'string' ||
           encryptedSeed.length === 0 ||
           encryptedSeed.length > 256 * 1024 ||
           typeof blockchain !== 'string' ||
-          !['TEST_NET', 'MAIN_NET'].includes(blockchain) ||
+          blockchain !== NATIVE_WALLET_BLOCKCHAIN ||
           typeof revision !== 'number' ||
           !Number.isSafeInteger(revision) ||
           revision < 1 ||
@@ -923,15 +933,22 @@ class NativeBridge {
         // the Remove All Wallets wipe.
         const contacts = payload?.contacts;
         if (this.walletClearInProgress) return;
-        if (
-          !Array.isArray(contacts) ||
-          contacts.length > MAX_CONTACTS ||
-          !contacts.every(isValidContact)
-        ) {
+        if (!Array.isArray(contacts) || contacts.length > MAX_CONTACTS) {
           Logger.warn('NativeBridge', 'CONTACTS_UPDATED has an invalid contacts array');
           return;
         }
-        const contactsJson = JSON.stringify(contacts);
+        // Prune invalid entries (e.g. orphaned legacy Q40 contacts) instead of
+        // silently disabling the whole durable backup. An all-invalid update
+        // keeps the previous backup untouched.
+        const validContacts = contacts.filter(isValidContact);
+        if (validContacts.length < contacts.length) {
+          Logger.warn(
+            'NativeBridge',
+            `CONTACTS_UPDATED dropped ${contacts.length - validContacts.length} invalid contact(s)`,
+          );
+        }
+        if (validContacts.length === 0 && contacts.length > 0) return;
+        const contactsJson = JSON.stringify(validContacts);
         if (contactsJson.length > MAX_CONTACTS_JSON_CHARS) {
           Logger.warn('NativeBridge', 'CONTACTS_UPDATED exceeds the storage budget');
           return;
@@ -1155,7 +1172,7 @@ class NativeBridge {
         const connectedAccount =
           typeof payload?.connectedAccount === 'string' ? payload.connectedAccount : '';
         if (
-          !Q40_ADDRESS_PATTERN.test(connectedAccount) ||
+          !isQrlAddress(connectedAccount) ||
           !CHANNEL_ID_PATTERN.test(channelId) ||
           name.length === 0 ||
           name.length > MAX_DAPP_NAME_CHARS ||
@@ -1580,6 +1597,7 @@ class NativeBridge {
     revision: number,
     ciphertextHash?: string
   ) {
+    if (!isQrlAddress(address) || blockchain !== NATIVE_WALLET_BLOCKCHAIN) return;
     this.sendToWeb({
       type: 'RESTORE_SEED',
       payload: {

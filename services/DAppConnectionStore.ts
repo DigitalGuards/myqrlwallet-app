@@ -1,13 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Logger from './Logger';
+import { isQrlAddress } from './QrlAddress';
 
-const STORAGE_KEY = '@dapp_connection_history';
+const STORAGE_KEY = '@dapp_connection_history_v3';
 const TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_RECORDS = 300;
 const MAX_STORAGE_CHARS = 500_000;
 const MAX_NAME_LENGTH = 128;
 const MAX_URL_LENGTH = 2048;
-const Q40_ADDRESS = /^Q[0-9a-fA-F]{40}$/;
 const CHANNEL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface DAppConnectionRecord {
@@ -32,7 +32,7 @@ class DAppConnectionStore {
       channelId: record.channelId.slice(0, 36),
       name: record.name.slice(0, MAX_NAME_LENGTH),
       url: record.url.slice(0, MAX_URL_LENGTH),
-      connectedAccount: record.connectedAccount.slice(0, 41),
+      connectedAccount: record.connectedAccount,
     };
   }
 
@@ -48,7 +48,7 @@ class DAppConnectionStore {
       typeof record.url === 'string' &&
       record.url.length <= MAX_URL_LENGTH &&
       typeof record.connectedAccount === 'string' &&
-      Q40_ADDRESS.test(record.connectedAccount) &&
+      isQrlAddress(record.connectedAccount) &&
       typeof record.connectedAt === 'number' &&
       Number.isSafeInteger(record.connectedAt) &&
       record.connectedAt >= 0 &&
@@ -165,7 +165,7 @@ class DAppConnectionStore {
   async onConnected(
     record: Omit<DAppConnectionRecord, 'disconnectedAt' | 'explicitlyDisconnected'>
   ): Promise<void> {
-    if (!Q40_ADDRESS.test(record.connectedAccount)) {
+    if (!isQrlAddress(record.connectedAccount)) {
       throw new Error('Invalid dApp connected account');
     }
     if (
@@ -260,6 +260,10 @@ class DAppConnectionStore {
       }
       this.records = [];
       await this.save();
+      await AsyncStorage.removeItem('@dapp_connection_history');
+      if ((await AsyncStorage.getItem('@dapp_connection_history')) !== null) {
+        throw new Error('Legacy dApp history removal could not be confirmed');
+      }
     });
   }
 }
