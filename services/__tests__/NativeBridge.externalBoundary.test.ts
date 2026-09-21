@@ -276,16 +276,111 @@ describe('NativeBridge hosted WebView boundaries', () => {
     });
   });
 
-  it('returns the exact Q+128 QR payload to the wallet document', () => {
+  it('returns the exact Q+128 QR payload once for the active scanner request', async () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
-
-    NativeBridge.sendQRResult(QIP55_ADDRESS);
+    const scan = jest.fn();
+    NativeBridge.onQRScanRequest(scan);
+    await handleBridge({ type: 'SCAN_QR' });
+    const request = scan.mock.calls[0][0];
+    expect(NativeBridge.sendQRResult(QIP55_ADDRESS, request)).toBe(true);
+    expect(NativeBridge.sendQRResult(QIP55_ADDRESS, request)).toBe(false);
 
     expect(send).toHaveBeenCalledWith({
       type: 'QR_RESULT',
       payload: { address: QIP55_ADDRESS },
     });
     send.mockRestore();
+  });
+
+  it.each(['lock', 'document', 'wipe', 'replacement'])('rejects late QR results after %s', async change => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    const scan = jest.fn();
+    NativeBridge.onQRScanRequest(scan);
+    await handleBridge({ type: 'SCAN_QR' });
+    const request = scan.mock.calls[0][0];
+    if (change === 'lock') NativeBridge.invalidateAuthorization();
+    if (change === 'document') NativeBridge.resetWebAppReady();
+    if (change === 'wipe') NativeBridge.beginWalletClear();
+    if (change === 'replacement') await handleBridge({ type: 'SCAN_QR' });
+    expect(NativeBridge.sendQRResult('qrlconnect://?q=fixture', request)).toBe(false);
+    expect(NativeBridge.sendQRCancelled(request)).toBe(false);
+    expect(send.mock.calls.filter(([message]) => message.type === 'QR_RESULT')).toHaveLength(0);
+    send.mockRestore();
+  });
+
+  it('delivers a cold dApp intent exactly once after initial reset, readiness and PIN unlock', async () => {
+    NativeBridge.resetWebAppReady();
+    expect(NativeBridge.queueDAppURI('qrlconnect://?q=cold-fixture')).toBe(true);
+    NativeBridge.resetWebAppReady();
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
+    const challenge = send.mock.calls.find(([message]) => message.type === 'WEB_DOCUMENT_CHALLENGE')?.[0];
+    await nativeHandle({ type: 'WEB_DOCUMENT_READY', payload: challenge?.payload });
+    expect(send.mock.calls.filter(([message]) => message.type === 'DAPP_URI')).toHaveLength(0);
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
+    NativeBridge.setNativeAuthorization(true);
+    NativeBridge.setNativeAuthorization(true);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(send.mock.calls.filter(([message]) => message.type === 'DAPP_URI')).toEqual([[
+      { type: 'DAPP_URI', payload: { uri: 'qrlconnect://?q=cold-fixture' } },
+    ]]);
+    send.mockRestore();
+  });
+
+  it.each(['lock', 'document', 'wipe', 'expiry'])('cancels a bound pending dApp intent on %s', change => {
+    jest.useFakeTimers();
+    NativeBridge.invalidateAuthorization();
+    NativeBridge.queueDAppURI('qrlconnect://?q=pending-fixture');
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    if (change === 'lock') NativeBridge.invalidateAuthorization();
+    if (change === 'document') NativeBridge.resetWebAppReady();
+    if (change === 'wipe') { NativeBridge.beginWalletClear(); NativeBridge.endWalletClear(); }
+    if (change === 'expiry') jest.advanceTimersByTime(120000);
+    NativeBridge.setNativeAuthorization(true);
+    expect(send.mock.calls.filter(([message]) => message.type === 'DAPP_URI')).toHaveLength(0);
+    NativeBridge.cancelPendingDAppIntent();
+    send.mockRestore();
+    jest.useRealTimers();
+  });
+
+  it('bounds the queue to the newest intent and coalesces duplicate pending arrivals', async () => {
+    NativeBridge.invalidateAuthorization();
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    NativeBridge.queueDAppURI('qrlconnect://?q=old-fixture');
+    NativeBridge.queueDAppURI('qrlconnect://?q=new-fixture');
+    NativeBridge.queueDAppURI('qrlconnect://?q=new-fixture');
+    NativeBridge.setNativeAuthorization(true);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(send.mock.calls.filter(([message]) => message.type === 'DAPP_URI')).toEqual([[
+      { type: 'DAPP_URI', payload: { uri: 'qrlconnect://?q=new-fixture' } },
+    ]]);
+    send.mockRestore();
+  });
+
+  it('waits for authorized wallet restore before delivering a queued dApp intent', async () => {
+    NativeBridge.invalidateAuthorization();
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    let releaseRestore!: () => void;
+    NativeBridge.onWebAppReady(() => new Promise<void>(resolve => {
+      releaseRestore = () => {
+        NativeBridge.sendRestoreSeed(QIP55_ADDRESS, 'fixture ciphertext', 'TEST_NET_V3', 1);
+        resolve();
+      };
+    }));
+    try {
+      NativeBridge.queueDAppURI('qrlconnect://?q=restore-fixture');
+      NativeBridge.setNativeAuthorization(true);
+      for (let i = 0; i < 20 && !releaseRestore; i++) await Promise.resolve();
+      expect(send.mock.calls.filter(([message]) => message.type === 'DAPP_URI')).toHaveLength(0);
+      releaseRestore();
+      for (let i = 0; i < 20; i++) await Promise.resolve();
+      const events = send.mock.calls.map(([message]) => message.type);
+      expect(events.indexOf('RESTORE_SEED')).toBeGreaterThanOrEqual(0);
+      expect(events.indexOf('DAPP_URI')).toBeGreaterThan(events.indexOf('RESTORE_SEED'));
+    } finally {
+      NativeBridge.onWebAppReady(async () => undefined);
+      send.mockRestore();
+    }
   });
 
   it('rejects insecure dApp metadata URLs', async () => {

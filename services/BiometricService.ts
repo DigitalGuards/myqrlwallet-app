@@ -5,6 +5,7 @@ import NativeBridge, {
   NATIVE_PIN_COMMIT_ERROR,
 } from './NativeBridge';
 import Logger from './Logger';
+import DeviceLoginState from './DeviceLoginState';
 
 /**
  * Queued PIN change request (stored in memory for navigation between screens)
@@ -23,6 +24,33 @@ class BiometricService {
   // In-memory queue for Device Login setup (used during navigation from Settings to WebView tab)
   private pendingDeviceLoginPin: string | null = null;
   private securityOperationGeneration = 0;
+  private activeAuthenticationPrompts = 0;
+  private authenticationSettledListeners = new Set<() => void>();
+
+  isAuthenticationPromptActive(): boolean {
+    return this.activeAuthenticationPrompts > 0;
+  }
+
+  onAuthenticationPromptSettled(listener: () => void): () => void {
+    this.authenticationSettledListeners.add(listener);
+    return () => {
+      this.authenticationSettledListeners.delete(listener);
+    };
+  }
+
+  private async runAuthenticationPrompt(
+    options: LocalAuthentication.LocalAuthenticationOptions,
+  ): Promise<LocalAuthentication.LocalAuthenticationResult> {
+    this.activeAuthenticationPrompts += 1;
+    try {
+      return await LocalAuthentication.authenticateAsync(options);
+    } finally {
+      this.activeAuthenticationPrompts -= 1;
+      if (this.activeAuthenticationPrompts === 0) {
+        for (const listener of this.authenticationSettledListeners) listener();
+      }
+    }
+  }
 
   clearPendingSecurityOperations(): void {
     this.securityOperationGeneration += 1;
@@ -168,7 +196,7 @@ class BiometricService {
         if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
           return { success: false, error: 'Wallet state changed during authentication' };
         }
-        const migrated = await SeedStorageService.migratePinAccessibility(pin);
+        const migrated = await DeviceLoginState.migratePinAccessibility(pin, walletGeneration);
         Logger.debug(
           'BiometricService',
           `PIN accessibility migration: ${migrated ? 'ok' : 'retry-next-unlock'}`
@@ -191,7 +219,7 @@ class BiometricService {
     error?: string;
   }> {
     try {
-      const result = await LocalAuthentication.authenticateAsync({
+      const result = await this.runAuthenticationPrompt({
         promptMessage,
         fallbackLabel: 'Use passcode',
         cancelLabel: 'Cancel',
@@ -284,7 +312,7 @@ class BiometricService {
     const status = await this.getBiometricStatus();
     if (status.hasBiometricHardware && !status.biometricUsable) {
       try {
-        const probe = await LocalAuthentication.authenticateAsync({
+        const probe = await this.runAuthenticationPrompt({
           promptMessage: 'Unlock your wallet',
           cancelLabel: 'Cancel',
           disableDeviceFallback: true,
@@ -378,12 +406,7 @@ class BiometricService {
       }
       if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
-      // Store the PIN securely
-      await SeedStorageService.storePinSecurely(pin);
-      if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
-
-      // Enable device login
-      await SeedStorageService.setBiometricEnabled(true);
+      await DeviceLoginState.enable(pin, isCurrent);
       if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
       return { success: true };
@@ -399,9 +422,8 @@ class BiometricService {
   /**
    * Disable device login
    */
-  async disableDeviceLogin(): Promise<void> {
-    await SeedStorageService.setBiometricEnabled(false);
-    await SeedStorageService.clearStoredPin();
+  async disableDeviceLogin(isAuthorized?: () => boolean): Promise<void> {
+    await DeviceLoginState.disable(isAuthorized);
   }
 
   /**

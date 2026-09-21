@@ -10,6 +10,7 @@ import WebViewService from './WebViewService';
 import Logger from './Logger';
 import { isQrlAddress } from './QrlAddress';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
+import DeviceLoginState from './DeviceLoginState';
 
 export const NATIVE_PIN_COMMIT_ERROR = 'Native secure PIN commit failed';
 export const NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR = 'Native PIN change outcome is ambiguous';
@@ -26,12 +27,26 @@ const MAX_CONTACTS_JSON_CHARS = 256 * 1024;
 const MAX_DAPP_NAME_CHARS = 128;
 const MAX_DAPP_URL_CHARS = 2048;
 const MAX_PENDING_SEED_WRITES = 4;
+const DAPP_INTENT_TTL_MS = 120000;
 
 export interface NativeSecurityContext {
   walletGeneration: number;
   documentGeneration: number;
   authorizationGeneration: number;
   documentId: string | null;
+}
+
+export interface NativeQrScanRequest {
+  readonly requestId: string;
+  readonly context: Readonly<NativeSecurityContext>;
+}
+
+interface PendingDAppIntent {
+  uri: string;
+  walletGeneration: number;
+  documentId: string | null;
+  expiresAt: number;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 function createRequestId(): string {
@@ -185,7 +200,7 @@ export interface BridgeResponse {
 /**
  * Callback for when QR scanning is requested
  */
-type QRScanCallback = () => void;
+type QRScanCallback = (request: NativeQrScanRequest) => void;
 
 /**
  * Callback for when biometric unlock is requested
@@ -231,6 +246,7 @@ interface PendingPinChangeRequest {
 interface PendingPinVerification {
   requestId: string;
   context: NativeSecurityContext;
+  expiresAt: number;
   finish: PinVerifiedCallback;
 }
 
@@ -264,6 +280,9 @@ type DAppShowWebViewCallback = () => void;
 class NativeBridge {
   private webViewRef: RefObject<WebView | null> | null = null;
   private qrScanCallback: QRScanCallback | null = null;
+  private pendingQrScan: NativeQrScanRequest | null = null;
+  private pendingDAppIntent: PendingDAppIntent | null = null;
+  private authorizationInvalidatedListeners = new Set<() => void>();
   private biometricUnlockCallback: BiometricUnlockCallback | null = null;
   private seedStoredCallback: SeedStoredCallback | null = null;
   private webAppReadyCallback: WebAppReadyCallback | null = null;
@@ -304,6 +323,7 @@ class NativeBridge {
    */
   setWebViewRef(ref: RefObject<WebView | null>) {
     this.webViewRef = ref;
+    this.flushPendingDAppIntent();
   }
 
   /**
@@ -361,13 +381,29 @@ class NativeBridge {
   }
 
   /** Invalidate auth work when the native lock is engaged. */
-  invalidateAuthorization(): void {
+  onAuthorizationInvalidated(listener: () => void): () => void {
+    this.authorizationInvalidatedListeners.add(listener);
+    return () => { this.authorizationInvalidatedListeners.delete(listener); };
+  }
+
+  private notifyAuthorizationInvalidated(): void {
+    this.pendingQrScan = null;
+    for (const listener of this.authorizationInvalidatedListeners) {
+      try { listener(); } catch { Logger.warn('NativeBridge', 'Authorization listener failed'); }
+    }
+  }
+
+  invalidateAuthorization(options: { preservePendingDAppIntent?: boolean } = {}): void {
     this.nativeAuthorized = false;
     this.authorizationGeneration += 1;
+    this.authorizedSyncDocumentGeneration = -1;
+    if (!options.preservePendingDAppIntent) this.cancelPendingDAppIntent();
     this.cancelPendingPinVerification('App authorization changed');
+    this.notifyAuthorizationInvalidated();
   }
 
   setNativeAuthorization(authorized: boolean): void {
+    if (!authorized && this.nativeAuthorized) this.invalidateAuthorization();
     this.nativeAuthorized = authorized && !this.walletClearInProgress;
     if (!this.nativeAuthorized) this.authorizedSyncDocumentGeneration = -1;
     if (this.nativeAuthorized && this.isWebAppReady) {
@@ -380,22 +416,26 @@ class NativeBridge {
   private async synchronizeAuthorizedDocument(): Promise<void> {
     if (!this.nativeAuthorized || !this.isWebAppReady) return;
     const generation = this.documentGeneration;
+    const context = this.captureSecurityContext();
     if (this.authorizedSyncDocumentGeneration === generation && this.authorizedSyncPromise) {
       return this.authorizedSyncPromise;
     }
-    if (this.authorizedSyncDocumentGeneration === generation) return;
+    if (this.authorizedSyncDocumentGeneration === generation) {
+      this.flushPendingDAppIntent();
+      return;
+    }
 
     this.authorizedSyncDocumentGeneration = generation;
     const operation = (async () => {
       const displayPrefs = await WebViewService.getUserPreferences();
-      if (!this.nativeAuthorized || generation !== this.documentGeneration) return;
+      if (!this.nativeAuthorized || !this.isSecurityContextCurrent(context)) return;
       this.sendDisplayPrefs({
         showTokensCard: displayPrefs.showTokensCard ?? true,
         showNftsCard: displayPrefs.showNftsCard ?? true,
       });
 
       const contactsJson = await WebViewService.getContactsBackup();
-      if (!this.nativeAuthorized || generation !== this.documentGeneration) return;
+      if (!this.nativeAuthorized || !this.isSecurityContextCurrent(context)) return;
       if (contactsJson) {
         const contacts: unknown = JSON.parse(contactsJson);
         if (
@@ -421,19 +461,22 @@ class NativeBridge {
       if (
         this.webAppReadyCallback &&
         this.nativeAuthorized &&
-        generation === this.documentGeneration
+        this.isSecurityContextCurrent(context)
       ) {
         await this.webAppReadyCallback();
       }
     })();
     const checked = operation.catch((error) => {
-      if (this.authorizedSyncDocumentGeneration === generation) {
+      if (this.authorizedSyncPromise === inFlight) {
         this.authorizedSyncDocumentGeneration = -1;
       }
       throw error;
     });
     const inFlight = checked.finally(() => {
-      if (this.authorizedSyncPromise === inFlight) this.authorizedSyncPromise = null;
+      if (this.authorizedSyncPromise === inFlight) {
+        this.authorizedSyncPromise = null;
+        if (this.isSecurityContextCurrent(context)) this.flushPendingDAppIntent();
+      }
     });
     this.authorizedSyncPromise = inFlight;
     return inFlight;
@@ -443,6 +486,16 @@ class NativeBridge {
     const pending = this.pendingPinVerification;
     this.pendingPinVerification = null;
     if (pending) pending.finish(false, error);
+  }
+
+  private isPendingPinVerificationCurrent(pending: PendingPinVerification): boolean {
+    return (
+      this.pendingPinVerification === pending &&
+      this.isWebAppReady &&
+      pending.context.documentId !== null &&
+      Date.now() < pending.expiresAt &&
+      this.isSecurityContextCurrent(pending.context)
+    );
   }
 
   private cancelDocumentRequests(
@@ -493,6 +546,8 @@ class NativeBridge {
     this.activeDocumentId = null;
     this.pendingDocumentChallenges.clear();
     this.documentGeneration += 1;
+    if (this.pendingDAppIntent?.documentId !== null) this.cancelPendingDAppIntent();
+    this.notifyAuthorizationInvalidated();
     this.cancelDocumentRequests('Web app document changed');
     this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
   }
@@ -550,6 +605,8 @@ class NativeBridge {
     this.nativeAuthorized = false;
     this.walletMutationGeneration += 1;
     this.authorizationGeneration += 1;
+    this.cancelPendingDAppIntent();
+    this.notifyAuthorizationInvalidated();
     if (this.walletClearStartedCallback) this.walletClearStartedCallback();
     this.cancelDocumentRequests('Wallet clear is in progress', 'Wallet clear is in progress');
   }
@@ -582,6 +639,52 @@ class NativeBridge {
       type: 'DAPP_URI',
       payload: { uri },
     }) ?? false;
+  }
+
+  /** Hold one external intent until the first eligible document is unlocked. */
+  queueDAppURI(uri: string): boolean {
+    if (this.walletClearInProgress || uri.length === 0 || uri.length > 4096 || !uri.startsWith('qrlconnect:')) {
+      return false;
+    }
+    if (this.pendingDAppIntent?.uri === uri) return true;
+    this.cancelPendingDAppIntent();
+    const intent: PendingDAppIntent = {
+      uri,
+      walletGeneration: this.walletMutationGeneration,
+      documentId: this.isWebAppReady ? this.activeDocumentId : null,
+      expiresAt: Date.now() + DAPP_INTENT_TTL_MS,
+      timer: setTimeout(() => {
+        if (this.pendingDAppIntent === intent) this.cancelPendingDAppIntent();
+      }, DAPP_INTENT_TTL_MS),
+    };
+    this.pendingDAppIntent = intent;
+    this.flushPendingDAppIntent();
+    return true;
+  }
+
+  cancelPendingDAppIntent(): void {
+    if (this.pendingDAppIntent) clearTimeout(this.pendingDAppIntent.timer);
+    this.pendingDAppIntent = null;
+  }
+
+  private flushPendingDAppIntent(): void {
+    const intent = this.pendingDAppIntent;
+    if (!intent) return;
+    if (this.walletClearInProgress || intent.walletGeneration !== this.walletMutationGeneration || Date.now() >= intent.expiresAt) {
+      this.cancelPendingDAppIntent();
+      return;
+    }
+    if (!this.isWebAppReady || !this.activeDocumentId) return;
+    if (intent.documentId === null) intent.documentId = this.activeDocumentId;
+    if (intent.documentId !== this.activeDocumentId) {
+      this.cancelPendingDAppIntent();
+      return;
+    }
+    if (!this.nativeAuthorized || this.authorizedSyncDocumentGeneration !== this.documentGeneration || this.authorizedSyncPromise !== null) return;
+    // Consume before forwarding so a synchronous callback cannot duplicate it.
+    this.pendingDAppIntent = null;
+    if (this.sendDAppURI(intent.uri)) clearTimeout(intent.timer);
+    else this.pendingDAppIntent = intent;
   }
 
   /**
@@ -734,7 +837,22 @@ class NativeBridge {
       return;
     }
 
-    if (!this.nativeAuthorized && !LOCKED_ALLOWED_MESSAGE_TYPES.has(type)) {
+    // PIN verification needs the existing factor before the native lock can
+    // open. Only the current native-initiated verification may read it while
+    // locked; creating or replacing a factor still requires authorization.
+    const lockedPinVerification =
+      !this.nativeAuthorized &&
+      type === 'DEVICE_CREDENTIAL_REQUEST' &&
+      payload?.createIfMissing === false &&
+      this.pendingPinVerification &&
+      this.isPendingPinVerificationCurrent(this.pendingPinVerification)
+        ? this.pendingPinVerification
+        : null;
+    if (
+      !this.nativeAuthorized &&
+      !LOCKED_ALLOWED_MESSAGE_TYPES.has(type) &&
+      !lockedPinVerification
+    ) {
       Logger.warn('NativeBridge', `Dropped ${type} while the native wallet lock is active`);
       return;
     }
@@ -911,16 +1029,24 @@ class NativeBridge {
           return;
         }
 
+        const context = this.captureSecurityContext();
+        const mayRespond = () =>
+          this.isSecurityContextCurrent(context) &&
+          (lockedPinVerification
+            ? this.isPendingPinVerificationCurrent(lockedPinVerification)
+            : this.nativeAuthorized);
         try {
           const credential = createIfMissing
             ? await SeedStorageService.getOrCreateDeviceCredential(candidate as string)
             : await SeedStorageService.getDeviceCredential();
+          if (!mayRespond()) return;
           if (!credential) {
             this.sendDeviceCredentialResponse(requestId, undefined, 'NOT_FOUND');
           } else {
             this.sendDeviceCredentialResponse(requestId, credential);
           }
         } catch (error) {
+          if (!mayRespond()) return;
           Logger.error('NativeBridge', 'Device credential request failed:', error);
           this.sendDeviceCredentialResponse(requestId, undefined, 'STORAGE_ERROR');
         }
@@ -1051,12 +1177,18 @@ class NativeBridge {
         }
 
         this.pendingDocumentChallenges.clear();
+        if (this.activeDocumentId !== null && this.activeDocumentId !== documentId) {
+          this.documentGeneration += 1;
+          this.invalidateAuthorization();
+          this.cancelDocumentRequests('Web app document changed');
+        }
         this.activeDocumentId = documentId;
         if (pendingWipe) this.beginWalletClear();
 
         // Resolve ready waiters only after the exact document challenge echo.
         Logger.debug('NativeBridge', 'Web document challenge completed');
         this.isWebAppReady = true;
+        this.flushPendingDAppIntent();
         this.flushWebAppReadyResolvers('resolve');
 
         if (pendingWipe) {
@@ -1086,7 +1218,7 @@ class NativeBridge {
           !pending ||
           !REQUEST_ID_PATTERN.test(requestId) ||
           requestId !== pending.requestId ||
-          !this.isSecurityContextCurrent(pending.context)
+          !this.isPendingPinVerificationCurrent(pending)
         ) {
           Logger.warn('NativeBridge', 'Ignoring stale or unsolicited PIN verification response');
           break;
@@ -1302,7 +1434,12 @@ class NativeBridge {
    */
   private handleScanQR() {
     if (this.qrScanCallback) {
-      this.qrScanCallback();
+      const request: NativeQrScanRequest = Object.freeze({
+        requestId: createRequestId(),
+        context: Object.freeze(this.captureSecurityContext()),
+      });
+      this.pendingQrScan = request;
+      this.qrScanCallback(request);
     } else {
       Logger.warn('NativeBridge', 'QR scan requested but no callback registered');
       this.sendToWeb({
@@ -1466,22 +1603,31 @@ class NativeBridge {
   /**
    * Send QR scan result back to WebView
    */
-  sendQRResult(address: string) {
-    if (address.length === 0 || address.length > 4096) return;
-    this.sendToWeb({
+  sendQRResult(address: string, request: NativeQrScanRequest): boolean {
+    if (!this.consumeQrScan(request)) return false;
+    if (address.length === 0 || address.length > 4096) return false;
+    return this.sendToWeb({
       type: 'QR_RESULT',
       payload: { address },
-    });
+    }) ?? false;
   }
 
   /**
    * Send QR scan cancelled notification to WebView
    * Called when user closes scanner without scanning
    */
-  sendQRCancelled() {
-    this.sendToWeb({
+  sendQRCancelled(request: NativeQrScanRequest): boolean {
+    if (!this.consumeQrScan(request)) return false;
+    return this.sendToWeb({
       type: 'QR_CANCELLED',
-    });
+    }) ?? false;
+  }
+
+  private consumeQrScan(request: NativeQrScanRequest): boolean {
+    if (!request || this.pendingQrScan !== request) return false;
+    this.pendingQrScan = null;
+    return this.nativeAuthorized && this.isWebAppReady && request.context.documentId !== null &&
+      this.isSecurityContextCurrent(request.context);
   }
 
   /**
@@ -1655,9 +1801,15 @@ class NativeBridge {
 
   /** Ensure a timed-out old commit cannot finish after its compensating commit. */
   private enqueuePinCommit(pin: string): Promise<void> {
+    const walletGeneration = SeedStorageService.getWalletGeneration();
     const operation = this.pinCommitQueue
       .catch(() => undefined)
-      .then(() => SeedStorageService.storePinSecurely(pin));
+      .then(() => {
+        if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
+          throw new Error('Wallet changed before the PIN commit could run');
+        }
+        return DeviceLoginState.commitRotatedPin(pin);
+      });
     this.pinCommitQueue = operation.then(
       () => undefined,
       () => undefined
@@ -1721,11 +1873,13 @@ class NativeBridge {
    * Converge native storage, hosted wallet storage, and dApp history under a
    * durable request marker. Any failure leaves the marker for a later retry.
    */
-  async clearWalletDurably(timeoutMs: number = 15000): Promise<void> {
+  async clearWalletDurably(timeoutMs: number = 15000, isAuthorized?: () => boolean): Promise<void> {
+    if (isAuthorized && !isAuthorized()) throw new Error('App authorization changed');
     if (this.walletClearPromise) return this.walletClearPromise;
 
     const operation = (async () => {
       const existing = await SeedStorageService.getPendingWalletWipe();
+      if (isAuthorized && !isAuthorized()) throw new Error('App authorization changed');
       this.beginWalletClear();
 
       let pending;
@@ -1810,6 +1964,9 @@ class NativeBridge {
       }
     }
 
+    // Readiness may have bound the first document after the initial capture.
+    // The verification itself must be scoped to that authenticated document.
+    const verificationContext = this.captureSecurityContext();
     const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
       const requestId = createRequestId();
       let settled = false;
@@ -1828,7 +1985,12 @@ class NativeBridge {
       }, timeoutMs);
 
       // Set up callback for response
-      this.pendingPinVerification = { requestId, context, finish };
+      this.pendingPinVerification = {
+        requestId,
+        context: verificationContext,
+        expiresAt: Date.now() + timeoutMs,
+        finish,
+      };
 
       // Send verification request to web
       if (!this.sendToWeb({ type: 'VERIFY_PIN', payload: { requestId, pin } })) {
