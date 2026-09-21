@@ -1,4 +1,5 @@
 import * as LocalAuthentication from 'expo-local-authentication';
+import { AppState } from 'react-native';
 import SeedStorageService from './SeedStorageService';
 import NativeBridge, {
   NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
@@ -6,6 +7,10 @@ import NativeBridge, {
 } from './NativeBridge';
 import Logger from './Logger';
 import DeviceLoginState from './DeviceLoginState';
+import { waitForForegroundAuthorization } from './ForegroundAuthorization';
+
+const AUTHENTICATION_FOREGROUND_TIMEOUT_MS = 10_000;
+const AUTHENTICATION_CHANGED_ERROR = 'Wallet state changed during authentication';
 
 /**
  * Queued PIN change request (stored in memory for navigation between screens)
@@ -25,10 +30,22 @@ class BiometricService {
   private pendingDeviceLoginPin: string | null = null;
   private securityOperationGeneration = 0;
   private activeAuthenticationPrompts = 0;
+  private pendingAuthenticationReturns = new Set<object>();
+  private pinAuthenticationGeneration = 0;
   private authenticationSettledListeners = new Set<() => void>();
 
   isAuthenticationPromptActive(): boolean {
     return this.activeAuthenticationPrompts > 0;
+  }
+
+  isAuthenticationTransitionActive(): boolean {
+    return this.isAuthenticationPromptActive() || this.pendingAuthenticationReturns.size > 0;
+  }
+
+  private notifyAuthenticationSettled(): void {
+    if (!this.isAuthenticationTransitionActive()) {
+      for (const listener of this.authenticationSettledListeners) listener();
+    }
   }
 
   onAuthenticationPromptSettled(listener: () => void): () => void {
@@ -40,14 +57,41 @@ class BiometricService {
 
   private async runAuthenticationPrompt(
     options: LocalAuthentication.LocalAuthenticationOptions,
+    onSuccess?: () => void,
   ): Promise<LocalAuthentication.LocalAuthenticationResult> {
     this.activeAuthenticationPrompts += 1;
     try {
-      return await LocalAuthentication.authenticateAsync(options);
+      const result = await LocalAuthentication.authenticateAsync(options);
+      if (result.success) onSuccess?.();
+      return result;
     } finally {
       this.activeAuthenticationPrompts -= 1;
-      if (this.activeAuthenticationPrompts === 0) {
-        for (const listener of this.authenticationSettledListeners) listener();
+      this.notifyAuthenticationSettled();
+    }
+  }
+
+  private async authenticatePinInForeground(
+    options: LocalAuthentication.LocalAuthenticationOptions,
+    isCurrent: () => boolean
+  ): Promise<LocalAuthentication.LocalAuthenticationResult> {
+    if (!isCurrent()) return { success: false, error: 'app_cancel' };
+    const pendingReturn = {};
+    let foreground: Promise<boolean> | undefined;
+    try {
+      const result = await this.runAuthenticationPrompt(options, () => {
+        // Reserve the successful return before prompt-settled observers can relock.
+        if (!isCurrent()) return;
+        this.pendingAuthenticationReturns.add(pendingReturn);
+        foreground = waitForForegroundAuthorization(isCurrent, AUTHENTICATION_FOREGROUND_TIMEOUT_MS);
+      });
+      if (!result.success) return result;
+      if (!foreground || !(await foreground) || !isCurrent()) {
+        return { success: false, error: 'app_cancel' };
+      }
+      return result;
+    } finally {
+      if (this.pendingAuthenticationReturns.delete(pendingReturn)) {
+        this.notifyAuthenticationSettled();
       }
     }
   }
@@ -164,12 +208,16 @@ class BiometricService {
    * migrate it to the current keychain accessibility class. Shared by the normal
    * unlock path and the biometric-probe success path.
    */
-  private async retrieveStoredPinAfterAuth(walletGeneration: number): Promise<{
+  private async retrieveStoredPinAfterAuth(
+    walletGeneration: number,
+    isCurrent: () => boolean
+  ): Promise<{
     success: boolean;
     pin?: string;
     error?: string;
   }> {
-    if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
+    const canReadPin = () => isCurrent() && AppState.currentState === 'active';
+    if (!canReadPin()) {
       return { success: false, error: 'Wallet state changed during authentication' };
     }
     let pin: string | null;
@@ -181,7 +229,7 @@ class BiometricService {
     if (!pin) {
       return { success: false, error: 'Failed to retrieve stored PIN' };
     }
-    if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
+    if (!canReadPin()) {
       return { success: false, error: 'Wallet state changed during authentication' };
     }
 
@@ -190,10 +238,10 @@ class BiometricService {
     // write succeeds (set inside storePinSecurely itself).
     try {
       if (
-        SeedStorageService.isWalletGenerationCurrent(walletGeneration) &&
+        canReadPin() &&
         (await SeedStorageService.needsPinAccessibilityMigration())
       ) {
-        if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
+        if (!canReadPin()) {
           return { success: false, error: 'Wallet state changed during authentication' };
         }
         const migrated = await DeviceLoginState.migratePinAccessibility(pin, walletGeneration);
@@ -206,6 +254,7 @@ class BiometricService {
       return { success: false, error: 'Wallet state changed during authentication' };
     }
 
+    if (!canReadPin()) return { success: false, error: AUTHENTICATION_CHANGED_ERROR };
     return { success: true, pin };
   }
 
@@ -253,7 +302,7 @@ class BiometricService {
    * This is the main unlock flow for the app
    * @returns The stored PIN if authentication succeeds, null otherwise
    */
-  async getPinWithBiometric(): Promise<{
+  async getPinWithBiometric(isCallerCurrent: () => boolean = () => true): Promise<{
     success: boolean;
     pin?: string;
     error?: string;
@@ -265,6 +314,41 @@ class BiometricService {
     biometricType?: 'face' | 'fingerprint' | 'iris' | null;
   }> {
     const walletGeneration = SeedStorageService.getWalletGeneration();
+    const operationGeneration = this.securityOperationGeneration;
+    const pinAuthenticationGeneration = ++this.pinAuthenticationGeneration;
+    let invalidated = AppState.currentState !== 'active';
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'background') invalidated = true;
+    });
+    const isCurrent = () => {
+      try {
+        invalidated ||= AppState.currentState === 'background' ||
+          !this.isSecurityOperationCurrent(operationGeneration, walletGeneration) ||
+          pinAuthenticationGeneration !== this.pinAuthenticationGeneration ||
+          !isCallerCurrent();
+      } catch {
+        invalidated = true;
+      }
+      return !invalidated;
+    };
+    try {
+      return await this.getPinForCurrentAuthentication(walletGeneration, isCurrent);
+    } finally {
+      subscription.remove();
+    }
+  }
+
+  private async getPinForCurrentAuthentication(
+    walletGeneration: number,
+    isCurrent: () => boolean
+  ): Promise<{
+    success: boolean;
+    pin?: string;
+    error?: string;
+    biometricOffForApp?: boolean;
+    biometricType?: 'face' | 'fingerprint' | 'iris' | null;
+  }> {
+    if (!isCurrent()) return { success: false, error: AUTHENTICATION_CHANGED_ERROR };
     // First check if device login is available
     const available = await this.isBiometricAvailable();
     if (!available) {
@@ -310,15 +394,19 @@ class BiometricService {
     // If the level check was a transient false-negative and biometrics actually
     // work, this performs the real Face ID / Touch ID auth and we use its success.
     const status = await this.getBiometricStatus();
+    if (!isCurrent()) return { success: false, error: AUTHENTICATION_CHANGED_ERROR };
     if (status.hasBiometricHardware && !status.biometricUsable) {
       try {
-        const probe = await this.runAuthenticationPrompt({
-          promptMessage: 'Unlock your wallet',
-          cancelLabel: 'Cancel',
-          disableDeviceFallback: true,
-        });
+        const probe = await this.authenticatePinInForeground(
+          {
+            promptMessage: 'Unlock your wallet',
+            cancelLabel: 'Cancel',
+            disableDeviceFallback: true,
+          },
+          isCurrent
+        );
         if (probe.success) {
-          return this.retrieveStoredPinAfterAuth(walletGeneration);
+          return this.retrieveStoredPinAfterAuth(walletGeneration, isCurrent);
         }
         if (probe.error === 'not_available') {
           return {
@@ -328,7 +416,11 @@ class BiometricService {
             biometricType: status.biometricType,
           };
         }
-        if (probe.error === 'user_cancel') {
+        if (
+          probe.error === 'user_cancel' ||
+          probe.error === 'app_cancel' ||
+          probe.error === 'system_cancel'
+        ) {
           // The probe presented real biometric UI (the level check was a
           // transient false-negative) and the user dismissed it. Cancel means
           // cancel: do not immediately raise the device-credential sheet.
@@ -345,15 +437,29 @@ class BiometricService {
     }
 
     // Perform device authentication
-    const authResult = await this.authenticate('Unlock your wallet');
+    if (!isCurrent()) return { success: false, error: AUTHENTICATION_CHANGED_ERROR };
+    let authResult: LocalAuthentication.LocalAuthenticationResult;
+    try {
+      authResult = await this.authenticatePinInForeground(
+        {
+          promptMessage: 'Unlock your wallet',
+          fallbackLabel: 'Use passcode',
+          cancelLabel: 'Cancel',
+          disableDeviceFallback: false,
+        },
+        isCurrent
+      );
+    } catch {
+      return { success: false, error: 'Authentication failed. Please try again.' };
+    }
     if (!authResult.success) {
       return {
         success: false,
-        error: authResult.error || 'Device Login failed',
+        error: 'Device Login did not complete. Try again or use your wallet PIN.',
       };
     }
 
-    return this.retrieveStoredPinAfterAuth(walletGeneration);
+    return this.retrieveStoredPinAfterAuth(walletGeneration, isCurrent);
   }
 
   /**
