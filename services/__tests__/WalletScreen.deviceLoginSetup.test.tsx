@@ -56,6 +56,7 @@ jest.mock('../NativeBridge', () => ({
   onAuthorizationInvalidated: jest.fn(() => jest.fn()),
   onDAppShowWebView: jest.fn(),
   onWalletClearStarted: jest.fn(),
+  onWalletCleared: jest.fn(),
   onWebAppReady: jest.fn(),
   verifyPin: jest.fn(async () => ({ success: true })),
 }));
