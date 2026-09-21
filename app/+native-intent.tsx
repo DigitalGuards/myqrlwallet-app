@@ -18,11 +18,11 @@
 // Per the Expo docs, this function must never throw.
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {
   try {
+    // Rejected payloads must also bypass the router's legacy query decoder.
+    if (typeof path !== 'string' || path.length > 4096) return '/';
     if (
-      typeof path === 'string' &&
-      path.length <= 4096 &&
-      (path.startsWith('qrlconnect:') ||
-        /^https:\/\/qrlwallet\.com(?::443)?\/connect(?:\?|$)/i.test(path))
+      /^qrlconnect:/i.test(path) ||
+      /^https:\/\/qrlwallet\.com(?::443)?\/connect(?:[?#]|$)/i.test(path)
     ) {
       return '/';
     }

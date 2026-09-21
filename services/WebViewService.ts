@@ -5,7 +5,7 @@ const STORAGE_KEYS = {
   COOKIES: '@MyQRLWallet:cookies',
   LAST_SESSION: '@MyQRLWallet:lastSession',
   USER_PREFERENCES: '@MyQRLWallet:userPreferences',
-  CONTACTS_BACKUP: '@MyQRLWallet:contactsBackup',
+  CONTACTS_BACKUP: '@MyQRLWallet:v3:contactsBackup',
 };
 
 const MAX_CONTACTS_BACKUP_CHARS = 256 * 1024;
@@ -189,9 +189,11 @@ class WebViewService {
 
   async clearContactsBackupStrict(): Promise<void> {
     return this.enqueueContactsMutation(async () => {
-      await AsyncStorage.removeItem(STORAGE_KEYS.CONTACTS_BACKUP);
-      if ((await AsyncStorage.getItem(STORAGE_KEYS.CONTACTS_BACKUP)) !== null) {
-        throw new Error('Contacts backup removal could not be confirmed');
+      for (const key of [STORAGE_KEYS.CONTACTS_BACKUP, '@MyQRLWallet:contactsBackup']) {
+        await AsyncStorage.removeItem(key);
+        if ((await AsyncStorage.getItem(key)) !== null) {
+          throw new Error('Contacts backup removal could not be confirmed');
+        }
       }
     });
   }

@@ -23,12 +23,9 @@ import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge, { NativeSecurityContext } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
+import { createBackgroundLock } from '../../services/BackgroundLock';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { router, usePathname } from 'expo-router';
-
-// Time to wait before treating iOS 'inactive' state as actual backgrounding
-// iOS triggers 'inactive' briefly for modals, keyboards, and biometric prompts
-const IOS_INACTIVE_TIMEOUT_MS = 300;
 
 // Time threshold for showing loading screen (5 minutes in ms)
 const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;
@@ -58,7 +55,6 @@ export default function WalletScreen() {
   const hasRestoredSeeds = useRef<boolean>(false);
   const deviceLoginSetupTriggered = useRef<boolean>(false);
   const needsReauth = useRef(false);
-  const iosInactiveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track when biometric auth is showing - iOS marks app as 'inactive' during biometric prompt
   const isAuthenticating = useRef(false);
   // Track when app went to background for loading screen threshold
@@ -105,6 +101,24 @@ export default function WalletScreen() {
     });
   }, []);
 
+  const resumePendingReauth = useCallback(() => {
+    if (
+      !needsReauth.current ||
+      isAuthenticating.current ||
+      AppState.currentState !== 'active'
+    ) {
+      return;
+    }
+
+    needsReauth.current = false;
+    const timeSinceBackground = backgroundedAt.current
+      ? Date.now() - backgroundedAt.current
+      : Infinity;
+    setSkipLoadingScreen(timeSinceBackground < LOADING_SCREEN_THRESHOLD_MS);
+    setIsAuthorized(false);
+    setAuthCheckNonce((value) => value + 1);
+  }, []);
+
   // Handle device login unlock and send PIN to web
   const performDeviceLoginUnlock = useCallback(async (context: NativeSecurityContext) => {
     if (isAuthenticating.current) return;
@@ -127,8 +141,9 @@ export default function WalletScreen() {
       }
     } finally {
       isAuthenticating.current = false;
+      resumePendingReauth();
     }
-  }, [showBiometricOffNudge]);
+  }, [resumePendingReauth, showBiometricOffNudge]);
 
   // Handle PIN modal submission
   const handlePinSubmit = useCallback(async (pin: string) => {
@@ -232,7 +247,7 @@ export default function WalletScreen() {
     Logger.debug('WalletScreen', 'dApp requesting WebView focus');
     // Only navigate if we're actually on a different tab. Calling replace('/')
     // while already on '/' re-mounts the WebView, which reloads the wallet
-    // page and orphans any live socket.io connection — the fresh page then
+    // page and orphans any live socket.io connection. The fresh page then
     // hits a reconnect storm behind CF's cold polling path.
     if (pathname !== '/') {
       router.replace('/');
@@ -322,6 +337,8 @@ export default function WalletScreen() {
             result = await BiometricService.getPinWithBiometric();
           } finally {
             isAuthenticating.current = false;
+            // Foreground may have arrived before this interrupted prompt settled.
+            resumePendingReauth();
           }
           if (!isAttemptCurrent() || !NativeBridge.isSecurityContextCurrent(context)) return;
 
@@ -370,6 +387,7 @@ export default function WalletScreen() {
     isAuthorized,
     isFocused,
     promptDeviceLoginSetup,
+    resumePendingReauth,
     showBiometricOffNudge,
   ]);
 
@@ -441,62 +459,18 @@ export default function WalletScreen() {
   // Auto-lock app when it goes to background
   // Platform-specific handling for iOS lifecycle quirks
   useEffect(() => {
+    const backgroundLock = createBackgroundLock({
+      isIOS: Platform.OS === 'ios',
+      getCurrentState: () => AppState.currentState,
+      isAuthenticating: () => isAuthenticating.current,
+      onLock: markForReauth,
+    });
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      // Clear any pending iOS timer on state change
-      if (iosInactiveTimer.current) {
-        clearTimeout(iosInactiveTimer.current);
-        iosInactiveTimer.current = null;
-      }
+      backgroundLock.onChange(appState.current, nextAppState);
 
-      // Android: straightforward background detection
-      if (Platform.OS === 'android') {
-        if (appState.current === 'active' && nextAppState === 'background') {
-          markForReauth();
-        }
-      }
-
-      // iOS: handle the inactive → background ambiguity
-      // Modals/keyboards trigger 'inactive' briefly, so we use a timer to distinguish
-      // IMPORTANT: Skip this logic when showing biometric prompt (it triggers 'inactive' on iOS)
-      if (Platform.OS === 'ios') {
-        if (appState.current === 'active' && nextAppState === 'inactive') {
-          // Skip if we're currently showing biometric authentication
-          if (!isAuthenticating.current) {
-            // Start a timer - if we don't return to 'active' within the timeout,
-            // treat it as actually leaving the app
-            iosInactiveTimer.current = setTimeout(() => {
-              // Check actual current state AND that we're not authenticating
-              if (AppState.currentState !== 'active' && !isAuthenticating.current) {
-                markForReauth();
-              }
-            }, IOS_INACTIVE_TIMEOUT_MS);
-          }
-        }
-
-        // Also catch direct background (can happen on iOS 13+)
-        if (appState.current === 'active' && nextAppState === 'background') {
-          markForReauth();
-        }
-      }
-
-      // App coming back to active - trigger re-auth if needed
-      // Skip if we're returning from biometric prompt (isAuthenticating is true)
+      // An in-flight biometric prompt defers this retry until its finally block.
       if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
-        if (needsReauth.current && !isAuthenticating.current) {
-          Logger.debug('WalletScreen', 'App foregrounded, triggering re-auth');
-          needsReauth.current = false;
-
-          // Check if we should skip loading screen (backgrounded less than 5 minutes)
-          const timeSinceBackground = backgroundedAt.current
-            ? Date.now() - backgroundedAt.current
-            : Infinity;
-          const shouldSkipLoading = timeSinceBackground < LOADING_SCREEN_THRESHOLD_MS;
-          Logger.debug('WalletScreen', `Time since background: ${timeSinceBackground}ms, skip loading: ${shouldSkipLoading}`);
-          setSkipLoadingScreen(shouldSkipLoading);
-
-          setIsAuthorized(false);
-          setAuthCheckNonce((value) => value + 1);
-        }
+        resumePendingReauth();
       }
 
       // Notify WebView of every app state transition (single source of truth)
@@ -506,11 +480,9 @@ export default function WalletScreen() {
 
     return () => {
       subscription.remove();
-      if (iosInactiveTimer.current) {
-        clearTimeout(iosInactiveTimer.current);
-      }
+      backgroundLock.dispose();
     };
-  }, [markForReauth]);
+  }, [markForReauth, resumePendingReauth]);
 
   // Handle WebView load
   // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
@@ -557,7 +529,22 @@ export default function WalletScreen() {
       Logger.warn('WalletScreen', `Skipping stale seed restore: ${String(error)}`);
       return;
     }
-    const { backups, generation } = restoreSnapshot;
+    const { backups, generation, legacyAddressBackupCount } = restoreSnapshot;
+    if (legacyAddressBackupCount > 0) {
+      Logger.warn(
+        'WalletScreen',
+        `Preserved ${legacyAddressBackupCount} pre-QIP-55 seed backup(s) pending seed-aware migration`,
+      );
+      Alert.alert(
+        'Earlier Wallet Backup Preserved',
+        [
+          'This device contains a preserved wallet backup with legacy address metadata.',
+          'Your earlier wallet data has not been changed. Keep this app installed and do not clear its data.',
+          'Use your original recovery phrase or seed to import a Testnet v3 account. Its address will be different.',
+          'Automatic conversion of the earlier encrypted backup is not available. Contact support before removing the app if you need help recovering it.',
+        ].join(' '),
+      );
+    }
     if (backups.length > 0) {
       Logger.debug('WalletScreen', `Restoring ${backups.length} seed backup(s)`);
       for (const backup of backups) {

@@ -31,7 +31,13 @@ jobs:
         run: npm run lint
 
       - name: TypeScript type check
-        run: npx tsc --noEmit
+        run: npm run typecheck
+
+      - name: Native bridge and storage regressions
+        run: npm run test:ci
+
+      - name: Export iOS, Android, and web bundles
+        run: npm run build
 
       - name: Expo doctor
         run: npx expo-doctor

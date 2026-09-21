@@ -42,7 +42,8 @@ jest.mock('../Logger', () => ({
   default: { debug: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-import { Linking } from 'react-native';
+import { Linking, Share } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import NativeBridge, { BridgeMessage } from '../NativeBridge';
 import DAppConnectionStore from '../DAppConnectionStore';
@@ -51,6 +52,10 @@ import WebViewService from '../WebViewService';
 
 const mockCanOpenUrl = Linking.canOpenURL as jest.MockedFunction<typeof Linking.canOpenURL>;
 const mockOpenUrl = Linking.openURL as jest.MockedFunction<typeof Linking.openURL>;
+const mockShare = Share.share as jest.MockedFunction<typeof Share.share>;
+const mockSetStringAsync = Clipboard.setStringAsync as jest.MockedFunction<
+  typeof Clipboard.setStringAsync
+>;
 const mockImpactAsync = Haptics.impactAsync as jest.MockedFunction<typeof Haptics.impactAsync>;
 const mockNotificationAsync = Haptics.notificationAsync as jest.MockedFunction<
   typeof Haptics.notificationAsync
@@ -64,6 +69,8 @@ const mockSaveContacts = WebViewService.saveContactsBackupStrict as jest.MockedF
   typeof WebViewService.saveContactsBackupStrict
 >;
 const DOCUMENT_ID = 'de'.repeat(16);
+const QIP55_ADDRESS = `Q${'aB'.repeat(64)}`;
+const CHANNEL_ID = '11111111-1111-4111-8111-111111111111';
 const nativeHandle = NativeBridge.handle.bind(NativeBridge);
 
 async function authenticateDocument(): Promise<void> {
@@ -201,13 +208,20 @@ describe('NativeBridge hosted WebView boundaries', () => {
     send.mockRestore();
   });
 
-  it.each(['', `Q${'11'.repeat(32)}`, `Q${'zz'.repeat(20)}`])(
-    'rejects non-Q+40 DAPP_CONNECTED account %s',
+  it.each([
+    '',
+    `Q${'12'.repeat(20)}`,
+    `Q${'1'.repeat(127)}`,
+    `Q${'1'.repeat(129)}`,
+    `q${'1'.repeat(128)}`,
+    `Q${'z'.repeat(128)}`,
+  ])(
+    'rejects a non-Q+128 DAPP_CONNECTED account %s',
     async (connectedAccount) => {
       await handleBridge({
         type: 'DAPP_CONNECTED',
         payload: {
-          channelId: 'channel-id',
+          channelId: CHANNEL_ID,
           name: 'dApp',
           url: 'https://example.com',
           connectedAccount,
@@ -218,12 +232,12 @@ describe('NativeBridge hosted WebView boundaries', () => {
     }
   );
 
-  it('persists a Q+40 DAPP_CONNECTED account', async () => {
-    const connectedAccount = `Q${'12'.repeat(20)}`;
+  it('persists the exact Q+128 DAPP_CONNECTED account', async () => {
+    const connectedAccount = QIP55_ADDRESS;
     await handleBridge({
       type: 'DAPP_CONNECTED',
       payload: {
-        channelId: '11111111-1111-4111-8111-111111111111',
+        channelId: CHANNEL_ID,
         name: 'dApp',
         url: 'https://example.com',
         connectedAccount,
@@ -233,6 +247,47 @@ describe('NativeBridge hosted WebView boundaries', () => {
     expect(mockDAppConnected).toHaveBeenCalledWith(expect.objectContaining({ connectedAccount }));
   });
 
+  it('copies the exact Q+128 address without display shortening', async () => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+
+    await handleBridge({ type: 'COPY_TO_CLIPBOARD', payload: { text: QIP55_ADDRESS } });
+
+    expect(mockSetStringAsync).toHaveBeenCalledWith(QIP55_ADDRESS);
+    expect(send).toHaveBeenCalledWith({
+      type: 'CLIPBOARD_SUCCESS',
+      payload: { text: QIP55_ADDRESS },
+    });
+    send.mockRestore();
+  });
+
+  it('shares exact Q+128 address text and explorer URL', async () => {
+    const explorerUrl = `https://zondscan.com/address/${QIP55_ADDRESS}`;
+    mockShare.mockResolvedValue({ action: 'sharedAction' });
+
+    await handleBridge({
+      type: 'SHARE',
+      payload: { title: 'QRL account', text: QIP55_ADDRESS, url: explorerUrl },
+    });
+
+    expect(mockShare).toHaveBeenCalledWith({
+      title: 'QRL account',
+      message: QIP55_ADDRESS,
+      url: explorerUrl,
+    });
+  });
+
+  it('returns the exact Q+128 QR payload to the wallet document', () => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+
+    NativeBridge.sendQRResult(QIP55_ADDRESS);
+
+    expect(send).toHaveBeenCalledWith({
+      type: 'QR_RESULT',
+      payload: { address: QIP55_ADDRESS },
+    });
+    send.mockRestore();
+  });
+
   it('rejects insecure dApp metadata URLs', async () => {
     await handleBridge({
       type: 'DAPP_CONNECTED',
@@ -240,7 +295,7 @@ describe('NativeBridge hosted WebView boundaries', () => {
         channelId: '22222222-2222-4222-8222-222222222222',
         name: 'dApp',
         url: 'http://example.com',
-        connectedAccount: `Q${'12'.repeat(20)}`,
+        connectedAccount: QIP55_ADDRESS,
       },
     });
     expect(mockDAppConnected).not.toHaveBeenCalled();
@@ -250,10 +305,68 @@ describe('NativeBridge hosted WebView boundaries', () => {
     const contacts = Array.from({ length: 501 }, (_, index) => ({
       id: String(index),
       name: `Contact ${index}`,
-      address: `Q${'12'.repeat(20)}`,
+      address: QIP55_ADDRESS,
       createdAt: index,
     }));
     await handleBridge({ type: 'CONTACTS_UPDATED', payload: { contacts } });
     expect(mockSaveContacts).not.toHaveBeenCalled();
+  });
+
+  it('prunes legacy contacts but keeps valid ones in the same update', async () => {
+    const valid = {
+      id: 'qip55-contact',
+      name: 'Valid contact',
+      address: QIP55_ADDRESS,
+      createdAt: 2,
+    };
+    await handleBridge({
+      type: 'CONTACTS_UPDATED',
+      payload: {
+        contacts: [
+          {
+            id: 'legacy-contact',
+            name: 'Legacy contact',
+            address: `Q${'12'.repeat(20)}`,
+            createdAt: 1,
+          },
+          valid,
+        ],
+      },
+    });
+
+    expect(mockSaveContacts).toHaveBeenCalledWith(JSON.stringify([valid]));
+  });
+
+  it('rejects a contact carrying a legacy Q+40 address', async () => {
+    await handleBridge({
+      type: 'CONTACTS_UPDATED',
+      payload: {
+        contacts: [
+          {
+            id: 'legacy-contact',
+            name: 'Legacy contact',
+            address: `Q${'12'.repeat(20)}`,
+            createdAt: 1,
+          },
+        ],
+      },
+    });
+
+    expect(mockSaveContacts).not.toHaveBeenCalled();
+  });
+
+  it('forwards only an exact Q+128 seed restore address', () => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+
+    NativeBridge.sendRestoreSeed(`Q${'12'.repeat(20)}`, 'legacy', 'TEST_NET_V3', 1);
+    NativeBridge.sendRestoreSeed(QIP55_ADDRESS, 'legacy', 'TEST_NET', 1);
+    NativeBridge.sendRestoreSeed(QIP55_ADDRESS, 'legacy', 'MAIN_NET', 1);
+    expect(send).not.toHaveBeenCalled();
+
+    NativeBridge.sendRestoreSeed(QIP55_ADDRESS, 'ciphertext', 'TEST_NET_V3', 1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ address: QIP55_ADDRESS }) }),
+    );
+    send.mockRestore();
   });
 });
