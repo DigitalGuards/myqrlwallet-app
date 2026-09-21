@@ -53,6 +53,7 @@ jest.mock('../NativeBridge', () => ({
   onSeedStored: jest.fn(),
   onOpenNativeSettings: jest.fn(),
   onQRScanRequest: jest.fn(),
+  onAuthorizationInvalidated: jest.fn(() => jest.fn()),
   onDAppShowWebView: jest.fn(),
   onWalletClearStarted: jest.fn(),
   onWebAppReady: jest.fn(),

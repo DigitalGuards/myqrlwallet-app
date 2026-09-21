@@ -142,20 +142,15 @@ export default function RootLayout() {
 
   // Listen for qrlconnect:// deep links and forward to WebView
   useEffect(() => {
+    let disposed = false;
+    let receivedLiveUrl = false;
     const handleDeepLink = (event: { url: string }) => {
+      if (disposed) return;
+      receivedLiveUrl = true;
       const { url } = event;
       const normalizedUrl = normalizeQrlConnectDeepLink(url);
       if (normalizedUrl) {
-        // Wait for WebView to be ready, then forward the URI. Generous
-        // timeout: a degraded boot (timed-out boot steps above) can delay
-        // WebView mount by several seconds.
-        NativeBridge.waitForWebAppReady(20000)
-          .then(() => {
-            NativeBridge.sendDAppURI(normalizedUrl);
-          })
-          .catch((err) => {
-            Logger.error('RootLayout', 'Failed to forward dApp URI:', err);
-          });
+        NativeBridge.queueDAppURI(normalizedUrl);
       }
     };
 
@@ -168,12 +163,11 @@ export default function RootLayout() {
     // cold start otherwise piles its forwarding chain onto the boot storage
     // storm inside the fragile TurboModule-init window (intermittent iOS 26
     // cold-start SIGABRT; see patches/react-native for the companion fix).
-    // Nothing is lost: the WebView takes seconds to become ready and
-    // waitForWebAppReady already spans the gap.
+    // The bridge retains the bounded intent through initial readiness and unlock.
     const task = InteractionManager.runAfterInteractions(() => {
       Linking.getInitialURL()
         .then((url) => {
-          if (url) handleDeepLink({ url });
+          if (url && !receivedLiveUrl && !disposed) handleDeepLink({ url });
         })
         .catch((err) => {
           Logger.error('RootLayout', 'Failed to get initial URL:', err);
@@ -181,6 +175,8 @@ export default function RootLayout() {
     });
 
     return () => {
+      disposed = true;
+      NativeBridge.cancelPendingDAppIntent();
       task.cancel();
       subscription.remove();
     };

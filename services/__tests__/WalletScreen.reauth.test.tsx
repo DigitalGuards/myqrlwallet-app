@@ -55,6 +55,7 @@ jest.mock('../NativeBridge', () => {
     onSeedStored: jest.fn(),
     onOpenNativeSettings: jest.fn(),
     onQRScanRequest: jest.fn(),
+    onAuthorizationInvalidated: jest.fn(() => jest.fn()),
     onDAppShowWebView: jest.fn(),
     onWalletClearStarted: jest.fn(),
     onWebAppReady: jest.fn(),
@@ -73,25 +74,27 @@ function deferredAuth() {
 
 describe('wallet screen deferred foreground reauthentication', () => {
   let screen: ReactTestRenderer;
-  let listener: (state: AppStateStatus) => void;
+  const listeners = new Set<(state: AppStateStatus) => void>();
   let originalState: AppStateStatus;
   const getPin = jest.mocked(BiometricService.getPinWithBiometric);
 
   const transition = async (next: AppStateStatus) => {
     await act(async () => {
       AppState.currentState = next;
-      listener(next);
+      for (const listener of [...listeners]) listener(next);
     });
   };
 
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
+    listeners.clear();
     getPin.mockReset();
     originalState = AppState.currentState;
     AppState.currentState = 'active';
     jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, callback) => {
-      listener = callback;
-      return { remove: jest.fn() };
+      listeners.add(callback);
+      return { remove: () => listeners.delete(callback) };
     });
   });
 
@@ -99,6 +102,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
     if (screen) await act(async () => screen.unmount());
     AppState.currentState = originalState;
     jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   async function mountWithPendingAuth() {
@@ -162,6 +166,44 @@ describe('wallet screen deferred foreground reauthentication', () => {
     expect(getPin).toHaveBeenCalledTimes(1);
     expect(NativeBridge.sendUnlockWithPinIfReady).toHaveBeenCalledTimes(1);
     expect(NativeBridge.setNativeAuthorization).toHaveBeenLastCalledWith(true);
+  });
+
+  it('waits for active when the initial successful OS prompt settles while inactive', async () => {
+    const { oldAuth } = await mountWithPendingAuth();
+    await transition('inactive');
+    await act(async () => { oldAuth.resolve({ success: true, pin: 'fresh-pin' }); });
+    expect(NativeBridge.sendUnlockWithPinIfReady).not.toHaveBeenCalled();
+    await act(async () => { jest.advanceTimersByTime(100); });
+    await transition('active');
+    expect(NativeBridge.sendUnlockWithPinIfReady).toHaveBeenCalledWith('fresh-pin', expect.any(Object));
+    expect(NativeBridge.setNativeAuthorization).toHaveBeenLastCalledWith(true);
+    expect(getPin).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the completed PIN if background wins the foreground grace race', async () => {
+    const { oldAuth } = await mountWithPendingAuth();
+    await transition('inactive');
+    await act(async () => { oldAuth.resolve({ success: true, pin: 'stale-pin' }); });
+    await transition('background');
+    expect(NativeBridge.sendUnlockWithPinIfReady).not.toHaveBeenCalled();
+    await transition('active');
+    expect(getPin).toHaveBeenCalledTimes(2);
+    expect(NativeBridge.setNativeAuthorization).toHaveBeenLastCalledWith(false);
+  });
+
+  it('waits for active before delivering a WebView-requested unlock result', async () => {
+    const { oldAuth, freshAuth: webAuth } = await mountWithPendingAuth();
+    await act(async () => { oldAuth.resolve({ success: true, pin: 'initial-pin' }); });
+    const callback = jest.mocked(NativeBridge.onBiometricUnlockRequest).mock.calls[0][0];
+    let operation!: Promise<void>;
+    await act(async () => { operation = callback(NativeBridge.captureSecurityContext()); });
+    await transition('inactive');
+    await act(async () => { webAuth.resolve({ success: true, pin: 'fresh-pin' }); });
+    expect(NativeBridge.sendUnlockWithPinForContext).not.toHaveBeenCalled();
+    await transition('active');
+    await act(async () => { await operation; });
+    expect(NativeBridge.sendUnlockWithPinForContext).toHaveBeenCalledWith('fresh-pin', expect.any(Object));
+    expect(getPin).toHaveBeenCalledTimes(2);
   });
 
   it('keeps a cancelled foreground prompt on the manual retry path', async () => {

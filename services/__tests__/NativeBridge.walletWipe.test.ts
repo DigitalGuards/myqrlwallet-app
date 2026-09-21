@@ -151,6 +151,27 @@ describe('NativeBridge durable wallet wipe', () => {
     send.mockRestore();
   });
 
+  it('rejects stale fresh-removal authorization before any journal or wallet mutation', async () => {
+    await expect(NativeBridge.clearWalletDurably(1000, () => false)).rejects.toThrow('authorization changed');
+    expect(mockGetPending).not.toHaveBeenCalled();
+    expect(mockBegin).not.toHaveBeenCalled();
+    expect(mockClear).not.toHaveBeenCalled();
+  });
+
+  it('rechecks removal authorization after the asynchronous journal read', async () => {
+    let authorized = true;
+    let releaseRead!: () => void;
+    mockGetPending.mockImplementationOnce(() => new Promise(resolve => {
+      releaseRead = () => resolve(null);
+    }));
+    const wipe = NativeBridge.clearWalletDurably(1000, () => authorized);
+    authorized = false;
+    releaseRead();
+    await expect(wipe).rejects.toThrow('authorization changed');
+    expect(mockBegin).not.toHaveBeenCalled();
+    expect(mockClear).not.toHaveBeenCalled();
+  });
+
   it('leaves the durable journal pending when hosted-wallet deletion fails', async () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     const wipe = NativeBridge.clearWalletDurably();

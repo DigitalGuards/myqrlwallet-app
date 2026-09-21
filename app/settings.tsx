@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Switch,
@@ -9,6 +9,8 @@ import {
   Alert,
   Image,
   Linking,
+  AppState,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +22,9 @@ import WebViewService, { UserPreferences } from '../services/WebViewService';
 import BiometricService from '../services/BiometricService';
 import SeedStorageService from '../services/SeedStorageService';
 import ScreenSecurityService from '../services/ScreenSecurityService';
-import NativeBridge from '../services/NativeBridge';
+import NativeBridge, { type NativeSecurityContext } from '../services/NativeBridge';
+import { createBackgroundLock } from '../services/BackgroundLock';
+import { waitForForegroundAuthorization } from '../services/ForegroundAuthorization';
 import { ChangePinModal } from '../components/ChangePinModal';
 import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
@@ -49,6 +53,11 @@ const C = {
 };
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+interface SettingsSecurityAction {
+  context: NativeSecurityContext;
+  walletGeneration: number;
+}
 
 type RowProps = {
   icon: IoniconName;
@@ -125,10 +134,72 @@ export default function SettingsScreen() {
   const [hasWallet, setHasWallet] = useState(false);
   const [deviceLoginEnabled, setDeviceLoginEnabled] = useState(false);
   const [preventScreenshots, setPreventScreenshots] = useState(false);
-  const [showChangePinModal, setShowChangePinModal] = useState(false);
-  const [showDeviceLoginPinModal, setShowDeviceLoginPinModal] = useState(false);
+  const [changePinAction, setChangePinAction] = useState<SettingsSecurityAction | null>(null);
+  const [deviceLoginAction, setDeviceLoginAction] = useState<SettingsSecurityAction | null>(null);
   const [dappConnectionCount, setDappConnectionCount] = useState(0);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
+  const mounted = useRef(true);
+  const focused = useRef(true);
+  const activeSecurityAction = useRef<SettingsSecurityAction | null>(null);
+
+  const invalidateSecurityActions = useCallback(() => {
+    activeSecurityAction.current = null;
+    if (mounted.current) {
+      setChangePinAction(null);
+      setDeviceLoginAction(null);
+    }
+  }, []);
+
+  const isSecurityActionBound = useCallback((action: SettingsSecurityAction | null): boolean => (
+    action !== null &&
+    activeSecurityAction.current === action &&
+    mounted.current &&
+    focused.current &&
+    NativeBridge.isSecurityContextCurrent(action.context) &&
+    SeedStorageService.isWalletGenerationCurrent(action.walletGeneration)
+  ), []);
+
+  const isSecurityActionCurrent = useCallback((action: SettingsSecurityAction | null): boolean => (
+    AppState.currentState === 'active' && isSecurityActionBound(action)
+  ), [isSecurityActionBound]);
+
+  const beginSecurityAction = useCallback((): SettingsSecurityAction | null => {
+    invalidateSecurityActions();
+    if (!mounted.current || !focused.current || AppState.currentState !== 'active') return null;
+    const action = {
+      context: NativeBridge.captureSecurityContext(),
+      walletGeneration: SeedStorageService.getWalletGeneration(),
+    };
+    activeSecurityAction.current = action;
+    return isSecurityActionCurrent(action) ? action : null;
+  }, [invalidateSecurityActions, isSecurityActionCurrent]);
+
+  useEffect(() => {
+    mounted.current = true;
+    let previous = AppState.currentState;
+    const lock = createBackgroundLock({
+      isIOS: Platform.OS === 'ios',
+      getCurrentState: () => AppState.currentState,
+      isAuthenticating: () => BiometricService.isAuthenticationPromptActive(),
+      onLock: invalidateSecurityActions,
+    });
+    const unsubscribeAuthorization = NativeBridge.onAuthorizationInvalidated(invalidateSecurityActions);
+    const unsubscribePrompt = BiometricService.onAuthenticationPromptSettled(
+      () => lock.onAuthenticationSettled(),
+    );
+    const subscription = AppState.addEventListener('change', next => {
+      lock.onChange(previous, next);
+      previous = next;
+    });
+    return () => {
+      mounted.current = false;
+      activeSecurityAction.current = null;
+      subscription.remove();
+      unsubscribeAuthorization();
+      unsubscribePrompt();
+      lock.dispose();
+    };
+  }, [invalidateSecurityActions]);
 
   // Hide the stack header so we can render an iOS large-title inline.
   useLayoutEffect(() => {
@@ -148,8 +219,13 @@ export default function SettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      focused.current = true;
       loadWalletStatus();
-    }, [loadWalletStatus])
+      return () => {
+        focused.current = false;
+        invalidateSecurityActions();
+      };
+    }, [loadWalletStatus, invalidateSecurityActions])
   );
 
   useEffect(() => {
@@ -189,25 +265,37 @@ export default function SettingsScreen() {
   };
 
   const handleDeviceLoginToggle = async (newValue: boolean) => {
+    const action = beginSecurityAction();
+    if (!action) return;
     if (newValue) {
-      setShowDeviceLoginPinModal(true);
+      setDeviceLoginAction(action);
     } else {
       const authResult = await BiometricService.authenticate('Authenticate to disable Device Login');
-      if (!authResult.success) return;
-      await BiometricService.disableDeviceLogin();
+      if (!authResult.success || !(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
+      try {
+        await BiometricService.disableDeviceLogin(() => isSecurityActionCurrent(action));
+      } catch (error) {
+        if (!isSecurityActionCurrent(action)) return;
+        Logger.error('Settings', 'Failed to disable Device Login:', error);
+        Alert.alert('Error', 'Device Login could not be disabled. Please try again.');
+        return;
+      }
+      if (!isSecurityActionCurrent(action)) return;
+      invalidateSecurityActions();
       setDeviceLoginEnabled(false);
       Alert.alert('Disabled', 'Device Login has been disabled.');
     }
   };
 
-  const handleDeviceLoginPinSubmit = (pin: string) => {
-    setShowDeviceLoginPinModal(false);
+  const handleDeviceLoginPinSubmit = (pin: string, action: SettingsSecurityAction | null) => {
+    if (!isSecurityActionCurrent(action)) return;
+    invalidateSecurityActions();
     BiometricService.queueDeviceLoginSetup(pin);
     router.back();
   };
 
-  const handleDeviceLoginPinCancel = () => {
-    setShowDeviceLoginPinModal(false);
+  const handleDeviceLoginPinCancel = (action: SettingsSecurityAction | null) => {
+    if (isSecurityActionCurrent(action)) invalidateSecurityActions();
   };
 
   const handleScreenshotPreventionToggle = async (newValue: boolean) => {
@@ -244,51 +332,70 @@ export default function SettingsScreen() {
   };
 
   const handleChangePinPress = async () => {
+    const action = beginSecurityAction();
+    if (!action) return;
     const authResult = await BiometricService.authenticate('Authenticate to change PIN');
-    if (!authResult.success) return;
-    setShowChangePinModal(true);
+    if (!authResult.success || !(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
+    setChangePinAction(action);
   };
 
-  const handleChangePinSubmit = (currentPin: string, newPin: string) => {
-    setShowChangePinModal(false);
+  const handleChangePinSubmit = (
+    currentPin: string,
+    newPin: string,
+    action: SettingsSecurityAction | null,
+  ) => {
+    if (!isSecurityActionCurrent(action)) return;
+    invalidateSecurityActions();
     BiometricService.queuePinChange(currentPin, newPin);
     router.back();
   };
 
   const removeWallet = async () => {
+    const action = beginSecurityAction();
+    if (!action) return;
     try {
       if (!(await authorizeWalletRemoval())) return;
     } catch {
+      if (!isSecurityActionCurrent(action)) return;
       Alert.alert('Unable to Verify Wallet Protection', 'Please try again before removing wallets.');
       return;
     }
+    if (!(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
 
     Alert.alert(
       'Remove All Wallets',
       'This will permanently delete ALL imported wallets from this device, including preserved earlier wallet backups. Device Login will be disabled and you will need to re-import each wallet to access them again.\n\nMake sure you have backed up your seed phrases before continuing!',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel', onPress: () => {
+          if (isSecurityActionCurrent(action)) invalidateSecurityActions();
+        } },
         {
           text: 'Remove All',
           style: 'destructive',
           onPress: async () => {
+            if (!isSecurityActionCurrent(action)) return;
             Alert.alert(
               'Delete All Wallets?',
               'ALL wallet data will be permanently removed. This action cannot be undone.',
               [
-                { text: 'Cancel', style: 'cancel' },
+                { text: 'Cancel', style: 'cancel', onPress: () => {
+                  if (isSecurityActionCurrent(action)) invalidateSecurityActions();
+                } },
                 {
                   text: 'Yes, Delete All',
                   style: 'destructive',
                   onPress: async () => {
+                    if (!isSecurityActionCurrent(action)) return;
                     BiometricService.clearPendingSecurityOperations();
                     try {
-                      await NativeBridge.clearWalletDurably(20000);
+                      await NativeBridge.clearWalletDurably(20000, () => isSecurityActionCurrent(action));
 
+                      if (!mounted.current || !focused.current || AppState.currentState !== 'active') return;
                       setHasWallet(false);
                       setDeviceLoginEnabled(false);
                       Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
                     } catch (error) {
+                      if (!mounted.current || !focused.current || AppState.currentState !== 'active') return;
                       Logger.error('Settings', 'Failed to remove wallet:', error);
                       Alert.alert(
                         'Removal Incomplete',
@@ -555,17 +662,17 @@ export default function SettingsScreen() {
       </ScrollView>
 
       <ChangePinModal
-        visible={showChangePinModal}
-        onSubmit={handleChangePinSubmit}
-        onCancel={() => setShowChangePinModal(false)}
+        visible={changePinAction !== null}
+        onSubmit={(currentPin, newPin) => handleChangePinSubmit(currentPin, newPin, changePinAction)}
+        onCancel={() => handleDeviceLoginPinCancel(changePinAction)}
       />
 
       <PinEntryModal
-        visible={showDeviceLoginPinModal}
+        visible={deviceLoginAction !== null}
         title="Enable Device Login"
         message="Enter your wallet PIN to enable Device Login"
-        onSubmit={handleDeviceLoginPinSubmit}
-        onCancel={handleDeviceLoginPinCancel}
+        onSubmit={(pin) => handleDeviceLoginPinSubmit(pin, deviceLoginAction)}
+        onCancel={() => handleDeviceLoginPinCancel(deviceLoginAction)}
       />
     </SafeAreaView>
   );

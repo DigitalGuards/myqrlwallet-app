@@ -21,9 +21,10 @@ import QuantumLoadingScreen from '../../components/QuantumLoadingScreen';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
-import NativeBridge, { NativeSecurityContext } from '../../services/NativeBridge';
+import NativeBridge, { NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
 import { createBackgroundLock } from '../../services/BackgroundLock';
+import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { router, usePathname } from 'expo-router';
 
@@ -41,7 +42,7 @@ export default function WalletScreen() {
   const [pinModalTitle, setPinModalTitle] = useState('Enter Your PIN');
   const [pinModalMessage, setPinModalMessage] = useState('Enter your wallet PIN');
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
-  const [qrScannerVisible, setQrScannerVisible] = useState(false);
+  const [qrScanRequest, setQrScanRequest] = useState<NativeQrScanRequest | null>(null);
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -54,7 +55,8 @@ export default function WalletScreen() {
   const pendingUnlockPin = useRef<PendingUnlockPin | null>(null);
   const hasRestoredSeeds = useRef<boolean>(false);
   const deviceLoginSetupTriggered = useRef<boolean>(false);
-  const needsReauth = useRef(false);
+  const needsReauth = useRef(AppState.currentState !== 'active');
+  const activeQrScan = useRef<NativeQrScanRequest | null>(null);
   // Track when biometric auth is showing - iOS marks app as 'inactive' during biometric prompt
   const isAuthenticating = useRef(false);
   // Track when app went to background for loading screen threshold
@@ -64,6 +66,12 @@ export default function WalletScreen() {
   // Show the "biometric is off for this app" hint at most once per app session
   const biometricOffNudgeShown = useRef(false);
   const authAttemptGeneration = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   // Navigate to settings
   const navigateToSettings = useCallback(() => {
@@ -122,14 +130,18 @@ export default function WalletScreen() {
   // Handle device login unlock and send PIN to web
   const performDeviceLoginUnlock = useCallback(async (context: NativeSecurityContext) => {
     if (isAuthenticating.current) return;
+    const attemptGeneration = authAttemptGeneration.current;
+    const isAttemptBound = () => mounted.current &&
+      attemptGeneration === authAttemptGeneration.current &&
+      NativeBridge.isSecurityContextCurrent(context);
     Logger.debug('WalletScreen', 'Device Login unlock requested');
     isAuthenticating.current = true;
     try {
       const result = await BiometricService.getPinWithBiometric();
+      if (!(await waitForForegroundAuthorization(isAttemptBound))) return;
       if (
         result.success &&
         result.pin &&
-        AppState.currentState === 'active' &&
         NativeBridge.sendUnlockWithPinForContext(result.pin, context)
       ) {
         Logger.debug('WalletScreen', 'Device Login succeeded');
@@ -210,37 +222,46 @@ export default function WalletScreen() {
     );
   }, [showPinModal]);
 
-  // Track if QR was successfully scanned (to know if we should send cancel on close)
-  const qrScanSuccessful = useRef(false);
+  const closeQrScanner = useCallback(() => {
+    activeQrScan.current = null;
+    setQrScanRequest(null);
+  }, []);
 
   // Handle QR scan request from web
-  const handleQRScanRequest = useCallback(() => {
+  const handleQRScanRequest = useCallback((request: NativeQrScanRequest) => {
     Logger.debug('WalletScreen', 'QR scan requested from web');
-    qrScanSuccessful.current = false;
-    setQrScannerVisible(true);
+    activeQrScan.current = request;
+    setQrScanRequest(request);
   }, []);
 
   // Handle QR scan result
-  const handleQRScanResult = useCallback((data: string) => {
+  const handleQRScanResult = useCallback((data: string, request: NativeQrScanRequest | null) => {
+    if (!request || activeQrScan.current !== request) return;
     if (data.length === 0 || data.length > 4096) {
       Logger.warn('WalletScreen', 'QR scan result exceeded the bridge budget');
       return;
     }
     Logger.debug('WalletScreen', `QR scan completed (${data.length} characters, payload redacted)`);
-    qrScanSuccessful.current = true;
     // Send the scanned data to the WebView
-    NativeBridge.sendQRResult(data);
-  }, []);
+    NativeBridge.sendQRResult(data, request);
+    closeQrScanner();
+  }, [closeQrScanner]);
 
   // Close QR scanner
-  const handleQRScannerClose = useCallback(() => {
-    setQrScannerVisible(false);
-    // If scanner was closed without successful scan, notify web app
-    if (!qrScanSuccessful.current) {
-      Logger.debug('WalletScreen', 'QR scan cancelled by user');
-      NativeBridge.sendQRCancelled();
-    }
-  }, []);
+  const handleQRScannerClose = useCallback((request: NativeQrScanRequest | null) => {
+    if (!request || activeQrScan.current !== request) return;
+    NativeBridge.sendQRCancelled(request);
+    closeQrScanner();
+  }, [closeQrScanner]);
+
+  useEffect(() => {
+    const unsubscribe = NativeBridge.onAuthorizationInvalidated(closeQrScanner);
+    return () => {
+      unsubscribe();
+      if (activeQrScan.current) NativeBridge.sendQRCancelled(activeQrScan.current);
+      activeQrScan.current = null;
+    };
+  }, [closeQrScanner]);
 
   // Handle DAPP_SHOW_WEBVIEW - switch to WebView tab when dApp needs approval
   const handleDAppShowWebView = useCallback(() => {
@@ -267,7 +288,8 @@ export default function WalletScreen() {
     setIsUnlocking(false);
     setIsAuthorized(false);
     setAuthError('Finishing wallet removal...');
-  }, []);
+    closeQrScanner();
+  }, [closeQrScanner]);
 
   // Register bridge callbacks
   useEffect(() => {
@@ -299,10 +321,10 @@ export default function WalletScreen() {
 
     let cancelled = false;
     const attemptGeneration = ++authAttemptGeneration.current;
-    const isAttemptCurrent = () =>
+    const isAttemptBound = () =>
       !cancelled &&
-      attemptGeneration === authAttemptGeneration.current &&
-      AppState.currentState === 'active';
+      attemptGeneration === authAttemptGeneration.current;
+    const isAttemptCurrent = () => isAttemptBound() && AppState.currentState === 'active';
 
     const authCheck = async () => {
       setIsUnlocking(true);
@@ -335,6 +357,8 @@ export default function WalletScreen() {
           let result;
           try {
             result = await BiometricService.getPinWithBiometric();
+            if (!(await waitForForegroundAuthorization(() =>
+              isAttemptBound() && NativeBridge.isSecurityContextCurrent(context)))) return;
           } finally {
             isAuthenticating.current = false;
             // Foreground may have arrived before this interrupted prompt settled.
@@ -374,7 +398,7 @@ export default function WalletScreen() {
           setAuthError('Wallet security state could not be verified. Please try again.');
         }
       } finally {
-        if (isAttemptCurrent()) setIsUnlocking(false);
+        if (isAttemptBound()) setIsUnlocking(false);
       }
     };
 
@@ -393,7 +417,7 @@ export default function WalletScreen() {
 
   const retryAuthentication = useCallback(() => {
     authAttemptGeneration.current += 1;
-    NativeBridge.invalidateAuthorization();
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
     pendingUnlockPin.current = null;
     setAuthError(null);
     setIsUnlocking(false);
@@ -404,7 +428,7 @@ export default function WalletScreen() {
     showPinModal(
       async (pin: string) => {
         const attemptGeneration = ++authAttemptGeneration.current;
-        NativeBridge.invalidateAuthorization();
+        NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
         const context = NativeBridge.captureSecurityContext();
         setIsUnlocking(true);
         setAuthError(null);
@@ -452,9 +476,10 @@ export default function WalletScreen() {
     setPendingPinAction(null);
     setIsUnlocking(false);
     setIsAuthorized(false);
+    closeQrScanner();
     backgroundedAt.current = Date.now();
     // Don't reset web app ready - WebView is always mounted (off-screen) and maintains state
-  }, []);
+  }, [closeQrScanner]);
 
   // Auto-lock app when it goes to background
   // Platform-specific handling for iOS lifecycle quirks
@@ -472,7 +497,7 @@ export default function WalletScreen() {
       backgroundLock.onChange(appState.current, nextAppState);
 
       // An in-flight biometric prompt defers this retry until its finally block.
-      if ((appState.current === 'inactive' || appState.current === 'background') && nextAppState === 'active') {
+      if (appState.current !== 'active' && nextAppState === 'active') {
         resumePendingReauth();
       }
 
@@ -496,14 +521,16 @@ export default function WalletScreen() {
 
   const handleDocumentLoadStart = useCallback(() => {
     authAttemptGeneration.current += 1;
-    NativeBridge.invalidateAuthorization();
+    // resetWebAppReady already discarded intents bound to an earlier document.
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
+    closeQrScanner();
     pendingUnlockPin.current = null;
     hasRestoredSeeds.current = false;
     setIsAuthorized(false);
     setIsUnlocking(false);
     setAuthError(null);
     setAuthCheckNonce((value) => value + 1);
-  }, []);
+  }, [closeQrScanner]);
 
   // Handle WEB_APP_READY message from web - safe to send data now
   const handleWebAppReady = useCallback(async () => {
@@ -731,9 +758,10 @@ export default function WalletScreen() {
         onCancel={handlePinCancel}
       />
       <QRScannerModal
-        visible={qrScannerVisible}
-        onScan={handleQRScanResult}
-        onClose={handleQRScannerClose}
+        key={qrScanRequest?.requestId ?? 'closed'}
+        visible={qrScanRequest !== null}
+        onScan={(data) => handleQRScanResult(data, qrScanRequest)}
+        onClose={() => handleQRScannerClose(qrScanRequest)}
       />
       {/* Processing overlay - shown during operations like PIN change */}
       <QuantumLoadingScreen

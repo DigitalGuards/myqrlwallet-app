@@ -20,6 +20,10 @@ jest.mock('../SeedStorageService', () => ({
     getOrCreateDeviceCredential: jest.fn(),
     backupSeed: jest.fn(),
     storePinSecurely: jest.fn(),
+    clearStoredPin: jest.fn(async () => undefined),
+    getWalletGeneration: jest.fn(() => 0),
+    isWalletGenerationCurrent: jest.fn(() => true),
+    isBiometricEnabled: jest.fn(async () => true),
     getPendingWalletWipe: jest.fn(async () => null),
   },
 }));
@@ -110,6 +114,8 @@ describe('NativeBridge device credential protocol', () => {
     await authenticateDocument();
     jest.clearAllMocks();
     mockStorePin.mockResolvedValue(undefined);
+    jest.mocked(SeedStorageService.getWalletGeneration).mockReturnValue(0);
+    jest.mocked(SeedStorageService.isWalletGenerationCurrent).mockReturnValue(true);
   });
 
   it('returns a credential only after SecureStore get-or-create resolves', async () => {
@@ -708,6 +714,7 @@ describe('NativeBridge device credential protocol', () => {
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
+      for (let i = 0; i < 10 && mockStorePin.mock.calls.length === 0; i++) await Promise.resolve();
       expect(mockStorePin).toHaveBeenCalledWith('5678');
 
       jest.advanceTimersByTime(10);
@@ -735,6 +742,42 @@ describe('NativeBridge device credential protocol', () => {
       expect(mockStorePin.mock.calls.map(([pin]) => pin)).toEqual(['5678', '1234']);
       send.mockRestore();
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not let a delayed compensation commit target a replacement wallet', async () => {
+    jest.useFakeTimers();
+    let generation = 1;
+    jest.mocked(SeedStorageService.getWalletGeneration).mockImplementation(() => generation);
+    jest.mocked(SeedStorageService.isWalletGenerationCurrent).mockImplementation(value => value === generation);
+    let releaseCommit!: () => void;
+    mockStorePin.mockImplementationOnce(() => new Promise<void>(resolve => { releaseCommit = resolve; }));
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    try {
+      const original = NativeBridge.changePin('1234', '5678', { timeoutMs: 10 });
+      await Promise.resolve();
+      const originalResponse = handleBridge({
+        type: 'PIN_CHANGED',
+        payload: { requestId: lastPinChangeRequestId(send), success: true, newPin: '5678' },
+      });
+      for (let i = 0; i < 30 && !releaseCommit; i++) await Promise.resolve();
+      expect(releaseCommit).toBeDefined();
+      jest.advanceTimersByTime(10);
+      await original;
+      const compensation = NativeBridge.changePin('5678', '1234');
+      await Promise.resolve();
+      const compensationResponse = handleBridge({
+        type: 'PIN_CHANGED',
+        payload: { requestId: lastPinChangeRequestId(send), success: true, newPin: '1234' },
+      });
+      generation = 2;
+      releaseCommit();
+      await Promise.all([originalResponse, compensationResponse]);
+      await expect(compensation).resolves.toEqual({ success: false, error: NATIVE_PIN_COMMIT_ERROR });
+      expect(mockStorePin.mock.calls).toEqual([['5678']]);
+    } finally {
+      send.mockRestore();
       jest.useRealTimers();
     }
   });

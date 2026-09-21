@@ -5,6 +5,7 @@ import NativeBridge, {
   NATIVE_PIN_COMMIT_ERROR,
 } from './NativeBridge';
 import Logger from './Logger';
+import DeviceLoginState from './DeviceLoginState';
 
 /**
  * Queued PIN change request (stored in memory for navigation between screens)
@@ -195,7 +196,7 @@ class BiometricService {
         if (!SeedStorageService.isWalletGenerationCurrent(walletGeneration)) {
           return { success: false, error: 'Wallet state changed during authentication' };
         }
-        const migrated = await SeedStorageService.migratePinAccessibility(pin);
+        const migrated = await DeviceLoginState.migratePinAccessibility(pin, walletGeneration);
         Logger.debug(
           'BiometricService',
           `PIN accessibility migration: ${migrated ? 'ok' : 'retry-next-unlock'}`
@@ -405,12 +406,7 @@ class BiometricService {
       }
       if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
-      // Store the PIN securely
-      await SeedStorageService.storePinSecurely(pin);
-      if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
-
-      // Enable device login
-      await SeedStorageService.setBiometricEnabled(true);
+      await DeviceLoginState.enable(pin, isCurrent);
       if (!isCurrent()) return { success: false, error: 'Wallet state changed' };
 
       return { success: true };
@@ -426,9 +422,8 @@ class BiometricService {
   /**
    * Disable device login
    */
-  async disableDeviceLogin(): Promise<void> {
-    await SeedStorageService.setBiometricEnabled(false);
-    await SeedStorageService.clearStoredPin();
+  async disableDeviceLogin(isAuthorized?: () => boolean): Promise<void> {
+    await DeviceLoginState.disable(isAuthorized);
   }
 
   /**

@@ -4,7 +4,7 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import NativeBridge, { BridgeMessage } from '../services/NativeBridge';
+import NativeBridge, { BridgeMessage, NativeQrScanRequest } from '../services/NativeBridge';
 import Logger from '../services/Logger';
 import { NATIVE_WEBVIEW_INJECTED_OBJECT } from '../services/NativeWalletProfile';
 import {
@@ -34,14 +34,14 @@ const getDevHostname = (): string => {
 interface QRLWebViewProps {
   uri?: string;
   userAgent?: string;
-  onQRScanRequest?: () => void;
+  onQRScanRequest?: (request: NativeQrScanRequest) => void;
   onLoad?: () => void;  // Called when WebView content is loaded
   onDocumentLoadStart?: () => void;
   skipLoadingScreen?: boolean;  // Skip the quantum loading animation
 }
 
 export interface QRLWebViewRef {
-  sendQRResult: (address: string) => void;
+  sendQRResult: (address: string, request: NativeQrScanRequest) => boolean;
   reload: () => void;
 }
 
@@ -166,8 +166,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
-    sendQRResult: (address: string) => {
-      NativeBridge.sendQRResult(address);
+    sendQRResult: (address: string, request: NativeQrScanRequest) => {
+      return NativeBridge.sendQRResult(address, request);
     },
     reload: () => {
       if (webViewRef.current) {
