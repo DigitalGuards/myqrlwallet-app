@@ -73,6 +73,25 @@ describe('native background lock', () => {
     expect(onLock).toHaveBeenCalledTimes(1);
   });
 
+  it('rearms the inactive lock when the prompt settles before the next state event', () => {
+    authenticating = true;
+    transition('inactive');
+    authenticating = false;
+    handler.onAuthenticationSettled();
+    jest.advanceTimersByTime(300);
+    expect(onLock).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a settled-prompt timer when iOS returns to active', () => {
+    authenticating = true;
+    transition('inactive');
+    authenticating = false;
+    handler.onAuthenticationSettled();
+    transition('active');
+    jest.runAllTimers();
+    expect(onLock).not.toHaveBeenCalled();
+  });
+
   it('rechecks biometric state before an already scheduled inactive lock', () => {
     transition('inactive');
     authenticating = true;

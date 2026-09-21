@@ -98,4 +98,23 @@ describe('BiometricService PIN accessibility migration', () => {
     });
     expect(mockMigrate).not.toHaveBeenCalled();
   });
+
+  it.each(['disabled', 'rotated'])('skips stale accessibility migration after Device Login is %s', async change => {
+    let releaseMigrationCheck!: () => void;
+    mockNeedsMigration.mockImplementationOnce(() => new Promise<boolean>(resolve => {
+      releaseMigrationCheck = () => resolve(true);
+    }));
+    const unlock = BiometricService.getPinWithBiometric();
+    for (let i = 0; i < 30 && !releaseMigrationCheck; i++) await Promise.resolve();
+    expect(releaseMigrationCheck).toBeDefined();
+    if (change === 'disabled') {
+      jest.mocked(SeedStorageService.isBiometricEnabled).mockResolvedValue(false);
+      mockGetStoredPin.mockResolvedValue(null);
+    } else {
+      mockGetStoredPin.mockResolvedValue('5678');
+    }
+    releaseMigrationCheck();
+    await unlock;
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
 });
