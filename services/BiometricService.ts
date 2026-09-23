@@ -70,7 +70,7 @@ class BiometricService {
     }
   }
 
-  private async authenticatePinInForeground(
+  private async authenticateInForeground(
     options: LocalAuthentication.LocalAuthenticationOptions,
     isCurrent: () => boolean
   ): Promise<LocalAuthentication.LocalAuthenticationResult> {
@@ -263,19 +263,30 @@ class BiometricService {
    * @param promptMessage - Message to display in the authentication prompt
    * @returns Authentication result
    */
-  async authenticate(promptMessage: string = 'Authenticate to access your wallet'): Promise<{
+  async authenticate(
+    promptMessage: string = 'Authenticate to access your wallet',
+    isCallerCurrent?: () => boolean,
+  ): Promise<{
     success: boolean;
     error?: string;
+    cancelled?: boolean;
   }> {
+    const options: LocalAuthentication.LocalAuthenticationOptions = {
+      promptMessage,
+      fallbackLabel: 'Use passcode',
+      cancelLabel: 'Cancel',
+      disableDeviceFallback: false,
+    };
     try {
-      const result = await this.runAuthenticationPrompt({
-        promptMessage,
-        fallbackLabel: 'Use passcode',
-        cancelLabel: 'Cancel',
-        disableDeviceFallback: false,
-      });
+      // A caller-bound prompt reserves its return to active, so the iOS
+      // inactive grace cannot relock the wallet or expire the caller's action
+      // while the Face ID sheet is still dismissing.
+      const result = isCallerCurrent
+        ? await this.authenticateInForeground(options, isCallerCurrent)
+        : await this.runAuthenticationPrompt(options);
 
-      return { success: result.success };
+      if (result.success) return { success: true };
+      return { success: false, cancelled: result.error === 'user_cancel' };
     } catch (error) {
       Logger.error('BiometricService', 'Authentication error:', error);
       return {
@@ -397,7 +408,7 @@ class BiometricService {
     if (!isCurrent()) return { success: false, error: AUTHENTICATION_CHANGED_ERROR };
     if (status.hasBiometricHardware && !status.biometricUsable) {
       try {
-        const probe = await this.authenticatePinInForeground(
+        const probe = await this.authenticateInForeground(
           {
             promptMessage: 'Unlock your wallet',
             cancelLabel: 'Cancel',
@@ -440,7 +451,7 @@ class BiometricService {
     if (!isCurrent()) return { success: false, error: AUTHENTICATION_CHANGED_ERROR };
     let authResult: LocalAuthentication.LocalAuthenticationResult;
     try {
-      authResult = await this.authenticatePinInForeground(
+      authResult = await this.authenticateInForeground(
         {
           promptMessage: 'Unlock your wallet',
           fallbackLabel: 'Use passcode',
@@ -502,7 +513,8 @@ class BiometricService {
 
       // Authenticate before storing (confirm user identity)
       const authResult = await this.authenticate(
-        'Enable Device Login to unlock your wallet'
+        'Enable Device Login to unlock your wallet',
+        isCurrent,
       );
       if (!authResult.success) {
         return {
