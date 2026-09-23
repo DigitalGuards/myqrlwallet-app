@@ -30,8 +30,9 @@ describe('wallet removal authorization', () => {
     async (success) => {
       required.mockResolvedValue(true);
       authenticate.mockResolvedValue({ success });
-      await expect(authorizeWalletRemoval()).resolves.toBe(success);
-      expect(authenticate).toHaveBeenCalledWith('Authenticate to remove wallet');
+      const isCallerCurrent = () => true;
+      await expect(authorizeWalletRemoval(isCallerCurrent)).resolves.toBe(success);
+      expect(authenticate).toHaveBeenCalledWith('Authenticate to remove wallet', isCallerCurrent);
     }
   );
 
