@@ -271,7 +271,7 @@ describe('Settings session-bound security actions', () => {
         resolvePrompt({ success: true });
       });
       await act(async () => {
-        jest.advanceTimersByTime(301);
+        await jest.advanceTimersByTimeAsync(10_001);
         await operation;
       });
       await transition('active');
@@ -282,6 +282,67 @@ describe('Settings session-bound security actions', () => {
       ).toBe(false);
     }
   );
+
+  it.each([
+    ['disable', 350],
+    ['disable', 1_000],
+    ['disable', 5_000],
+    ['change', 1_000],
+    ['remove', 1_000],
+  ] as const)(
+    'completes %s when iOS reports active %ims after the prompt settles',
+    async (kind, delay) => {
+      // TestFlight 1.3.3 (33): Face ID succeeded, the sheet took longer than
+      // 300ms to hand back active, and the toggle silently stayed on.
+      deferPrompt();
+      let operation!: Promise<void>;
+      await act(async () => {
+        operation = begin(kind);
+      });
+      await transition('inactive');
+      await act(async () => {
+        resolvePrompt({ success: true });
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(delay);
+      });
+      await transition('active');
+      await act(async () => {
+        await operation;
+      });
+      if (kind === 'disable') {
+        expect(BiometricService.disableDeviceLogin).toHaveBeenCalledTimes(1);
+        expect(Alert.alert).toHaveBeenCalledWith('Disabled', 'Device Login has been disabled.');
+      }
+      if (kind === 'change') expect(modal('ChangePinModal').visible).toBe(true);
+      if (kind === 'remove') expect(button('Remove All Wallets', 'Remove All')).toBeDefined();
+    }
+  );
+
+  it('reports a failed disable prompt instead of silently leaving the toggle on', async () => {
+    jest
+      .mocked(LocalAuthentication.authenticateAsync)
+      .mockResolvedValue({ success: false, error: 'lockout' });
+    await act(async () => {
+      await begin('disable');
+    });
+    expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Device Login Still On',
+      'Authentication did not complete. Please try again.'
+    );
+  });
+
+  it('stays quiet when the user cancels the disable prompt', async () => {
+    jest
+      .mocked(LocalAuthentication.authenticateAsync)
+      .mockResolvedValue({ success: false, error: 'user_cancel' });
+    await act(async () => {
+      await begin('disable');
+    });
+    expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
 
   it.each(['cancel', 'throw'])(
     'keeps a %s OS prompt from authorizing a PIN change',

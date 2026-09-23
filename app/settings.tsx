@@ -180,7 +180,7 @@ export default function SettingsScreen() {
     const lock = createBackgroundLock({
       isIOS: Platform.OS === 'ios',
       getCurrentState: () => AppState.currentState,
-      isAuthenticating: () => BiometricService.isAuthenticationPromptActive(),
+      isAuthenticating: () => BiometricService.isAuthenticationTransitionActive(),
       onLock: invalidateSecurityActions,
     });
     const unsubscribeAuthorization = NativeBridge.onAuthorizationInvalidated(invalidateSecurityActions);
@@ -270,8 +270,17 @@ export default function SettingsScreen() {
     if (newValue) {
       setDeviceLoginAction(action);
     } else {
-      const authResult = await BiometricService.authenticate('Authenticate to disable Device Login');
-      if (!authResult.success || !(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
+      const authResult = await BiometricService.authenticate(
+        'Authenticate to disable Device Login',
+        () => isSecurityActionBound(action),
+      );
+      if (!authResult.success) {
+        if (!authResult.cancelled && mounted.current && focused.current) {
+          Alert.alert('Device Login Still On', 'Authentication did not complete. Please try again.');
+        }
+        return;
+      }
+      if (!(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
       try {
         await BiometricService.disableDeviceLogin(() => isSecurityActionCurrent(action));
       } catch (error) {
@@ -334,7 +343,10 @@ export default function SettingsScreen() {
   const handleChangePinPress = async () => {
     const action = beginSecurityAction();
     if (!action) return;
-    const authResult = await BiometricService.authenticate('Authenticate to change PIN');
+    const authResult = await BiometricService.authenticate(
+      'Authenticate to change PIN',
+      () => isSecurityActionBound(action),
+    );
     if (!authResult.success || !(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
     setChangePinAction(action);
   };
@@ -354,7 +366,7 @@ export default function SettingsScreen() {
     const action = beginSecurityAction();
     if (!action) return;
     try {
-      if (!(await authorizeWalletRemoval())) return;
+      if (!(await authorizeWalletRemoval(() => isSecurityActionBound(action)))) return;
     } catch {
       if (!isSecurityActionCurrent(action)) return;
       Alert.alert('Unable to Verify Wallet Protection', 'Please try again before removing wallets.');
