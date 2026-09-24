@@ -294,10 +294,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   };
 
   return (
-    <View style={[styles.outerContainer, { backgroundColor: '#0A0A17' }]}>
-      <StatusBar backgroundColor="#0A0A17" barStyle="light-content" />
+    <View style={[styles.outerContainer, { backgroundColor: '#080C16' }]}>
+      <StatusBar backgroundColor="#080C16" barStyle="light-content" />
       <View style={[styles.container, {
-        backgroundColor: '#0A0A17',
+        backgroundColor: '#080C16',
         paddingTop: insets.top || 40,
         paddingBottom: insets.bottom
       }]}>
@@ -384,25 +384,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#0A0A17',
+    backgroundColor: '#080C16',
   },
   errorText: {
     fontSize: 16,
     marginBottom: 20,
     textAlign: 'center',
-    color: '#f8fafc',
+    color: '#F2F5F8',
   },
   retryButton: {
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
     marginTop: 10,
-    backgroundColor: '#fa761e',
+    backgroundColor: '#33ADE6',
   },
   retryButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#f8fafc',
+    color: '#041725',
   },
 });
 

@@ -32,23 +32,25 @@ import Logger from '../services/Logger';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
 
 // Visual tokens are kept local to this screen per user scope.
+// Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
 const C = {
-  bg: '#09090c',
-  card: '#0f1014',
-  cardPressed: '#16171d',
-  divider: '#22232a',
-  textPrimary: '#f5f3f0',
-  textSecondary: '#9c9dab',
-  textTertiary: '#6a6b7c',
-  chevron: '#6a6b7c',
-  brandOrange: '#fa761e',
-  pinOrange: '#fb8b41',
+  bg: '#080C16',
+  card: '#0E1320',
+  cardPressed: '#171D2B',
+  divider: '#1E2738',
+  textPrimary: '#F2F5F8',
+  textSecondary: '#9BA6B5',
+  textTertiary: '#69717D',
+  chevron: '#69717D',
+  brandBlue: '#33ADE6',
+  brandBlueForeground: '#041725',
+  pinBlue: '#20A6E9',
   blue: '#3b82f6',
   purple: '#a855f7',
   teal: '#06b6d4',
-  green: '#22c55e',
-  red: '#ef4444',
-  gray: '#6a6b7c',
+  green: '#37BE7F',
+  red: '#E56161',
+  gray: '#69717D',
   github: '#6e7681',
 };
 
@@ -62,6 +64,10 @@ interface SettingsSecurityAction {
 type RowProps = {
   icon: IoniconName;
   tint: string;
+  /** Icon color inside the tile. Light accent tints (primary/secondary)
+   * need a dark icon to clear WCAG AA non-text contrast; darker tints
+   * keep the default white. */
+  iconColor?: string;
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
@@ -69,11 +75,11 @@ type RowProps = {
   destructive?: boolean;
 };
 
-function Row({ icon, tint, title, subtitle, right, onPress, destructive }: RowProps) {
+function Row({ icon, tint, iconColor = '#ffffff', title, subtitle, right, onPress, destructive }: RowProps) {
   const content = (
     <View style={styles.row}>
       <View style={[styles.tile, { backgroundColor: tint }]}>
-        <Ionicons name={icon} size={18} color="#ffffff" />
+        <Ionicons name={icon} size={18} color={iconColor} />
       </View>
       <View style={styles.rowText}>
         <Text
@@ -446,8 +452,8 @@ export default function SettingsScreen() {
     Linking.openURL(url).catch((err) => Logger.error('Settings', 'Failed to open link:', err));
   };
 
-  const switchTrack = { false: C.divider, true: `${C.brandOrange}66` };
-  const switchThumb = (on: boolean) => (on ? C.brandOrange : '#9c9dab');
+  const switchTrack = { false: C.divider, true: `${C.brandBlue}66` };
+  const switchThumb = (on: boolean) => (on ? C.brandBlue : C.textSecondary);
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
@@ -568,7 +574,8 @@ export default function SettingsScreen() {
           {hasWallet && (
             <Row
               icon="keypad"
-              tint={C.pinOrange}
+              tint={C.pinBlue}
+              iconColor={C.brandBlueForeground}
               title="Change PIN"
               subtitle="Update the PIN that encrypts your seed"
               onPress={handleChangePinPress}
@@ -580,7 +587,8 @@ export default function SettingsScreen() {
         <Section title="Connections">
           <Row
             icon="book"
-            tint={C.brandOrange}
+            tint={C.brandBlue}
+            iconColor={C.brandBlueForeground}
             title="Address Book"
             subtitle="Saved recipients for quick transfers"
             onPress={() => {
@@ -652,7 +660,8 @@ export default function SettingsScreen() {
         <Section title="About">
           <Row
             icon="globe"
-            tint={C.brandOrange}
+            tint={C.brandBlue}
+            iconColor={C.brandBlueForeground}
             title="QRL Website"
             onPress={() => openLink('https://theqrl.org')}
           />
@@ -782,7 +791,7 @@ const styles = StyleSheet.create({
     marginLeft: 60,
   },
   badge: {
-    backgroundColor: C.brandOrange,
+    backgroundColor: C.brandBlue,
     borderRadius: 10,
     minWidth: 20,
     height: 20,
@@ -791,7 +800,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   badgeText: {
-    color: '#ffffff',
+    color: '#041725',
     fontSize: 11,
     fontWeight: '700',
   },

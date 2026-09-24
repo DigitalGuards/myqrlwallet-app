@@ -19,18 +19,19 @@ import { formatQrlAddressFingerprint } from '../services/QrlAddress';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
 const C = {
-  bg: '#09090c',
-  card: '#0f1014',
-  divider: '#22232a',
-  textPrimary: '#f5f3f0',
-  textSecondary: '#9c9dab',
-  textTertiary: '#6a6b7c',
-  chevron: '#6a6b7c',
-  brandOrange: '#fa761e',
-  green: '#22c55e',
-  red: '#ef4444',
-  gray: '#6a6b7c',
+  bg: '#080C16',
+  card: '#0E1320',
+  divider: '#1E2738',
+  textPrimary: '#F2F5F8',
+  textSecondary: '#9BA6B5',
+  textTertiary: '#69717D',
+  chevron: '#69717D',
+  brandBlue: '#33ADE6',
+  green: '#37BE7F',
+  red: '#E56161',
+  gray: '#69717D',
   blue: '#3b82f6',
 };
 

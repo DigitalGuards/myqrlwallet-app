@@ -13,16 +13,16 @@ const backgroundLight = '#ffffff'; // --background in CSS
 const foregroundLight = '#0c0e10'; // --foreground in CSS
 const primaryLight = '#121921'; // --primary in CSS
 const primaryForegroundLight = '#f8fafc'; // --primary-foreground in CSS
-const secondaryLight = '#fa761e'; // QRL Orange (--secondary in CSS)
-const secondaryForegroundLight = '#f8fafc'; // --secondary-foreground in CSS
+const secondaryLight = '#33ADE6'; // QRL Blue (--secondary in CSS)
+const secondaryForegroundLight = '#041725'; // --secondary-foreground in CSS
 
 // Dark mode colors
-const backgroundDark = '#09090c'; // --background (Obsidian & Ember)
+const backgroundDark = '#080C16'; // --background (QRL Blue)
 const foregroundDark = '#f8fafc'; // --foreground in dark mode CSS
 const primaryDark = '#f8fafc'; // --primary in dark mode CSS
 const primaryForegroundDark = '#121921'; // --primary-foreground in dark mode CSS
-const secondaryDark = '#fa761e'; // QRL Orange (--secondary in dark mode CSS)
-const secondaryForegroundDark = '#f8fafc'; // --secondary-foreground in dark mode CSS
+const secondaryDark = '#33ADE6'; // QRL Blue (--secondary in dark mode CSS)
+const secondaryForegroundDark = '#041725'; // --secondary-foreground in dark mode CSS
 
 export default {
   light: {

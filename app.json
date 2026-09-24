@@ -74,7 +74,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/myqrlwallet/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 280,
           "resizeMode": "contain",
           "backgroundColor": "#080C16"
         }

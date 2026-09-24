@@ -20,13 +20,13 @@ const LOADING_MESSAGES = [
   'Loading your accounts...',
 ];
 
-// Obsidian & Ember palette (mirrors the web wallet tokens).
-const INK = '#09090c';
-const EMBER = '#fa761e';
-const EMBER_SOFT = '#fb8b41';
-const BLUE = '#4aafff';
-const MUTED = '#9c9dab';
-const TRACK = 'rgba(245, 243, 240, 0.08)';
+// QRL Blue palette (mirrors the web wallet tokens).
+const INK = '#080C16';
+const PRIMARY = '#33ADE6';
+const PRIMARY_SOFT = '#5CC2EF';
+const IDENTITY = '#A5D7E9';
+const MUTED = '#9BA6B5';
+const TRACK = 'rgba(242, 245, 248, 0.08)';
 
 const PROGRESS_TRACK_WIDTH = 220;
 
@@ -40,7 +40,7 @@ type EmberSpec = {
 };
 
 /**
- * A single ember: rises from the lower third to above the logo while
+ * A single spark: rises from the lower third to above the logo while
  * fading, then loops. Transform + opacity only, so the whole field runs
  * on the native driver.
  */
@@ -102,7 +102,7 @@ interface QuantumLoadingScreenProps {
   customMessage?: string; // When set, display this instead of cycling messages
   /**
    * Real load fraction (0..1). When provided the bar is determinate;
-   * without it an indeterminate ember beam sweeps the track.
+   * without it an indeterminate sky-blue beam sweeps the track.
    */
   progress?: number;
 }
@@ -126,8 +126,8 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
       size: 2 + Math.random() * 3,
       duration: 6000 + Math.random() * 5000,
       delay: Math.random() * 4000,
-      // A couple of battery-blue sparks among the embers.
-      color: i % 7 === 3 ? BLUE : i % 2 ? EMBER : EMBER_SOFT,
+      // A couple of ice-blue identity sparks among the sky-blue ones.
+      color: i % 7 === 3 ? IDENTITY : i % 2 ? PRIMARY : PRIMARY_SOFT,
       drift: (Math.random() - 0.5) * 60,
     })),
   );
@@ -241,20 +241,20 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      {/* Atmosphere: soft ember wash above, faint cyan breath below. */}
+      {/* Atmosphere: soft sky-blue wash above, faint ice-blue breath below. */}
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(250, 118, 30, 0.14)', 'rgba(250, 118, 30, 0.04)', 'rgba(0, 0, 0, 0)']}
+        colors={['rgba(51, 173, 230, 0.14)', 'rgba(51, 173, 230, 0.04)', 'rgba(0, 0, 0, 0)']}
         locations={[0, 0.45, 1]}
         style={styles.glowTop}
       />
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(0, 0, 0, 0)', 'rgba(74, 175, 255, 0.05)']}
+        colors={['rgba(0, 0, 0, 0)', 'rgba(165, 215, 233, 0.05)']}
         style={styles.glowBottom}
       />
 
-      {/* Rising embers in place of the old matrix rain. */}
+      {/* Rising sparks in place of the old matrix rain. */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         {embers.map((spec, index) => (
           <Ember key={index} spec={spec} />
@@ -362,9 +362,9 @@ const styles = StyleSheet.create({
     width: PROGRESS_TRACK_WIDTH,
     height: 4,
     borderRadius: 999,
-    backgroundColor: EMBER,
+    backgroundColor: PRIMARY,
     transformOrigin: 'left',
-    shadowColor: EMBER,
+    shadowColor: PRIMARY,
     shadowOpacity: 0.6,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
@@ -379,8 +379,8 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 4,
     borderRadius: 999,
-    backgroundColor: EMBER,
-    shadowColor: EMBER,
+    backgroundColor: PRIMARY,
+    shadowColor: PRIMARY,
     shadowOpacity: 0.6,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
     height: 6,
     marginLeft: -3,
     borderRadius: 3,
-    backgroundColor: BLUE,
+    backgroundColor: IDENTITY,
   },
   messageContainer: {
     height: 44,

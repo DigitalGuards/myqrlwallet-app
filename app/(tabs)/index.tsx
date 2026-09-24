@@ -808,7 +808,7 @@ export default function WalletScreen() {
 
   return (
     <RNView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#09090c" />
+      <StatusBar barStyle="light-content" backgroundColor="#080C16" />
       {/* Keep the WebView mounted AND on-screen at full size even while locked.
           Moving it off-screen (left/top:-9999) throttles its JS, which stalled
           the dApp-connect relay reconnect (reconnectAll) during re-auth on
@@ -835,7 +835,7 @@ export default function WalletScreen() {
           <Text style={styles.lockMessage}>
             {authError || 'Authenticate with Device Login to continue.'}
           </Text>
-          {isUnlocking ? <ActivityIndicator color="#fa761e" size="small" /> : null}
+          {isUnlocking ? <ActivityIndicator color="#33ADE6" size="small" /> : null}
           {!authError?.startsWith('Finishing wallet removal') ? (
             <RNView style={styles.lockActions}>
               <TouchableOpacity
@@ -883,7 +883,7 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#09090c',
+    backgroundColor: '#080C16',
   },
   webViewVisible: {
     flex: 1,
@@ -897,19 +897,19 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#09090c',
+    backgroundColor: '#080C16',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
   },
   lockTitle: {
-    color: '#f5f3f0',
+    color: '#F2F5F8',
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 10,
   },
   lockMessage: {
-    color: '#9c9dab',
+    color: '#9BA6B5',
     fontSize: 14,
     lineHeight: 20,
     maxWidth: 360,
@@ -929,20 +929,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   lockButtonPrimary: {
-    backgroundColor: '#fa761e',
+    backgroundColor: '#33ADE6',
   },
   lockButtonSecondary: {
-    backgroundColor: '#16171d',
-    borderColor: '#2a2b32',
+    backgroundColor: '#171D2B',
+    borderColor: '#1E2738',
     borderWidth: 1,
   },
   lockButtonPrimaryText: {
-    color: '#ffffff',
+    color: '#041725',
     fontSize: 15,
     fontWeight: '700',
   },
   lockButtonSecondaryText: {
-    color: '#f5f3f0',
+    color: '#F2F5F8',
     fontSize: 15,
     fontWeight: '600',
   },
