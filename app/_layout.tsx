@@ -15,9 +15,9 @@ import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
 
-const APP_BACKGROUND = '#09090c';
-const APP_TEXT = '#f5f3f0';
-const APP_ACCENT = '#f5a623';
+const APP_BACKGROUND = '#080C16';
+const APP_TEXT = '#F2F5F8';
+const APP_ACCENT = '#33ADE6';
 const HEADER_TITLE_STYLE = {
   fontWeight: 'bold' as const,
   fontSize: 16,
@@ -191,7 +191,7 @@ export default function RootLayout() {
     ...DarkTheme,
     colors: {
       ...DarkTheme.colors,
-      primary: APP_ACCENT, // QRL Orange
+      primary: APP_ACCENT, // QRL Blue
       background: APP_BACKGROUND, // Dark navy
       card: APP_BACKGROUND,
       text: APP_TEXT,

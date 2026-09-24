@@ -7,13 +7,13 @@ export const PIN_MAX_LENGTH = 6;
 // Mirrors the web wallet's Set Transaction PIN entry (segmented boxes with
 // dots) so PIN entry looks and behaves the same in native modals and in the
 // WebView. Structure over pixel-parity: navy wells, slate borders, brand
-// orange focus ring.
+// blue focus ring (QRL Blue palette, see constants/Theme.ts).
 const C = {
-  box: '#09090c',
-  boxBorder: '#22232a',
-  boxBorderActive: '#fa761e',
-  dot: '#f5f3f0',
-  helper: '#9c9dab',
+  box: '#080C16',
+  boxBorder: '#1E2738',
+  boxBorderActive: '#33ADE6',
+  dot: '#F2F5F8',
+  helper: '#9BA6B5',
 };
 
 type PinBoxInputProps = {
