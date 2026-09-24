@@ -26,7 +26,8 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/myqrlwallet/adaptive-icon.png",
-        "backgroundImage": "./assets/images/myqrlwallet/adaptive-icon-background.png"
+        "monochromeImage": "./assets/images/myqrlwallet/adaptive-icon-monochrome.png",
+        "backgroundColor": "#33ADE6"
       },
       "package": "com.chiefdg.myqrlwallet",
       "versionCode": 3,
@@ -73,9 +74,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/myqrlwallet/splash-icon.png",
-          "imageWidth": 300,
+          "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0c0e10"
+          "backgroundColor": "#080C16"
         }
       ],
       "expo-font",
