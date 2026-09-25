@@ -12,16 +12,18 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { PinBoxInput, PIN_MIN_LENGTH, PIN_MAX_LENGTH } from './PinBoxInput';
 
+// Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
 const C = {
   overlay: 'rgba(0, 0, 0, 0.7)',
-  card: '#0f1014',
-  input: '#16171d',
-  divider: '#22232a',
-  textPrimary: '#f5f3f0',
-  textSecondary: '#9c9dab',
-  textTertiary: '#6a6b7c',
-  brandOrange: '#fa761e',
-  red: '#ef4444',
+  card: '#0E1320',
+  input: '#171D2B',
+  divider: '#1E2738',
+  textPrimary: '#F2F5F8',
+  textSecondary: '#9BA6B5',
+  textTertiary: '#69717D',
+  brandBlue: '#33ADE6',
+  brandBlueForeground: '#041725',
+  red: '#E56161',
 };
 
 interface PinEntryModalProps {
@@ -79,7 +81,7 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
         <View style={styles.card}>
           <View style={styles.tileWrap}>
             <View style={styles.tile}>
-              <Ionicons name="keypad" size={22} color="#ffffff" />
+              <Ionicons name="keypad" size={22} color={C.brandBlueForeground} />
             </View>
           </View>
           <Text style={styles.title}>{title}</Text>
@@ -156,7 +158,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 11,
-    backgroundColor: C.brandOrange,
+    backgroundColor: C.brandBlue,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -196,10 +198,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.input,
   },
   submitButton: {
-    backgroundColor: C.brandOrange,
+    backgroundColor: C.brandBlue,
   },
   submitButtonDisabled: {
-    backgroundColor: '#4a3a20',
+    backgroundColor: '#213A45',
     opacity: 0.6,
   },
   cancelButtonText: {
@@ -208,7 +210,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   submitButtonText: {
-    color: '#ffffff',
+    color: C.brandBlueForeground,
     fontSize: 16,
     fontWeight: '700',
   },
