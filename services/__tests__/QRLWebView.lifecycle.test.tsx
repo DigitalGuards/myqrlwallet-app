@@ -1,4 +1,5 @@
 import React, { act } from 'react';
+import { Platform } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import QRLWebView from '../../components/QRLWebView';
 import NativeBridge from '../NativeBridge';
@@ -61,5 +62,26 @@ describe('production QRLWebView lifecycle and media policy', () => {
     await act(async () => nativeView.props.onLoadStart());
     await act(async () => nativeView.props.onLoadStart());
     expect(onDocumentLoadStart).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores Android same-document history updates and resets on new documents', async () => {
+    const platform = jest.replaceProperty(Platform, 'OS', 'android');
+    const onDocumentLoadStart = jest.fn();
+    await act(async () => {
+      screen = create(<QRLWebView onDocumentLoadStart={onDocumentLoadStart} />);
+    });
+    const nativeView = screen.root.findByType('NativeWebView' as never);
+    const event = (loading: boolean) => ({
+      nativeEvent: { url: 'https://qrlwallet.com/import-account', loading },
+    });
+    // A route change inside the loaded wallet page.
+    await act(async () => nativeView.props.onLoadStart(event(false)));
+    expect(NativeBridge.resetWebAppReady).not.toHaveBeenCalled();
+    expect(onDocumentLoadStart).not.toHaveBeenCalled();
+    // A new document load.
+    await act(async () => nativeView.props.onLoadStart(event(true)));
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
+    expect(onDocumentLoadStart).toHaveBeenCalledTimes(1);
+    platform.restore();
   });
 });

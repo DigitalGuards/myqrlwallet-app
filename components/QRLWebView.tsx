@@ -10,6 +10,7 @@ import {
   NATIVE_WEBVIEW_CAPABILITY_SCRIPT,
   NATIVE_WEBVIEW_INJECTED_OBJECT,
 } from '../services/NativeWalletProfile';
+import { isSameDocumentHistoryUpdate } from '../services/WebViewLoadStart';
 import {
   isAllowedWalletDocumentUrl,
   walletUrlOriginForLog,
@@ -179,7 +180,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     }
   }));
 
-  const handleLoadStart = () => {
+  const handleLoadStart = (event?: { nativeEvent?: { loading?: boolean } }) => {
+    // The wallet's own route changes keep the same document; resetting there
+    // would drop the bridge handshake and re-lock the app on every tap.
+    if (isSameDocumentHistoryUpdate(Platform.OS, event?.nativeEvent)) return;
     NativeBridge.resetWebAppReady();
     onDocumentLoadStart?.();
     setIsLoading(true);
