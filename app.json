@@ -76,7 +76,10 @@
           "image": "./assets/images/myqrlwallet/splash-icon.png",
           "imageWidth": 280,
           "resizeMode": "contain",
-          "backgroundColor": "#080C16"
+          "backgroundColor": "#080C16",
+          "android": {
+            "imageWidth": 130
+          }
         }
       ],
       "expo-font",

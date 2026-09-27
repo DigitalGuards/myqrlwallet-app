@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import {
   NATIVE_WALLET_BLOCKCHAIN,
   NATIVE_WALLET_CAPABILITIES,
+  NATIVE_WEBVIEW_CAPABILITY_SCRIPT,
   NATIVE_WEBVIEW_INJECTED_OBJECT,
 } from '../NativeWalletProfile';
 
@@ -28,5 +29,32 @@ describe('native Testnet v3 compatibility contract', () => {
     expect(source).toContain('injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}');
     expect(source).toContain('NativeBridge.resetWebAppReady()');
     expect(source).toContain('isAllowedWalletDocumentUrl');
+    // Android only sees the capabilities through these injected scripts.
+    expect(source).toContain(
+      "Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : undefined",
+    );
+    expect(source).toMatch(/injectedJavaScriptBeforeContentLoaded=\{\s*Platform\.OS === 'android'/);
+    expect(source).toMatch(/injectedJavaScript=\{\s*Platform\.OS === 'android'/);
+  });
+
+  it('defines injectedObjectJson on the document and keeps the installed bridge', () => {
+    const run = (win: Record<string, unknown>) =>
+      new Function('window', NATIVE_WEBVIEW_CAPABILITY_SCRIPT)(win);
+    const postMessage = jest.fn();
+    const withBridge: Record<string, unknown> = { ReactNativeWebView: { postMessage } };
+    run(withBridge);
+    const bridge = withBridge.ReactNativeWebView as {
+      postMessage: unknown;
+      injectedObjectJson: () => string;
+    };
+    expect(bridge.postMessage).toBe(postMessage);
+    expect(JSON.parse(bridge.injectedObjectJson())).toEqual(
+      JSON.parse(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT)),
+    );
+
+    const bare: Record<string, unknown> = {};
+    run(bare);
+    const created = bare.ReactNativeWebView as { injectedObjectJson: () => string };
+    expect(created.injectedObjectJson()).toBe(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT));
   });
 });
