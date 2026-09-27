@@ -28,6 +28,7 @@ describe('production QRLWebView lifecycle and media policy', () => {
     runtime.__DEV__ = false;
   });
   afterEach(async () => {
+    jest.restoreAllMocks();
     if (screen) await act(async () => screen.unmount());
     runtime.__DEV__ = originalDev;
     jest.useRealTimers();
@@ -65,23 +66,26 @@ describe('production QRLWebView lifecycle and media policy', () => {
   });
 
   it('ignores Android same-document history updates and resets on new documents', async () => {
-    const platform = jest.replaceProperty(Platform, 'OS', 'android');
+    jest.replaceProperty(Platform, 'OS', 'android');
     const onDocumentLoadStart = jest.fn();
     await act(async () => {
       screen = create(<QRLWebView onDocumentLoadStart={onDocumentLoadStart} />);
     });
     const nativeView = screen.root.findByType('NativeWebView' as never);
-    const event = (loading: boolean) => ({
-      nativeEvent: { url: 'https://qrlwallet.com/import-account', loading },
-    });
-    // A route change inside the loaded wallet page.
-    await act(async () => nativeView.props.onLoadStart(event(false)));
-    expect(NativeBridge.resetWebAppReady).not.toHaveBeenCalled();
-    expect(onDocumentLoadStart).not.toHaveBeenCalled();
-    // A new document load.
-    await act(async () => nativeView.props.onLoadStart(event(true)));
+    const event = (url: string, loading: boolean) => ({ nativeEvent: { url, loading } });
+    // The first load start is a document start even when it reports 100%.
+    await act(async () => nativeView.props.onLoadStart(event('https://qrlwallet.com/', false)));
     expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
     expect(onDocumentLoadStart).toHaveBeenCalledTimes(1);
-    platform.restore();
+    // A route change inside the loaded wallet page.
+    await act(async () =>
+      nativeView.props.onLoadStart(event('https://qrlwallet.com/import-account', false)),
+    );
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
+    expect(onDocumentLoadStart).toHaveBeenCalledTimes(1);
+    // A new document load.
+    await act(async () => nativeView.props.onLoadStart(event('https://qrlwallet.com/', true)));
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(2);
+    expect(onDocumentLoadStart).toHaveBeenCalledTimes(2);
   });
 });

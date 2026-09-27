@@ -1,13 +1,16 @@
+import type { Platform } from 'react-native';
+
 /**
  * Android's react-native-webview also emits onLoadStart from
  * doUpdateVisitedHistory, which fires for same-document history updates such
- * as the web wallet's own route changes. Those arrive on a fully loaded page
- * (`loading: false`) and keep the same document, so they must not reset the
- * bridge's document authority or the native lock. A new document load reports
- * `loading: true`; an event without a payload is treated as a new load.
+ * as the web wallet's own route changes. On Android those arrive on a fully
+ * loaded page (`loading: false`) and keep the same document, so they must not
+ * reset the bridge's document authority or the native lock. Android new
+ * document loads report `loading: true`. iOS emits load starts only for real
+ * navigations, so every iOS load start counts as a new document.
  */
 export function isSameDocumentHistoryUpdate(
-  platform: string,
+  platform: typeof Platform.OS,
   nativeEvent: { loading?: boolean } | undefined,
 ): boolean {
   return platform === 'android' && nativeEvent?.loading === false;

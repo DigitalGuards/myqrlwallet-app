@@ -23,7 +23,11 @@ import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
 
 describe('Device Login with biometric hardware but no enrolled biometric', () => {
-  afterEach(() => jest.restoreAllMocks());
+  const originalState = AppState.currentState;
+  afterEach(() => {
+    AppState.currentState = originalState;
+    jest.restoreAllMocks();
+  });
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -36,7 +40,9 @@ describe('Device Login with biometric hardware but no enrolled biometric', () =>
     jest.mocked(SeedStorageService.getStoredPin).mockResolvedValue('482913');
     jest.mocked(SeedStorageService.needsPinAccessibilityMigration).mockResolvedValue(false);
     // Fingerprint hardware, only a screen lock enrolled.
-    jest.mocked(LocalAuthentication.getEnrolledLevelAsync).mockResolvedValue(1);
+    jest
+      .mocked(LocalAuthentication.getEnrolledLevelAsync)
+      .mockResolvedValue(LocalAuthentication.SecurityLevel.SECRET);
     jest.mocked(LocalAuthentication.supportedAuthenticationTypesAsync).mockResolvedValue([1]);
     jest
       .mocked(LocalAuthentication.authenticateAsync)
@@ -44,21 +50,20 @@ describe('Device Login with biometric hardware but no enrolled biometric', () =>
       .mockResolvedValueOnce({ success: true });
   });
 
-  it('unlocks with the Android screen lock', async () => {
-    const platform = jest.replaceProperty(Platform, 'OS', 'android');
+  it('unlocks with the Android screen lock without a biometric probe', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    jest.mocked(LocalAuthentication.authenticateAsync).mockReset().mockResolvedValue({ success: true });
     const result = await BiometricService.getPinWithBiometric();
-    platform.restore();
     expect(result).toMatchObject({ success: true, pin: '482913' });
     expect(result.biometricOffForApp).toBeUndefined();
     const calls = jest.mocked(LocalAuthentication.authenticateAsync).mock.calls;
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.[0]).toMatchObject({ disableDeviceFallback: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0]).toMatchObject({ disableDeviceFallback: false });
   });
 
   it('keeps the iOS per-app biometric nudge', async () => {
-    const platform = jest.replaceProperty(Platform, 'OS', 'ios');
+    jest.replaceProperty(Platform, 'OS', 'ios');
     const result = await BiometricService.getPinWithBiometric();
-    platform.restore();
     expect(result).toMatchObject({ success: false, biometricOffForApp: true });
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
   });

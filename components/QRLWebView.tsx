@@ -72,6 +72,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Track when loading started for minimum display time
   const loadStartTime = useRef<number>(Date.now());
+  const documentStarted = useRef(false);
   const minTimeElapsed = useRef<boolean>(false);
   const contentLoaded = useRef<boolean>(false);
 
@@ -182,8 +183,16 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   const handleLoadStart = (event?: { nativeEvent?: { loading?: boolean } }) => {
     // The wallet's own route changes keep the same document; resetting there
-    // would drop the bridge handshake and re-lock the app on every tap.
-    if (isSameDocumentHistoryUpdate(Platform.OS, event?.nativeEvent)) return;
+    // would drop the bridge handshake and re-lock the app on every tap. The
+    // first load start always starts a document, so the screen's initial
+    // authorization check runs even when a warm-cache load reports 100%.
+    if (
+      documentStarted.current &&
+      isSameDocumentHistoryUpdate(Platform.OS, event?.nativeEvent)
+    ) {
+      return;
+    }
+    documentStarted.current = true;
     NativeBridge.resetWebAppReady();
     onDocumentLoadStart?.();
     setIsLoading(true);
