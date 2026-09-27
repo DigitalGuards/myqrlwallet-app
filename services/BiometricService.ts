@@ -1,5 +1,5 @@
 import * as LocalAuthentication from 'expo-local-authentication';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import SeedStorageService from './SeedStorageService';
 import NativeBridge, {
   NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
@@ -319,7 +319,7 @@ class BiometricService {
     error?: string;
     // True only when a biometric IS enrolled on the device but turned OFF for
     // this app (the per-app Face ID/Touch ID toggle in iOS Settings is off).
-    // The caller nudges the user to Settings rather than show a passcode sheet.
+    // The caller nudges the user to Settings and shows no passcode sheet.
     // Not-enrolled / lockout do NOT set this - they proceed to normal unlock.
     biometricOffForApp?: boolean;
     biometricType?: 'face' | 'fingerprint' | 'iris' | null;
@@ -387,15 +387,15 @@ class BiometricService {
       };
     }
 
-    // The device has biometric hardware but our level check reports it is not
-    // usable. The level alone does NOT say WHY, and the cases need different
-    // handling, so we ask iOS directly with a biometrics-only evaluation. When
-    // biometrics cannot be evaluated this resolves immediately WITHOUT presenting
-    // any UI, and the error code is the precise reason:
+    // iOS only: the device has biometric hardware but our level check reports
+    // it is not usable. The level alone does NOT say WHY, and the cases need
+    // different handling, so we ask iOS directly with a biometrics-only
+    // evaluation. When biometrics cannot be evaluated this resolves immediately
+    // WITHOUT presenting any UI, and the error code is the precise reason:
     //   not_available -> a biometric IS enrolled on the device but turned OFF for
     //                    this app (the sticky "Don't Allow"). The Settings toggle
-    //                    exists, so nudge the user there instead of silently
-    //                    dropping to the device-passcode sheet.
+    //                    exists, so nudge the user there; the passcode sheet alone
+    //                    would read as Face ID being broken.
     //   not_enrolled  -> no biometric is set up on the device at all. This is a
     //                    legitimate passcode-only Device Login user; there is
     //                    nothing to enable, so fall through to the normal
@@ -404,9 +404,12 @@ class BiometricService {
     //                    the lockout and unlock.
     // If the level check was a transient false-negative and biometrics actually
     // work, this performs the real Face ID / Touch ID auth and we use its success.
+    // Android has no per-app biometric switch (it reports not_available when
+    // nothing is enrolled), and a second BiometricPrompt right after a probe can
+    // be dropped, so Android goes straight to the screen-lock unlock below.
     const status = await this.getBiometricStatus();
     if (!isCurrent()) return { success: false, error: AUTHENTICATION_CHANGED_ERROR };
-    if (status.hasBiometricHardware && !status.biometricUsable) {
+    if (Platform.OS === 'ios' && status.hasBiometricHardware && !status.biometricUsable) {
       try {
         const probe = await this.authenticateInForeground(
           {
