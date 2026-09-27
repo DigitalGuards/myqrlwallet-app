@@ -314,6 +314,12 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               ref={webViewRef}
               source={{ uri }}
               injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}
+              // Android defines injectedObjectJson() with a one-off evaluate
+              // at mount and re-defines it only after an injected script runs
+              // on a loaded page. Without these no-op scripts it never reaches
+              // qrlwallet.com and the web wallet refuses the app for v3.
+              injectedJavaScriptBeforeContentLoaded="true;"
+              injectedJavaScript="true;"
               style={styles.webView}
               originWhitelist={__DEV__ ? ['http://*', 'https://*'] : ['https://qrlwallet.com']}
               userAgent={customUserAgent}
