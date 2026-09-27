@@ -1,5 +1,5 @@
 import * as LocalAuthentication from 'expo-local-authentication';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import SeedStorageService from './SeedStorageService';
 import NativeBridge, {
   NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
@@ -392,10 +392,13 @@ class BiometricService {
     // handling, so we ask iOS directly with a biometrics-only evaluation. When
     // biometrics cannot be evaluated this resolves immediately WITHOUT presenting
     // any UI, and the error code is the precise reason:
-    //   not_available -> a biometric IS enrolled on the device but turned OFF for
-    //                    this app (the sticky "Don't Allow"). The Settings toggle
-    //                    exists, so nudge the user there instead of silently
-    //                    dropping to the device-passcode sheet.
+    //   not_available -> on iOS, a biometric IS enrolled on the device but turned
+    //                    OFF for this app (the sticky "Don't Allow"). The Settings
+    //                    toggle exists, so nudge the user there instead of silently
+    //                    dropping to the device-passcode sheet. Android has no
+    //                    per-app biometric switch and reports not_available when
+    //                    no biometric is enrolled, so there it falls through to
+    //                    the screen-lock unlock below.
     //   not_enrolled  -> no biometric is set up on the device at all. This is a
     //                    legitimate passcode-only Device Login user; there is
     //                    nothing to enable, so fall through to the normal
@@ -419,7 +422,7 @@ class BiometricService {
         if (probe.success) {
           return this.retrieveStoredPinAfterAuth(walletGeneration, isCurrent);
         }
-        if (probe.error === 'not_available') {
+        if (probe.error === 'not_available' && Platform.OS === 'ios') {
           return {
             success: false,
             error: 'Biometric unlock is turned off for this app',
