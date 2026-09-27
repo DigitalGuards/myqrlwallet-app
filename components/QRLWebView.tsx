@@ -6,7 +6,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import NativeBridge, { BridgeMessage, NativeQrScanRequest } from '../services/NativeBridge';
 import Logger from '../services/Logger';
-import { NATIVE_WEBVIEW_INJECTED_OBJECT } from '../services/NativeWalletProfile';
+import {
+  NATIVE_WEBVIEW_CAPABILITY_SCRIPT,
+  NATIVE_WEBVIEW_INJECTED_OBJECT,
+} from '../services/NativeWalletProfile';
 import {
   isAllowedWalletDocumentUrl,
   walletUrlOriginForLog,
@@ -315,11 +318,16 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               source={{ uri }}
               injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}
               // Android defines injectedObjectJson() with a one-off evaluate
-              // at mount and re-defines it only after an injected script runs
-              // on a loaded page. Without these no-op scripts it never reaches
-              // qrlwallet.com and the web wallet refuses the app for v3.
-              injectedJavaScriptBeforeContentLoaded="true;"
-              injectedJavaScript="true;"
+              // at mount, before qrlwallet.com has loaded. These scripts define
+              // it on the wallet document after each successful page start and
+              // page finish, so the web wallet sees the v3 capabilities. iOS
+              // injects the object as a document-start user script.
+              injectedJavaScriptBeforeContentLoaded={
+                Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : undefined
+              }
+              injectedJavaScript={
+                Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : undefined
+              }
               style={styles.webView}
               originWhitelist={__DEV__ ? ['http://*', 'https://*'] : ['https://qrlwallet.com']}
               userAgent={customUserAgent}
