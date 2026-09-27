@@ -542,7 +542,10 @@ export default function SettingsScreen() {
               icon="finger-print"
               tint={C.blue}
               title="Device Login"
-              subtitle="Unlock with Face ID, Touch ID, or passcode"
+              subtitle={Platform.select({
+                ios: 'Unlock with Face ID, Touch ID, or passcode',
+                default: 'Unlock with fingerprint, face, or screen lock',
+              })}
               right={
                 <Switch
                   value={deviceLoginEnabled}

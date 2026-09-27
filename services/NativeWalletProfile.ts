@@ -11,4 +11,18 @@ export const NATIVE_WEBVIEW_INJECTED_OBJECT = Object.freeze({
   qrlWalletCapabilities: NATIVE_WALLET_CAPABILITIES,
 });
 
+/**
+ * Defines window.ReactNativeWebView.injectedObjectJson() on the wallet
+ * document itself. On Android, react-native-webview evaluates its own
+ * definition once at mount, before qrlwallet.com has loaded, so the web
+ * wallet would never see the capabilities. Keeps any bridge object the
+ * WebView already installed.
+ */
+export const NATIVE_WEBVIEW_CAPABILITY_SCRIPT = `(function () {
+  var bridge = (window.ReactNativeWebView = window.ReactNativeWebView || {});
+  var json = ${JSON.stringify(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT))};
+  bridge.injectedObjectJson = function () { return json; };
+})();
+true;`;
+
 export const NATIVE_WALLET_BLOCKCHAIN = 'TEST_NET_V3';
