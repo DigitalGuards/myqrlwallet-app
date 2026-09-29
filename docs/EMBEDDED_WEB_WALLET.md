@@ -115,10 +115,25 @@ being replaced; `doUpdateVisitedHistory` carries `newDocument: false`. The
 result no longer depends on the order of the two callbacks or on a progress
 value, and an unpatched build still falls back to the old heuristic.
 
+Every callback the WebView raises carries the epoch that rendered it, and is
+dropped unless that epoch is still current. A WebView keeps delivering events
+while it tears down, so after a recovery remount the old view's trailing
+`doUpdateVisitedHistory` used to claim the new document's first-load slot,
+which made the replacement's real `onPageStarted` look like a second document.
+On device that ended on the error screen about one reload in two, depending on
+whether the late event arrived before or after the epoch bump. The same guard
+keeps a stale load-end, progress, error or terminate from writing state for
+the document that replaced it.
+
+The recovery budget is for a burst inside one bind window, so it resets as
+soon as the new document proves itself by sending a bridge message carrying
+its token. Without that reset a fourth well-spaced reload over the app's
+lifetime would reach the error screen.
+
 The shipped document inlines everything, so any request that reaches the
-refusal branch is one the WebView made on its own, `/favicon.ico` being the
-usual one. The refusal logs the path, without its query, so the next device
-run names it.
+refusal branch is one the WebView made on its own. On an Android 17 emulator
+it is `/favicon.ico`, which nothing in the app displays. The refusal logs the
+path, without its query.
 
 On iOS `decidePolicyForNavigationAction` does see reloads, and navigation type
 `reload` is refused by the guard. That still wants a device check once an iOS

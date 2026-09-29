@@ -234,7 +234,7 @@ describe('embedded QRLWebView', () => {
   it('recovers the same way from an Android render process death', async () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const view = await renderEmbedded();
-    expect(view.props.onRenderProcessGone).toBe(view.props.onContentProcessDidTerminate);
+    expect(typeof view.props.onRenderProcessGone).toBe('function');
     const servedToken = documentTokenFrom(view.props.source.html as string);
     view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' });
     await act(async () => view.props.onRenderProcessGone({ nativeEvent: { didCrash: true } }));
@@ -418,6 +418,93 @@ describe('embedded QRLWebView', () => {
     const same = screen.root.findByType('NativeWebView' as never);
     expect(documentTokenFrom(same.props.source.html as string)).toBe(servedToken);
     expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(screen.toJSON())).not.toContain('replaced by another page');
+  });
+
+  it('ignores a dying view trailing history update after the epoch moved on', async () => {
+    // The exact device sequence. A reload makes the epoch-N view foreign, the
+    // guard remounts, and the old view then delivers its own
+    // doUpdateVisitedHistory. Before the epoch check that late event claimed
+    // the new document's first-load slot, so the replacement's real
+    // onPageStarted looked like a second document and the counter climbed to
+    // the error screen on about one reload in two.
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const first = await renderEmbedded();
+    // Captured while the view is still mounted: react-test-renderer drops the
+    // props of a removed node, and the point here is a callback that outlives
+    // the view that raised it.
+    const firstLoadStart = first.props.onLoadStart as (event: unknown) => void;
+    await act(async () => firstLoadStart({ nativeEvent: { newDocument: true, loading: true } }));
+    // The page reloads itself: a second document start for this epoch.
+    await act(async () => firstLoadStart({ nativeEvent: { newDocument: true, loading: true } }));
+    const second = screen.root.findByType('NativeWebView' as never);
+    const secondToken = documentTokenFrom(second.props.source.html as string);
+
+    // The dying view's trailing event, delivered after the remount.
+    await act(async () => firstLoadStart({ nativeEvent: { newDocument: false, loading: true } }));
+    // The replacement's real document start must be accepted, not counted.
+    await act(async () =>
+      second.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+    );
+
+    const settled = screen.root.findByType('NativeWebView' as never);
+    expect(documentTokenFrom(settled.props.source.html as string)).toBe(secondToken);
+    expect(JSON.stringify(screen.toJSON())).not.toContain('replaced by another page');
+  });
+
+  it('drops every callback from a view that is no longer on screen', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const first = await renderEmbedded();
+    const stale = {
+      loadStart: first.props.onLoadStart as (event: unknown) => void,
+      error: first.props.onError as (event: unknown) => void,
+      terminate: first.props.onContentProcessDidTerminate as () => void,
+      loadEnd: first.props.onLoadEnd as () => void,
+    };
+    await act(async () => stale.loadStart({ nativeEvent: { newDocument: true, loading: true } }));
+    await act(async () => stale.loadStart({ nativeEvent: { newDocument: true, loading: true } }));
+    const second = screen.root.findByType('NativeWebView' as never);
+    const secondToken = documentTokenFrom(second.props.source.html as string);
+
+    // A stale error would blank the wallet, and a stale terminate would
+    // remount the document that just replaced it.
+    await act(async () => stale.error({ nativeEvent: { description: 'stale failure' } }));
+    await act(async () => stale.terminate());
+    await act(async () => stale.loadEnd());
+
+    const settled = screen.root.findByType('NativeWebView' as never);
+    expect(documentTokenFrom(settled.props.source.html as string)).toBe(secondToken);
+    expect(JSON.stringify(screen.toJSON())).not.toContain('stale failure');
+  });
+
+  it('survives repeated reloads once each new document binds the bridge', async () => {
+    // The counter used to be reset only by Retry, so a fourth well-spaced
+    // reload over the app's lifetime reached the error screen.
+    jest.replaceProperty(Platform, 'OS', 'android');
+    let view = await renderEmbedded();
+    await act(async () =>
+      view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+    );
+    for (let reload = 0; reload < 6; reload += 1) {
+      await act(async () =>
+        view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+      );
+      view = screen.root.findByType('NativeWebView' as never);
+      await act(async () =>
+        view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+      );
+      // The replacement proves it is ours.
+      const token = documentTokenFrom(view.props.source.html as string);
+      await act(async () =>
+        view.props.onMessage({
+          nativeEvent: {
+            data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({ type: 'WEB_APP_READY' })}`,
+            url: 'https://qrlwallet.com/',
+          },
+        }),
+      );
+    }
+    expect(screen.root.findAllByType('NativeWebView' as never)).toHaveLength(1);
     expect(JSON.stringify(screen.toJSON())).not.toContain('replaced by another page');
   });
 

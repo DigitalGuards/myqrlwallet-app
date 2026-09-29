@@ -162,6 +162,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // a second load of the base URL, so recovering a dead content process means
   // handing the WebView the document again rather than calling reload().
   const [documentEpoch, setDocumentEpoch] = useState(0);
+  // The same number, advanced synchronously. A WebView that is being replaced
+  // keeps delivering callbacks while it tears down, and those arrive after the
+  // state update that replaced it. Every callback therefore carries the epoch
+  // that rendered it and is dropped unless it matches this.
+  const documentEpochRef = useRef(0);
   // False once the injected document has been admitted for the current epoch.
   const initialDocumentPending = useRef(true);
 
@@ -389,7 +394,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       cacheClearDone.current = false;
       setBridgeUnbound(false);
       setDocumentLoadedAt(null);
-      setDocumentEpoch((epoch) => epoch + 1);
+      documentEpochRef.current += 1;
+      setDocumentEpoch(documentEpochRef.current);
       return;
     }
     webViewRef.current?.reload();
@@ -419,14 +425,32 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     navigateToEmbeddedRoute,
   }), [reloadDocument, navigateToEmbeddedRoute]);
 
-  const handleLoadStart = (event?: { nativeEvent?: WebViewLoadStartEvent }) => {
+  // True while the view that raised a callback is still the one on screen.
+  // A dying WebView's trailing events would otherwise write document state
+  // for its replacement: a doUpdateVisitedHistory from the old view arriving
+  // after the epoch bump claimed the new document's first-load slot, and the
+  // new view's real onPageStarted then looked like a second document.
+  const isCurrentEpoch = (eventEpoch: number): boolean =>
+    eventEpoch === documentEpochRef.current;
+
+  const handleLoadStart = (
+    event: { nativeEvent?: WebViewLoadStartEvent } | undefined,
+    eventEpoch: number,
+  ) => {
+    if (!isCurrentEpoch(eventEpoch)) return;
     // The wallet's own route changes keep the same document; resetting there
-    // would drop the bridge handshake and re-lock the app on every tap. The
-    // first load start always starts a document, so the screen's initial
+    // would drop the bridge handshake and re-lock the app on every tap.
+    //
+    // With the patch applied the event says which it is, and a tagged history
+    // update never starts a document, whatever else is going on. Without the
+    // tag the only signal is a progress reading, so the old rule stands there:
+    // the first load start starts a document, so the screen's initial
     // authorization check runs even when a warm-cache load reports 100%.
+    const loadStartEvent = event?.nativeEvent;
+    const isTagged = typeof loadStartEvent?.newDocument === 'boolean';
     if (
-      documentStarted.current &&
-      isSameDocumentHistoryUpdate(Platform.OS, event?.nativeEvent)
+      isSameDocumentHistoryUpdate(Platform.OS, loadStartEvent) &&
+      (isTagged || documentStarted.current)
     ) {
       return;
     }
@@ -468,7 +492,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     setError(null);
   };
 
-  const handleLoadEnd = () => {
+  const handleLoadEnd = (eventEpoch: number) => {
+    if (!isCurrentEpoch(eventEpoch)) return;
     setIsLoading(false);
     contentLoaded.current = true;
     setDocumentLoadedAt(Date.now());
@@ -479,7 +504,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     }
   };
 
-  const handleNavigationStateChange = (newNavState: { url: string; loading: boolean }) => {
+  const handleNavigationStateChange = (
+    newNavState: { url: string; loading: boolean },
+    eventEpoch: number,
+  ) => {
+    if (!isCurrentEpoch(eventEpoch)) return;
     Logger.debug('QRLWebView', 'Navigation state changed', {
       origin: walletUrlOriginForLog(newNavState.url),
       loading: newNavState.loading,
@@ -492,7 +521,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     }
   };
 
-  const handleError = (syntheticEvent: { nativeEvent: { description?: string } }) => {
+  const handleError = (
+    syntheticEvent: { nativeEvent: { description?: string } },
+    eventEpoch: number,
+  ) => {
+    if (!isCurrentEpoch(eventEpoch)) return;
     const { nativeEvent } = syntheticEvent;
     setError(nativeEvent.description || 'Failed to load QRL Wallet');
     setIsLoading(false);
@@ -510,7 +543,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // The content process can be killed under memory pressure. Both platforms
   // then leave a blank WebView behind, so the document is handed back
   // explicitly instead of waiting for a navigation that will never come.
-  const handleContentProcessDidTerminate = useCallback(() => {
+  const handleContentProcessDidTerminate = useCallback((eventEpoch: number) => {
+    if (eventEpoch !== documentEpochRef.current) return;
     Logger.warn('QRLWebView', 'WebView content process terminated, reloading the wallet document');
     NativeBridge.resetWebAppReady();
     reloadDocument();
@@ -525,7 +559,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   };
 
   // Handle messages from the WebView
-  const handleMessage = async (event: WebViewMessageEvent) => {
+  const handleMessage = async (event: WebViewMessageEvent, eventEpoch: number) => {
+    if (!isCurrentEpoch(eventEpoch)) return;
     const { url } = event.nativeEvent;
     let data = event.nativeEvent.data;
     if (typeof url !== 'string' || !isUrlAllowed(url)) {
@@ -552,6 +587,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       data = data.slice(expected.length);
       if (!bridgeBound.current) {
         bridgeBound.current = true;
+        // The document that replaced the last one has proved it is ours, so
+        // the burst budget starts again. Without this a fourth well-spaced
+        // reload over the app's lifetime would land on the error screen.
+        foreignDocumentRecoveries.current = 0;
         setBridgeUnbound(false);
       }
     }
@@ -704,6 +743,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // from the bundle. The loading screen below stays up.
   const documentReady = embeddedSource !== null;
 
+  // Captured at render so every callback the WebView raises can say which
+  // view it came from.
+  const renderEpoch = documentEpoch;
+
   return (
     <View style={[styles.outerContainer, { backgroundColor: '#080C16' }]}>
       <StatusBar backgroundColor="#080C16" barStyle="light-content" />
@@ -761,16 +804,19 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               showsVerticalScrollIndicator={true}
               cacheEnabled={true}
               mixedContentMode={mode === 'dev' ? 'compatibility' : 'never'}
-              onLoadStart={handleLoadStart}
-              onLoadEnd={handleLoadEnd}
-              onLoadProgress={({ nativeEvent }) =>
-                setLoadProgress(nativeEvent.progress)
+              onLoadStart={(event) => handleLoadStart(event, renderEpoch)}
+              onLoadEnd={() => handleLoadEnd(renderEpoch)}
+              onLoadProgress={({ nativeEvent }) => {
+                if (!isCurrentEpoch(renderEpoch)) return;
+                setLoadProgress(nativeEvent.progress);
+              }}
+              onNavigationStateChange={(state) =>
+                handleNavigationStateChange(state, renderEpoch)
               }
-              onNavigationStateChange={handleNavigationStateChange}
-              onMessage={handleMessage}
-              onError={handleError}
-              onContentProcessDidTerminate={handleContentProcessDidTerminate}
-              onRenderProcessGone={handleContentProcessDidTerminate}
+              onMessage={(event) => handleMessage(event, renderEpoch)}
+              onError={(event) => handleError(event, renderEpoch)}
+              onContentProcessDidTerminate={() => handleContentProcessDidTerminate(renderEpoch)}
+              onRenderProcessGone={() => handleContentProcessDidTerminate(renderEpoch)}
 
               // Additional settings
               incognito={false}
