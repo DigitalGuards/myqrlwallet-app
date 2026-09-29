@@ -12,10 +12,15 @@
 # Environment:
 #   FRONTEND_REPO   default https://github.com/DigitalGuards/myqrlwallet-frontend.git
 #   ALLOW_UNREACHABLE_PIN=1
-#                   exit 0 with a notice when the pinned commit cannot be
-#                   fetched. Needed while the pin points at a pull-request
-#                   branch, because a squash merge makes that commit
-#                   unreachable. Remove once the pin moves to a tag on main.
+#                   exit 0 with a notice when the pinned ref cannot be fetched.
+#                   Needed only while the pin points at a pull-request branch,
+#                   because a squash merge makes that commit unreachable.
+#                   Delete it, and make this job a required check, as soon as
+#                   the pin names a tag on the frontend default branch.
+#
+# The pin names either a tag (`frontendTag`) or a bare commit
+# (`frontendCommit`). A tag is the intended end state: it survives a squash
+# merge and it is a name a person can check, so the fetch prefers it.
 
 set -euo pipefail
 
@@ -24,8 +29,15 @@ FRONTEND_REPO="${FRONTEND_REPO:-https://github.com/DigitalGuards/myqrlwallet-fro
 
 PIN_SHA="$(node -p "require('$APP_DIR/assets/web/PIN.json').sha256")"
 PIN_COMMIT="$(node -p "require('$APP_DIR/assets/web/PIN.json').frontendCommit")"
+PIN_TAG="$(node -p "require('$APP_DIR/assets/web/PIN.json').frontendTag || ''")"
 
-echo "reproduce-embedded-web: pinned frontend $PIN_COMMIT"
+if [ -n "$PIN_TAG" ]; then
+  FETCH_REF="refs/tags/$PIN_TAG"
+  echo "reproduce-embedded-web: pinned frontend tag $PIN_TAG ($PIN_COMMIT)"
+else
+  FETCH_REF="$PIN_COMMIT"
+  echo "reproduce-embedded-web: pinned frontend $PIN_COMMIT"
+fi
 echo "reproduce-embedded-web: pinned sha256   $PIN_SHA"
 
 WORK="$(mktemp -d)"
@@ -34,16 +46,23 @@ trap cleanup EXIT
 
 git init --quiet "$WORK"
 git -C "$WORK" remote add origin "$FRONTEND_REPO"
-if ! git -C "$WORK" fetch --quiet --depth 1 origin "$PIN_COMMIT" 2>/dev/null; then
+if ! git -C "$WORK" fetch --quiet --depth 1 origin "$FETCH_REF" 2>/dev/null; then
   if [ "${ALLOW_UNREACHABLE_PIN:-0}" = "1" ]; then
-    echo "reproduce-embedded-web: SKIPPED, $PIN_COMMIT is not reachable in $FRONTEND_REPO."
+    echo "reproduce-embedded-web: SKIPPED, $FETCH_REF is not reachable in $FRONTEND_REPO."
     echo "reproduce-embedded-web: re-pin to a tagged commit on the frontend default branch."
     exit 0
   fi
-  echo "reproduce-embedded-web: $PIN_COMMIT is not reachable in $FRONTEND_REPO" >&2
+  echo "reproduce-embedded-web: $FETCH_REF is not reachable in $FRONTEND_REPO" >&2
   exit 1
 fi
 git -C "$WORK" checkout --quiet FETCH_HEAD
+
+# A tag has to name the commit the pin records, or the tag was moved.
+FETCHED_COMMIT="$(git -C "$WORK" rev-parse HEAD)"
+if [ "$FETCHED_COMMIT" != "$PIN_COMMIT" ]; then
+  echo "reproduce-embedded-web: $FETCH_REF is $FETCHED_COMMIT, the pin records $PIN_COMMIT" >&2
+  exit 1
+fi
 
 (cd "$WORK" && npm ci --no-audit --no-fund)
 (cd "$WORK" && npm run build:embedded)

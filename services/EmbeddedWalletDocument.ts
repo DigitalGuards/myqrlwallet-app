@@ -86,13 +86,14 @@ export function createDocumentToken(): string {
  * can re-run the wrap if `ReactNativeWebView` only appeared after this ran.
  * It closes over the token rather than exposing it.
  */
-export function embeddedBootstrapScript(token: string): string {
+export function embeddedBootstrapScript(token: string, migrationPending: boolean): string {
   if (!/^[0-9a-f]{64}$/.test(token)) {
     throw new Error('Embedded document token must be 64 hex characters');
   }
   return (
     '<script>(function(){' +
     'window.__QRL_EMBEDDED__ = true;' +
+    `window.__QRL_EMBEDDED_MIGRATION__ = ${migrationPending ? 'true' : 'false'};` +
     `var t=${JSON.stringify(token + BRIDGE_TOKEN_SEPARATOR)};` +
     'function wrap(b){' +
     'if(!b||b.__qrlBound)return b;' +
@@ -111,40 +112,43 @@ export function embeddedBootstrapScript(token: string): string {
     'get:function(){return s;},' +
     'set:function(v){s=wrap(v);}' +
     '});}catch(e){}}' +
+    // Take the tag back out of the DOM. The token stays reachable only
+    // through the closure above, so nothing that later reads the document
+    // (an error reporter, a screenshot of the DOM, a copy of innerHTML) can
+    // pick it up.
+    'try{var c=document.currentScript;if(c&&c.parentNode)c.parentNode.removeChild(c);}catch(e){}' +
     '})();</script>'
   );
 }
 
 /**
- * Insert the bootstrap as the first script in the document head.
+ * Insert the bootstrap as the very first thing in the document head, ahead of
+ * the Content-Security-Policy meta.
  *
- * It goes after the Content-Security-Policy meta rather than at the very top
- * of the head. A meta policy only governs what follows it, so inserting above
- * it would leave the one script the app adds outside the policy the document
- * declares, and would move the policy later than the frontend deliberately
- * put it. The script is inline with no nonce and the embedded policy allows
- * 'unsafe-inline', which is why the policy keeps that keyword: a per-load
- * token cannot be hashed at build time.
+ * A meta policy governs only what follows it, so a script placed above it runs
+ * outside that policy. That is deliberate here: this script is the app's own
+ * code, shipped in the app binary, and keeping it out of the policy is what
+ * lets the document declare a policy with hashes instead of 'unsafe-inline'.
+ * A per-load token cannot be hashed at build time, so as long as the script
+ * sits under the policy the document is forced to keep 'unsafe-inline' and
+ * every other inline script in the page gets the same permission.
+ *
+ * The bootstrap removes its own tag once it has run, so the token is not left
+ * in the DOM for anything that later reads the document.
  */
-export function withEmbeddedFlag(html: string, token: string): string {
+export function withEmbeddedFlag(
+  html: string,
+  token: string,
+  migrationPending = false,
+): string {
   const headIndex = html.indexOf('<head>');
   if (headIndex === -1) {
     throw new Error('Embedded wallet document has no <head>');
   }
-  const headStart = headIndex + '<head>'.length;
-
-  let cut = headStart;
-  const cspIndex = html.indexOf('Content-Security-Policy', headStart);
-  if (cspIndex !== -1) {
-    const metaStart = html.lastIndexOf('<meta', cspIndex);
-    const metaEnd = html.indexOf('>', cspIndex);
-    if (metaStart === -1 || metaStart < headStart || metaEnd === -1) {
-      throw new Error('Embedded wallet document has a malformed Content-Security-Policy meta');
-    }
-    cut = metaEnd + 1;
-  }
-
-  return html.slice(0, cut) + embeddedBootstrapScript(token) + html.slice(cut);
+  const cut = headIndex + '<head>'.length;
+  return (
+    html.slice(0, cut) + embeddedBootstrapScript(token, migrationPending) + html.slice(cut)
+  );
 }
 
 let cachedHtml: string | null = null;

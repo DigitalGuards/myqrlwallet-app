@@ -35,6 +35,7 @@ import {
 import { externalOpenDecision } from '../services/ExternalLinkPolicy';
 import {
   EMBEDDED_STORAGE_MIGRATION_SCRIPT,
+  isMigrationAcknowledgement,
   isStorageMigrationPending,
   markStorageMigrationDone,
 } from '../services/EmbeddedStorageMigration';
@@ -97,6 +98,10 @@ export const MAX_BRIDGE_MESSAGE_CHARS = 300 * 1024;
 // the binding is reported as broken. The wallet sends WEB_APP_READY as soon as
 // it boots, so silence this long means the bootstrap did not wrap the bridge.
 export const BRIDGE_BIND_TIMEOUT_MS = 20000;
+// How many times a foreign document is pushed back out before the app stops
+// and says so. A bounded count, because a WebView that somehow reports two
+// document starts per load would otherwise loop.
+export const MAX_FOREIGN_DOCUMENT_RECOVERIES = 3;
 
 const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri,
@@ -139,11 +144,17 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   if (isEmbedded && documentToken.current === '') {
     documentToken.current = createDocumentToken();
   }
+  // Whether this launch still owes the one-time pass over storage inherited
+  // from the days the WebView loaded the live site. The document has to know
+  // before its own stores initialise, so it is read before the document is
+  // served and passed in through the bootstrap.
+  const [migrationPending, setMigrationPending] = useState<boolean | null>(null);
   // Cleared once a message has arrived carrying the token, so a bridge that
   // never binds is reported instead of failing silently.
   const [bridgeUnbound, setBridgeUnbound] = useState(false);
   const bridgeBound = useRef(false);
   const [documentLoadedAt, setDocumentLoadedAt] = useState<number | null>(null);
+  const foreignDocumentRecoveries = useRef(0);
   // Bumped to force a fresh loadDataWithBaseURL. The navigation guard refuses
   // a second load of the base URL, so recovering a dead content process means
   // handing the WebView the document again rather than calling reload().
@@ -176,6 +187,14 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   useEffect(() => {
     if (!isEmbedded) return;
     let cancelled = false;
+    isStorageMigrationPending()
+      .then((pending) => {
+        if (!cancelled) setMigrationPending(pending);
+      })
+      .catch(() => {
+        // Erring towards running the pass: it only drops caches and pairings.
+        if (!cancelled) setMigrationPending(true);
+      });
     loadEmbeddedWalletHtml()
       .then((html) => {
         if (cancelled) return;
@@ -198,6 +217,31 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       cancelled = true;
     };
   }, [isEmbedded, documentEpoch]);
+
+  // The caches half of the one-time hygiene pass: service workers, the Cache
+  // Storage API and the WebView HTTP cache. It runs after load because it
+  // needs a live document, and it is safe there because none of it is state
+  // the wallet's stores read at boot.
+  //
+  // The sessions half runs inside the document instead. dApp sessions are
+  // restored and reconnected while the stores initialise, so clearing them
+  // from here would race: a restored pairing would write itself back at its
+  // next checkpoint and survive. The bootstrap therefore carries a migration
+  // flag the page reads before its stores start, and the native marker is
+  // written only once the page acknowledges over the bridge.
+  const cacheClearDone = useRef(false);
+  useEffect(() => {
+    if (!isEmbedded || documentLoadedAt === null || cacheClearDone.current) return;
+    if (migrationPending !== true || !webViewRef.current) return;
+    cacheClearDone.current = true;
+    Logger.debug('QRLWebView', 'Clearing web caches inherited from the hosted wallet');
+    try {
+      webViewRef.current.clearCache?.(true);
+    } catch (clearError) {
+      Logger.warn('QRLWebView', 'Could not clear the WebView cache:', clearError);
+    }
+    webViewRef.current.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
+  }, [isEmbedded, documentLoadedAt, migrationPending]);
 
   // Every message the shipped document sends carries the token, so the first
   // one proves the bootstrap bound the bridge. If none arrives the wallet is
@@ -339,7 +383,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       // cannot be replayed into the new document's bridge.
       documentToken.current = createDocumentToken();
       bridgeBound.current = false;
+      cacheClearDone.current = false;
       setBridgeUnbound(false);
+      setDocumentLoadedAt(null);
       setDocumentEpoch((epoch) => epoch + 1);
       return;
     }
@@ -379,6 +425,24 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       documentStarted.current &&
       isSameDocumentHistoryUpdate(Platform.OS, event?.nativeEvent)
     ) {
+      return;
+    }
+    // A second document inside one epoch is not ours. Android reports no
+    // navigation type, so a page-initiated reload of a hash URL satisfies the
+    // fragment rule and the guard lets it through; what it cannot fake is
+    // being the only document this epoch served. Re-serve the shipped string
+    // with a fresh token instead of letting the new document settle.
+    if (isEmbedded && documentStarted.current) {
+      foreignDocumentRecoveries.current += 1;
+      if (foreignDocumentRecoveries.current > MAX_FOREIGN_DOCUMENT_RECOVERIES) {
+        Logger.error('QRLWebView', 'A foreign document keeps replacing the shipped wallet');
+        NativeBridge.resetWebAppReady();
+        setError('The bundled wallet was replaced by another page. Reload to try again.');
+        return;
+      }
+      Logger.warn('QRLWebView', 'A second document started in this load; re-serving the shipped wallet');
+      NativeBridge.resetWebAppReady();
+      reloadDocument();
       return;
     }
     documentStarted.current = true;
@@ -430,6 +494,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     setError(null);
     setBridgeUnbound(false);
     setDocumentLoadedAt(null);
+    foreignDocumentRecoveries.current = 0;
     setIsLoading(true);
     reloadDocument();
   };
@@ -505,6 +570,14 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         (!message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload)))
     ) {
       Logger.warn('QRLWebView', 'Dropped malformed bridge message');
+      return;
+    }
+    if (isEmbedded && isMigrationAcknowledgement(message.type)) {
+      // The page cleared its own inherited sessions. Only now is the marker
+      // written, so a launch where the page never acknowledged retries.
+      Logger.debug('QRLWebView', 'The wallet acknowledged the inherited storage migration');
+      setMigrationPending(false);
+      void markStorageMigrationDone();
       return;
     }
     Logger.debug('QRLWebView', 'Bridge message received', message.type);
@@ -584,9 +657,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // embedded mode at all, so a future rendering mistake cannot put the live
   // page on screen.
   const embeddedSource = isEmbedded
-    ? embeddedRawHtml !== null
+    ? embeddedRawHtml !== null && migrationPending !== null
       ? {
-          html: withEmbeddedFlag(embeddedRawHtml, documentToken.current),
+          html: withEmbeddedFlag(embeddedRawHtml, documentToken.current, migrationPending),
           baseUrl: EMBEDDED_BASE_URL,
         }
       : null

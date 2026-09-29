@@ -21,6 +21,14 @@ jest.mock('react-native-safe-area-context', () => ({
 jest.mock('expo-constants', () => ({ expoConfig: { version: '1.4.2' } }));
 jest.mock('../../components/QuantumLoadingScreen', () => 'QuantumLoadingScreen');
 jest.mock('../Logger', () => ({ debug: jest.fn(), warn: jest.fn(), error: jest.fn() }));
+jest.mock('../EmbeddedStorageMigration', () => {
+  const actual = jest.requireActual('../EmbeddedStorageMigration.ts') as Record<string, unknown>;
+  return {
+    ...actual,
+    isStorageMigrationPending: jest.fn().mockResolvedValue(true),
+    markStorageMigrationDone: jest.fn().mockResolvedValue(undefined),
+  };
+});
 jest.mock('../NativeBridge', () => ({
   setWebViewRef: jest.fn(),
   resetWebAppReady: jest.fn(),
@@ -29,8 +37,16 @@ jest.mock('../NativeBridge', () => ({
 }));
 jest.mock('../EmbeddedWalletDocument', () => {
   const actual = jest.requireActual('../EmbeddedWalletDocument.ts') as Record<string, unknown>;
+  // jest-expo's expo-crypto returns zero bytes, so a real token would be the
+  // same string every time and a re-serve would be indistinguishable from the
+  // document it replaced. Counting here keeps each load distinguishable.
+  let minted = 0;
   return {
     ...actual,
+    createDocumentToken: jest.fn(() => {
+      minted += 1;
+      return minted.toString(16).padStart(64, '0');
+    }),
     loadEmbeddedWalletHtml: jest.fn(),
   };
 });
@@ -40,6 +56,9 @@ const { loadEmbeddedWalletHtml } = jest.requireMock('../EmbeddedWalletDocument')
 };
 const { BRIDGE_TOKEN_SEPARATOR } = jest.requireActual('../EmbeddedWalletDocument.ts') as {
   BRIDGE_TOKEN_SEPARATOR: string;
+};
+const { markStorageMigrationDone } = jest.requireMock('../EmbeddedStorageMigration') as {
+  markStorageMigrationDone: jest.Mock;
 };
 
 /** The token the component minted for the document currently on screen. */
@@ -196,7 +215,7 @@ describe('embedded QRLWebView', () => {
 
   it('re-serves the document after the content process dies', async () => {
     const view = await renderEmbedded();
-    const firstKey = view.props.source;
+    const servedToken = documentTokenFrom(view.props.source.html as string);
     // The guard has consumed the one allowed base-URL load.
     view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' });
     expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
@@ -205,7 +224,9 @@ describe('embedded QRLWebView', () => {
     expect(NativeBridge.resetWebAppReady).toHaveBeenCalled();
 
     const recovered = screen.root.findByType('NativeWebView' as never);
-    expect(recovered.props.source).toEqual(firstKey);
+    expect(recovered.props.source.baseUrl).toBe('https://qrlwallet.com/');
+    // The same document, with a fresh token.
+    expect(documentTokenFrom(recovered.props.source.html as string)).not.toBe(servedToken);
     // A fresh document load is admitted again.
     expect(recovered.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(true);
   });
@@ -214,13 +235,14 @@ describe('embedded QRLWebView', () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const view = await renderEmbedded();
     expect(view.props.onRenderProcessGone).toBe(view.props.onContentProcessDidTerminate);
-    const servedSource = view.props.source;
+    const servedToken = documentTokenFrom(view.props.source.html as string);
     view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' });
     await act(async () => view.props.onRenderProcessGone({ nativeEvent: { didCrash: true } }));
     const recovered = screen.root.findByType('NativeWebView' as never);
     // Android recovery re-serves the string through loadDataWithBaseURL, which
     // never consults the guard, so the base URL stays refused there.
-    expect(recovered.props.source).toEqual(servedSource);
+    expect(recovered.props.source.baseUrl).toBe('https://qrlwallet.com/');
+    expect(documentTokenFrom(recovered.props.source.html as string)).not.toBe(servedToken);
     expect(recovered.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
     expect(
       recovered.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/#/' }),
@@ -352,6 +374,89 @@ describe('embedded QRLWebView', () => {
       }),
     );
     expect(NativeBridge.handle).toHaveBeenCalledTimes(1);
+  });
+
+  it('pushes a second document in one load back out', async () => {
+    // Android reports no navigation type, so a page-initiated reload of a
+    // hash URL satisfies the fragment rule. What it cannot fake is being the
+    // only document this load served. The native interceptor is the first
+    // layer; this is the second.
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    const servedToken = documentTokenFrom(view.props.source.html as string);
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
+
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    const recovered = screen.root.findByType('NativeWebView' as never);
+    expect(recovered.props.source.baseUrl).toBe('https://qrlwallet.com/');
+    // A fresh token, so a message held by the document that was pushed out
+    // cannot be replayed into the one that replaced it.
+    expect(documentTokenFrom(recovered.props.source.html as string)).not.toBe(servedToken);
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up loudly if a foreign document keeps coming back', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    await renderEmbedded();
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const current = screen.root.findAllByType('NativeWebView' as never)[0];
+      if (!current) break;
+      // One accepted document start, then a second one in the same load.
+      await act(async () => current.props.onLoadStart({ nativeEvent: { loading: true } }));
+      await act(async () => current.props.onLoadStart({ nativeEvent: { loading: true } }));
+    }
+    expect(screen.root.findAllByType('NativeWebView' as never)).toHaveLength(0);
+    expect(JSON.stringify(screen.toJSON())).toContain('replaced by another page');
+  });
+
+  it('leaves an Android same-document history update alone', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    const servedToken = documentTokenFrom(view.props.source.html as string);
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    // The wallet's own hash routes report loading:false on a loaded page.
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: false } }));
+    const same = screen.root.findByType('NativeWebView' as never);
+    expect(documentTokenFrom(same.props.source.html as string)).toBe(servedToken);
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the document whether it still owes the inherited storage pass', async () => {
+    const view = await renderEmbedded();
+    expect(view.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = true;');
+  });
+
+  it('records the migration only once the page acknowledges it', async () => {
+    const view = await renderEmbedded();
+    const token = documentTokenFrom(view.props.source.html as string);
+    expect(markStorageMigrationDone).not.toHaveBeenCalled();
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({
+            type: 'EMBEDDED_MIGRATION_DONE',
+          })}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    expect(markStorageMigrationDone).toHaveBeenCalledTimes(1);
+    // It is not a bridge message: NativeBridge never sees it.
+    expect(NativeBridge.handle).not.toHaveBeenCalled();
+  });
+
+  it('ignores an acknowledgement that does not carry the document token', async () => {
+    const view = await renderEmbedded();
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: {
+          data: JSON.stringify({ type: 'EMBEDDED_MIGRATION_DONE' }),
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    expect(markStorageMigrationDone).not.toHaveBeenCalled();
   });
 
   it('shows the loading screen until the bundled document has been read', async () => {

@@ -2,6 +2,8 @@ import * as SecureStore from 'expo-secure-store';
 
 import {
   EMBEDDED_STORAGE_MIGRATION_SCRIPT,
+  MIGRATION_ACK_MESSAGE_TYPE,
+  isMigrationAcknowledgement,
   isSessionStorageKey,
   isStorageMigrationPending,
   markStorageMigrationDone,
@@ -23,9 +25,9 @@ describe('inherited web storage migration', () => {
     getItemAsync.mockResolvedValue(null);
     expect(await isStorageMigrationPending()).toBe(true);
     await markStorageMigrationDone();
-    expect(setItemAsync).toHaveBeenCalledWith('embedded_web_storage_migration', '1');
+    expect(setItemAsync).toHaveBeenCalledWith('embedded_web_storage_migration', '2');
 
-    getItemAsync.mockResolvedValue('1');
+    getItemAsync.mockResolvedValue('2');
     expect(await isStorageMigrationPending()).toBe(false);
   });
 
@@ -37,8 +39,19 @@ describe('inherited web storage migration', () => {
   });
 
   it('treats an older marker version as pending', async () => {
-    getItemAsync.mockResolvedValue('0');
-    expect(await isStorageMigrationPending()).toBe(true);
+    for (const recorded of ['0', '1']) {
+      getItemAsync.mockResolvedValue(recorded);
+      expect(await isStorageMigrationPending()).toBe(true);
+    }
+  });
+
+  it('recognises the acknowledgement the page sends when it has cleared itself', () => {
+    // The marker is written only on this message, so a launch where the page
+    // never acknowledged retries instead of considering itself migrated.
+    expect(isMigrationAcknowledgement(MIGRATION_ACK_MESSAGE_TYPE)).toBe(true);
+    for (const type of ['WEB_APP_READY', 'SEED_STORED', '', 'embedded_migration_done']) {
+      expect(isMigrationAcknowledgement(type)).toBe(false);
+    }
   });
 
   it('clears pairing sessions and leaves everything of value alone', () => {
@@ -47,6 +60,9 @@ describe('inherited web storage migration', () => {
       'qrlwallet:v3:dapp-connect',
       'QRLCONNECT_LAST',
       'DAppSessionStore',
+      // The connect SDK's own key matches neither dapp nor qrlconnect, and a
+      // restored pairing is exactly what this pass exists to drop.
+      '@qrlwallet/connect:session',
     ]) {
       expect(isSessionStorageKey(key)).toBe(true);
     }
@@ -78,8 +94,12 @@ describe('inherited web storage migration', () => {
     const win = {
       navigator: {},
       localStorage: {
-        length: 2,
-        keys: ['qrlwallet:v3:dappSessions', 'qrlwallet:v3:wallets'],
+        length: 3,
+        keys: [
+          'qrlwallet:v3:dappSessions',
+          '@qrlwallet/connect:session',
+          'qrlwallet:v3:wallets',
+        ],
         key(index: number) {
           return this.keys[index];
         },
@@ -95,6 +115,6 @@ describe('inherited web storage migration', () => {
       'localStorage',
       EMBEDDED_STORAGE_MIGRATION_SCRIPT,
     )(win, win.navigator, win.localStorage);
-    expect(removed).toEqual(['qrlwallet:v3:dappSessions']);
+    expect(removed).toEqual(['qrlwallet:v3:dappSessions', '@qrlwallet/connect:session']);
   });
 });

@@ -50,6 +50,9 @@ if [ -n "$REF" ]; then
 fi
 
 FRONTEND_COMMIT="$(git -C "$FRONTEND_DIR" rev-parse HEAD)"
+# An exact tag on the built commit, when there is one. The reproduce job
+# prefers it, because a tag survives a squash merge and a person can read it.
+FRONTEND_TAG="$(git -C "$FRONTEND_DIR" describe --tags --exact-match 2>/dev/null || echo '')"
 FRONTEND_DIRTY=false
 if [ -n "$(git -C "$FRONTEND_DIR" status --porcelain)" ]; then
   FRONTEND_DIRTY=true
@@ -141,8 +144,8 @@ NODE
 # PIN.json is the reviewed artifact. A reviewer checks these five lines rather
 # than a three megabyte blob, and the build and CI re-verify the document
 # against them.
-node - "$OUT_DIR/PIN.json" "$FRONTEND_COMMIT" "$SHA256" "$BYTES" "$WALLET_PROFILE" <<'NODE'
-const [, , outPath, commit, sha256, bytes, walletProfile] = process.argv;
+node - "$OUT_DIR/PIN.json" "$FRONTEND_COMMIT" "$SHA256" "$BYTES" "$WALLET_PROFILE" "$FRONTEND_TAG" <<'NODE'
+const [, , outPath, commit, sha256, bytes, walletProfile, frontendTag] = process.argv;
 const fs = require('node:fs');
 let existing = {};
 try {
@@ -154,6 +157,7 @@ const pin = {
   comment:
     'Reviewed pin for the wallet document shipped in assets/web/index.html. A build verifies the file against this before it is packaged, so changing the wallet requires changing this file in a reviewed commit.',
   frontendCommit: commit,
+  frontendTag,
   frontendRef: existing.frontendRef ?? '',
   walletProfile,
   sha256,

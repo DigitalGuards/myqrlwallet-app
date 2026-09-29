@@ -33,7 +33,27 @@ import Logger from './Logger';
  * They are tracked as follow-ups and are deliberately not faked here.
  */
 const MIGRATION_KEY = 'embedded_web_storage_migration';
-const MIGRATION_VERSION = '1';
+const MIGRATION_VERSION = '2';
+
+/**
+ * The message the page sends back once it has cleared its own state.
+ *
+ * It arrives over the bridge like any other message, so it carries the
+ * document token and can only come from the document this app served. Until
+ * it arrives the native marker is not written, so an install where the page
+ * never acknowledged retries on the next launch rather than silently
+ * considering itself migrated.
+ */
+export const MIGRATION_ACK_MESSAGE_TYPE = 'EMBEDDED_MIGRATION_DONE';
+
+/**
+ * True for the acknowledgement. Takes a plain string so the caller does not
+ * have to widen the bridge's own message union, which this message is
+ * deliberately not part of: it never reaches NativeBridge.
+ */
+export function isMigrationAcknowledgement(type: string): boolean {
+  return type === MIGRATION_ACK_MESSAGE_TYPE;
+}
 
 /**
  * Runs inside the WebView. Carries no secret, so it is safe even though an
@@ -65,7 +85,9 @@ export const EMBEDDED_STORAGE_MIGRATION_SCRIPT = `(function(){
     var doomed = [];
     for (var i = 0; i < localStorage.length; i++) {
       var key = localStorage.key(i);
-      if (key && /dapp|qrlconnect/i.test(key)) doomed.push(key);
+      if (key && (/dapp|qrlconnect/i.test(key) || key.indexOf('@qrlwallet/connect') === 0)) {
+        doomed.push(key);
+      }
     }
     doomed.forEach(function (key) {
       try { localStorage.removeItem(key); } catch (e) {}
@@ -73,9 +95,17 @@ export const EMBEDDED_STORAGE_MIGRATION_SCRIPT = `(function(){
   } catch (e) {}
 })();true;`;
 
-/** localStorage keys the migration removes. Exported so a test can pin it. */
+/**
+ * localStorage keys the migration removes.
+ *
+ * The pattern is not only "anything with dapp in the name". The connect SDK
+ * stores its pairing under `@qrlwallet/connect:session`, which matches
+ * neither `dapp` nor `qrlconnect`, and a restored pairing is exactly what
+ * this pass exists to drop. Exported so a test pins the list.
+ */
 export function isSessionStorageKey(key: string): boolean {
-  return typeof key === 'string' && /dapp|qrlconnect/i.test(key);
+  if (typeof key !== 'string') return false;
+  return /dapp|qrlconnect/i.test(key) || key.startsWith('@qrlwallet/connect');
 }
 
 /** True when this install has not yet had the hygiene pass. */
