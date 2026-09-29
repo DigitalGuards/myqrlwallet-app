@@ -43,51 +43,50 @@ content process (`onContentProcessDidTerminate` on iOS,
 `onRenderProcessGone` on Android) and the retry button both hand the document
 to a fresh WebView instead of calling `reload()`.
 
-## The Android about:blank quirk
+## Android and the one-shot document allowance
 
-react-native-webview loads a string on Android with
-`loadDataWithBaseURL(baseUrl, html, mime, encoding, null)`. The last argument
-is the history URL, and passing `null` makes `WebView.getUrl()` report
-`about:blank` even though the document's origin is the base URL. Every bridge
-message therefore arrives with `nativeEvent.url === 'about:blank'` (plus the
-fragment after a hash navigation). The origin check that guards bridge
-authority dropped all of them, so on Android `SEED_STORED` never reached
-native and "Set Transaction PIN" failed with "Native secure seed backup
-failed". iOS is unaffected: `WKWebView.loadHTMLString(_:baseURL:)` sets
-`webView.url` to the base URL.
+Android loads the string with `loadDataWithBaseURL`. Loads a WebView starts on
+its own do not go through `shouldOverrideUrlLoading`, so the navigation guard
+is not necessarily called for the injected document and its one-shot base-URL
+allowance could stay unspent, letting the first real navigation to
+`https://qrlwallet.com/` through. The allowance is therefore spent when a
+document starts loading, which both platforms report, as well as when the
+guard admits one. On iOS the guard runs first, so that is a no-op there, and a
+recovery reload resets it as before.
 
-`normalizeEmbeddedDocumentUrl` in `services/EmbeddedNavigationPolicy.ts` maps
-`about:blank` and `about:blank#<fragment>` back onto the base URL, and
-`QRLWebView` routes every consumer of `nativeEvent.url` through one helper so
-the quirk cannot be handled in one caller and missed in another. It applies in
-embedded mode only. In remote and dev mode a document at `about:blank` is not
-the wallet, and accepting it would hand bridge authority to a blank page.
+Measured on an Android 17 emulator with WebView 149, `nativeEvent.url` for the
+embedded document is the base URL, so no URL rewriting is needed for the bridge
+origin check. If a future WebView reports `about:blank` for a
+`loadDataWithBaseURL` document, bridge messages would be dropped rather than
+wrongly accepted, which is the safe direction to fail.
 
-The rewrite is safe because in embedded mode the injected document is the only
-document that can be at `about:blank` in that WebView: the navigation guard
-refuses every other document load, the embedded CSP sets `frame-src` and
-`child-src` to `'none'` so there are no subframes, and `onMessage` reports the
-top-level document URL.
+## The bundled wallet must be built for this network
 
-The same Android path has a second consequence. `loadDataWithBaseURL` never
-goes through `shouldOverrideUrlLoading`, so the navigation guard is not called
-for the injected document and its one-shot base-URL allowance would stay
-unspent, letting the first real navigation to `https://qrlwallet.com/` through.
-The allowance is therefore spent when a document starts loading, not only when
-the guard admits one. On iOS the guard runs first and that is a no-op.
+The document comes from a separate frontend build. Without
+`VITE_WALLET_PROFILE=v3-private` that build comes up on the old v2 network and
+looks healthy until the first privileged bridge call: `SEED_STORED` carries
+blockchain `TEST_NET` while `NativeBridge` requires `TEST_NET_V3`, the message
+is refused as an invalid request, and the user sees "Native secure seed backup
+failed" only after importing a seed and setting a PIN.
 
-### Why not patch react-native-webview
+Two gates close that:
 
-The other fix is a patch-package change passing `baseUrl` as the history URL,
-which would make `getUrl()` return `https://qrlwallet.com/` directly. It was
-rejected. With a history URL set, `WebView.reload()` fetches that URL from the
-network into the same origin, and `onShouldStartLoadWithRequest` is not
-consulted for a programmatic reload, so the embedded document could be
-silently replaced by whatever the server returns. That trades a
-fail-closed bug for exactly the code-substitution risk this whole change
-exists to remove. The patch would also apply to every WebView in the app and
-would need re-verifying on each react-native-webview upgrade, while the
-normaliser is app-side, scoped to embedded mode and unit-tested.
+- `scripts/sync-embedded-web.sh` refuses to copy a document that does not carry
+  the v3 markers, and records the verdict as `walletProfile` in
+  `BUILD_INFO.json`.
+- `services/EmbeddedWalletProfile.ts` re-checks the document at load time, and
+  `QRLWebView` shows a native error naming the expected network instead of
+  starting a wallet that will fail later.
+
+The markers are the v3 chain id, the v3 genesis hash and the `qrlwallet:v3:`
+storage prefix. The frontend compares the first two at runtime and builds the
+third into every storage key, so a minifier cannot remove them, and a build
+without the profile contains none of them. They answer "was this built for the
+right network", which is a build accident. They are not a signature, and the
+integrity of the document comes from it being inside the signed app binary.
+
+A unit test pins the bash markers in the sync script to the TypeScript ones so
+the two cannot drift.
 
 ## Web source modes
 

@@ -29,47 +29,6 @@ export interface EmbeddedNavigationState {
 
 const MAX_NAVIGATION_URL_LENGTH = 8192;
 
-const ABOUT_BLANK = 'about:blank';
-
-/**
- * The document URL an embedded WebView reports, mapped back onto the base URL
- * the document actually runs on.
- *
- * Android's react-native-webview loads a string with
- * `loadDataWithBaseURL(baseUrl, html, mime, encoding, null)`. The last
- * argument is the history URL, and passing null makes `WebView.getUrl()`
- * report `about:blank` even though the document's origin is the base URL.
- * Every message from the wallet therefore arrives with
- * `nativeEvent.url === 'about:blank'` (plus the fragment after a hash
- * navigation), and an origin check on that raw value drops every bridge
- * message. On Android that silently broke SEED_STORED and everything else.
- *
- * Rewriting it is safe because in embedded mode the injected document is the
- * only document that can be at about:blank in this WebView:
- *   - classifyEmbeddedNavigation refuses every other document load, including
- *     a second load of the base URL;
- *   - the embedded CSP sets frame-src and child-src to 'none', so the
- *     document has no subframes that could post from another origin;
- *   - onMessage reports the top-level document URL.
- *
- * iOS needs none of this: WKWebView's `loadHTMLString(_:baseURL:)` sets
- * `webView.url` to the base URL, so the value arrives already correct and
- * this function returns it unchanged.
- *
- * Callers must apply this ONLY in embedded mode. In remote and dev mode a
- * document at about:blank is not the wallet, and accepting it would hand
- * bridge authority to a blank page.
- */
-export function normalizeEmbeddedDocumentUrl(
-  url: string,
-  baseUrl: string = EMBEDDED_BASE_URL,
-): string {
-  if (typeof url !== 'string' || url.length > MAX_NAVIGATION_URL_LENGTH) return '';
-  if (url === ABOUT_BLANK) return baseUrl;
-  if (url.startsWith(`${ABOUT_BLANK}#`)) return baseUrl + url.slice(ABOUT_BLANK.length);
-  return url;
-}
-
 function isWalletHost(candidate: URL, base: URL): boolean {
   return candidate.hostname.toLowerCase() === base.hostname.toLowerCase();
 }
@@ -83,14 +42,9 @@ export function classifyEmbeddedNavigation(
   }
 
   // about:blank and about:srcdoc are the WebView's own empty states, emitted
-  // around a string load on both platforms. On Android the injected document
-  // itself reports about:blank, so a hash navigation inside it surfaces as
-  // about:blank#/route.
-  if (url === ABOUT_BLANK || url === 'about:srcdoc') {
+  // around a string load on both platforms.
+  if (url === 'about:blank' || url === 'about:srcdoc') {
     return { action: 'allow', reason: 'webview-internal' };
-  }
-  if (url.startsWith(`${ABOUT_BLANK}#`)) {
-    return { action: 'allow', reason: 'fragment' };
   }
 
   const baseUrl = state.baseUrl ?? EMBEDDED_BASE_URL;

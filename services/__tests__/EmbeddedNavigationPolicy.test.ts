@@ -1,9 +1,7 @@
 import {
   EMBEDDED_BASE_URL,
   classifyEmbeddedNavigation,
-  normalizeEmbeddedDocumentUrl,
 } from '../EmbeddedNavigationPolicy';
-import { isAllowedWalletDocumentUrl } from '../WalletWebOrigin';
 
 const pending = { initialDocumentPending: true };
 const consumed = { initialDocumentPending: false };
@@ -101,71 +99,8 @@ describe('embedded wallet navigation policy', () => {
     });
   });
 
-  it('treats an Android about:blank hash navigation as a fragment', () => {
-    // loadDataWithBaseURL with a null history URL leaves the document at
-    // about:blank, so its own hash routes surface with that prefix.
-    expect(classifyEmbeddedNavigation('about:blank#/transfer', consumed)).toEqual({
-      action: 'allow',
-      reason: 'fragment',
-    });
-  });
-
   it('rejects an oversized URL without parsing it', () => {
     const huge = `https://qrlwallet.com/#/${'a'.repeat(9000)}`;
     expect(classifyEmbeddedNavigation(huge, consumed).action).toBe('block');
-  });
-});
-
-describe('embedded document URL normalisation', () => {
-  it('maps the Android about:blank document back onto the base URL', () => {
-    expect(normalizeEmbeddedDocumentUrl('about:blank')).toBe(EMBEDDED_BASE_URL);
-    expect(normalizeEmbeddedDocumentUrl('about:blank#/transfer')).toBe(
-      'https://qrlwallet.com/#/transfer',
-    );
-    expect(normalizeEmbeddedDocumentUrl('about:blank#')).toBe('https://qrlwallet.com/#');
-  });
-
-  it('makes the Android document pass the bridge origin check it used to fail', () => {
-    // This is the regression: on Android every bridge message arrived with
-    // url 'about:blank' and was dropped, so SEED_STORED never reached native.
-    expect(isAllowedWalletDocumentUrl('about:blank', false, ['qrlwallet.com'])).toBe(false);
-    expect(
-      isAllowedWalletDocumentUrl(normalizeEmbeddedDocumentUrl('about:blank'), false, [
-        'qrlwallet.com',
-      ]),
-    ).toBe(true);
-    expect(
-      isAllowedWalletDocumentUrl(normalizeEmbeddedDocumentUrl('about:blank#/transfer'), false, [
-        'qrlwallet.com',
-      ]),
-    ).toBe(true);
-  });
-
-  it('leaves an already correct iOS document URL untouched', () => {
-    // WKWebView loadHTMLString(_:baseURL:) reports the base URL already.
-    for (const url of ['https://qrlwallet.com/', 'https://qrlwallet.com/#/settings']) {
-      expect(normalizeEmbeddedDocumentUrl(url)).toBe(url);
-    }
-  });
-
-  it('rewrites nothing else, so no other document gains bridge authority', () => {
-    for (const url of [
-      'about:srcdoc',
-      'about:blank?x=1',
-      'aboutblank',
-      'about:blank.attacker.invalid',
-      'https://attacker.invalid/',
-      'file:///wallet/index.html',
-      'data:text/html,<script>1</script>',
-      '',
-    ]) {
-      expect(normalizeEmbeddedDocumentUrl(url)).toBe(url);
-      expect(isAllowedWalletDocumentUrl(normalizeEmbeddedDocumentUrl(url), false, ['qrlwallet.com']))
-        .toBe(false);
-    }
-  });
-
-  it('drops a pathological URL instead of normalising it', () => {
-    expect(normalizeEmbeddedDocumentUrl(`about:blank#${'a'.repeat(9000)}`)).toBe('');
   });
 });

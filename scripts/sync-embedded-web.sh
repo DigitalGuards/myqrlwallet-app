@@ -96,6 +96,27 @@ reject_pattern '<link[^>]+href[[:space:]]*=[[:space:]]*"[^"]+\.(js|css)"' 'a js 
 reject_pattern '(src|href)[[:space:]]*=[[:space:]]*"/assets/' 'a /assets/ path'
 reject_pattern '"/assets/|'"'"'/assets/' 'a /assets/ path in script or style content'
 
+# Network profile. A build made without VITE_WALLET_PROFILE=v3-private comes up
+# on the old v2 network and looks fine until the first privileged bridge call
+# fails, so it is refused here. The markers are the v3 chain id, genesis hash
+# and storage prefix, which the frontend compares at runtime and a minifier
+# therefore cannot remove. Keep them in step with
+# services/EmbeddedWalletProfile.ts.
+WALLET_PROFILE="v3-private"
+MISSING_MARKERS=""
+while IFS='=' read -r marker_name marker_literal; do
+  grep -qF -- "$marker_literal" "$BUILT_HTML" ||
+    MISSING_MARKERS="$MISSING_MARKERS${MISSING_MARKERS:+, }$marker_name"
+done <<'MARKERS'
+chain id=0x301825
+genesis hash=0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4
+v3 storage prefix=qrlwallet:v3:
+MARKERS
+if [ -n "$MISSING_MARKERS" ]; then
+  WALLET_PROFILE="unknown"
+  fail "the built document was not built for the v3 network (missing: $MISSING_MARKERS). Build the frontend with VITE_WALLET_PROFILE=v3-private and its VITE_V3_* settings."
+fi
+
 BYTES="$(wc -c <"$BUILT_HTML" | tr -d ' ')"
 SHA256="$(sha256sum "$BUILT_HTML" | cut -d' ' -f1)"
 
@@ -103,12 +124,13 @@ mkdir -p "$OUT_DIR"
 cp "$BUILT_HTML" "$OUT_HTML"
 printf '%s  index.html\n' "$SHA256" >"$OUT_DIR/index.html.sha256"
 
-node - "$OUT_DIR/BUILD_INFO.json" "$FRONTEND_COMMIT" "$SHA256" "$BYTES" "$FRONTEND_DIRTY" <<'NODE'
-const [, , outPath, commit, sha256, bytes, dirty] = process.argv;
+node - "$OUT_DIR/BUILD_INFO.json" "$FRONTEND_COMMIT" "$SHA256" "$BYTES" "$FRONTEND_DIRTY" "$WALLET_PROFILE" <<'NODE'
+const [, , outPath, commit, sha256, bytes, dirty, walletProfile] = process.argv;
 const info = {
   frontendCommit: commit,
   frontendCommitShort: commit.slice(0, 12),
   frontendDirty: dirty === 'true',
+  walletProfile,
   builtAt: new Date().toISOString(),
   sha256,
   bytes: Number(bytes),
@@ -120,3 +142,4 @@ echo "sync-embedded-web: wrote $OUT_HTML"
 echo "sync-embedded-web:   frontend  $FRONTEND_COMMIT"
 echo "sync-embedded-web:   sha256    $SHA256"
 echo "sync-embedded-web:   bytes     $BYTES"
+echo "sync-embedded-web:   profile   $WALLET_PROFILE"
