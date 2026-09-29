@@ -30,6 +30,8 @@ import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
+import { resolveWebSourceMode } from '../services/WebSource';
+import { EMBEDDED_WALLET_BUILD_INFO } from '../services/EmbeddedWalletDocument';
 
 // Visual tokens are kept local to this screen per user scope.
 // Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
@@ -144,6 +146,15 @@ export default function SettingsScreen() {
   const [deviceLoginAction, setDeviceLoginAction] = useState<SettingsSecurityAction | null>(null);
   const [dappConnectionCount, setDappConnectionCount] = useState(0);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
+  // Which wallet the app is running and, when it ships one, which frontend
+  // commit it was built from. Makes a device report say what code was on it.
+  const webSourceMode = resolveWebSourceMode(process.env.EXPO_PUBLIC_WEB_SOURCE, __DEV__);
+  const walletBuildLabel =
+    webSourceMode === 'embedded'
+      ? `Wallet build ${EMBEDDED_WALLET_BUILD_INFO.frontendCommitShort} (bundled)`
+      : webSourceMode === 'dev'
+        ? 'Wallet build: development server'
+        : 'Wallet build: qrlwallet.com (live)';
   const mounted = useRef(true);
   const focused = useRef(true);
   const activeSecurityAction = useRef<SettingsSecurityAction | null>(null);
@@ -654,6 +665,9 @@ export default function SettingsScreen() {
             resizeMode="contain"
           />
           <Text style={styles.version}>Version {appVersion}</Text>
+          <Text style={styles.walletBuild} selectable>
+            {walletBuildLabel}
+          </Text>
           <Text style={styles.aboutParagraph}>
             The Quantum Resistant Ledger (QRL) is a blockchain designed to be secure against
             quantum computing attacks.
@@ -821,6 +835,11 @@ const styles = StyleSheet.create({
   version: {
     fontSize: 13,
     color: C.textSecondary,
+    marginBottom: 4,
+  },
+  walletBuild: {
+    fontSize: 11,
+    color: C.textTertiary,
     marginBottom: 12,
   },
   aboutParagraph: {

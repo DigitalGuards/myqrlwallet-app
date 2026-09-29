@@ -24,6 +24,7 @@ import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge, { NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
 import { createBackgroundLock } from '../../services/BackgroundLock';
+import EmbeddedRouteIntent from '../../services/EmbeddedRouteIntent';
 import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { router, usePathname } from 'expo-router';
@@ -50,6 +51,7 @@ export default function WalletScreen() {
   const [isDeviceAuthenticating, setIsDeviceAuthenticating] = useState(false);
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [authCheckNonce, setAuthCheckNonce] = useState(0);
+  const [webViewDocumentLoaded, setWebViewDocumentLoaded] = useState(false);
   const isFocused = useIsFocused();
   const pathname = usePathname();
   const appState = useRef(AppState.currentState);
@@ -612,6 +614,7 @@ export default function WalletScreen() {
   // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
   const handleWebViewLoad = useCallback(() => {
     // WebView content loaded - web app will signal WEB_APP_READY when fully initialized
+    setWebViewDocumentLoaded(true);
   }, []);
 
   const handleDocumentLoadStart = useCallback(() => {
@@ -619,6 +622,7 @@ export default function WalletScreen() {
     // Start initial auth in that context without waiting for authorized-only
     // WEB_APP_READY delivery. Later loads still invalidate every old attempt.
     initialDocumentStarted.current = true;
+    setWebViewDocumentLoaded(false);
     manualRetryRequired.current =
       manualRetryRequired.current ||
       isAuthenticating.current ||
@@ -789,6 +793,23 @@ export default function WalletScreen() {
       WebViewService.updateLastSession();
     }
   }, [isFocused, isAuthorized]);
+
+  // A qrlwallet.com link tapped outside the app cannot be loaded as a
+  // document any more, so app/_layout.tsx recorded the matching wallet route.
+  // Apply it only once the app is unlocked, and drop it while locked so a
+  // stale tap cannot steer the wallet later.
+  useEffect(() => {
+    if (!isAuthorized || !webViewDocumentLoaded) return;
+    const applyRoute = (route: string) => {
+      webViewRef.current?.navigateToEmbeddedRoute(route);
+    };
+    const pending = EmbeddedRouteIntent.consume();
+    if (pending) applyRoute(pending);
+    return EmbeddedRouteIntent.subscribe((route) => {
+      EmbeddedRouteIntent.clear();
+      applyRoute(route);
+    });
+  }, [isAuthorized, webViewDocumentLoaded]);
 
   // Log WebView visibility changes
   useEffect(() => {

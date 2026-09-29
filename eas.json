@@ -8,6 +8,14 @@
       "developmentClient": true,
       "distribution": "internal"
     },
+    "development-embedded": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "embedded-dev",
+        "EXPO_PUBLIC_WEB_SOURCE": "embedded"
+      }
+    },
     "preview": {
       "distribution": "internal"
     },

@@ -33,7 +33,12 @@ describe('native Testnet v3 compatibility contract', () => {
     expect(source).toContain(
       "Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : undefined",
     );
-    expect(source).toMatch(/injectedJavaScriptBeforeContentLoaded=\{\s*Platform\.OS === 'android'/);
+    expect(source).toMatch(/injectedJavaScriptBeforeContentLoaded=\{beforeContentScript\}/);
+    // beforeContentScript is the embedded flag plus, on Android, the same
+    // capability script the after-load hook injects.
+    expect(source).toMatch(
+      /const beforeContentScript = \[[\s\S]*Platform\.OS === 'android' \? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : null,/,
+    );
     expect(source).toMatch(/injectedJavaScript=\{\s*Platform\.OS === 'android'/);
   });
 

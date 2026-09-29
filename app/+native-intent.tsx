@@ -26,6 +26,13 @@ export function redirectSystemPath({ path }: { path: string; initial: boolean })
     ) {
       return '/';
     }
+    // Every other qrlwallet.com universal link also belongs on the WebView
+    // tab. Its path is a web wallet route, which has no native screen: the
+    // router would land on +not-found. app/_layout.tsx records the matching
+    // in-document route separately and the wallet applies it after unlock.
+    if (/^https:\/\/qrlwallet\.com(?::443)?(?:[/?#]|$)/i.test(path)) {
+      return '/';
+    }
     return path;
   } catch {
     return '/';
