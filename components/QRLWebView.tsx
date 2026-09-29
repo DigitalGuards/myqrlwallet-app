@@ -652,11 +652,23 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   }, []);
 
   // Handle navigation requests
-  const onShouldStartLoadWithRequest = (request: {
-    url: string;
-    navigationType?: string;
-    isTopFrame?: boolean;
-  }): boolean => {
+  const onShouldStartLoadWithRequest = (
+    request: {
+      url: string;
+      navigationType?: string;
+      isTopFrame?: boolean;
+    },
+    eventEpoch: number,
+  ): boolean => {
+    // A WebView that is being replaced can still ask to navigate. Refusing
+    // without touching any state is the only safe answer: that view is going
+    // away, and on iOS the guard spends the one-shot base-URL allowance, so
+    // answering a stale request would consume the allowance belonging to the
+    // replacement and block its own loadHTMLString, leaving a blank screen.
+    if (!isCurrentEpoch(eventEpoch)) {
+      Logger.warn('QRLWebView', 'Refused a navigation from a WebView that is being replaced');
+      return false;
+    }
     const { url } = request;
 
     if (isEmbedded) {
@@ -789,7 +801,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               style={styles.webView}
               originWhitelist={originWhitelist}
               userAgent={customUserAgent}
-              onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+              onShouldStartLoadWithRequest={(request) =>
+                onShouldStartLoadWithRequest(request, renderEpoch)
+              }
               javaScriptEnabled={true}
               domStorageEnabled={true}
               startInLoadingState={true}

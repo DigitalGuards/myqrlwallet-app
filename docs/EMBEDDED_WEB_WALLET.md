@@ -116,7 +116,13 @@ result no longer depends on the order of the two callbacks or on a progress
 value, and an unpatched build still falls back to the old heuristic.
 
 Every callback the WebView raises carries the epoch that rendered it, and is
-dropped unless that epoch is still current. A WebView keeps delivering events
+dropped unless that epoch is still current. The navigation guard is included:
+iOS admits the injected document once per load and the guard spends that
+allowance, so a request from a view being replaced would consume the
+allowance belonging to its replacement and the replacement's own
+`loadHTMLString` would be refused, leaving a blank screen. A stale request is
+refused without touching any state, and a view on its way out cannot open the
+system browser either. A WebView keeps delivering events
 while it tears down, so after a recovery remount the old view's trailing
 `doUpdateVisitedHistory` used to claim the new document's first-load slot,
 which made the replacement's real `onPageStarted` look like a second document.

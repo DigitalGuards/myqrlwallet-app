@@ -452,6 +452,35 @@ describe('embedded QRLWebView', () => {
     expect(JSON.stringify(screen.toJSON())).not.toContain('replaced by another page');
   });
 
+  it('keeps a dying view from spending the replacement document allowance', async () => {
+    // iOS admits the injected document once per load, and the guard spends
+    // that allowance. A navigation request from the view being replaced would
+    // otherwise consume the allowance belonging to its replacement, so the
+    // replacement's own loadHTMLString would be refused and the screen would
+    // stay blank.
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const ref = createRef<QRLWebViewRef>();
+    const first = await renderEmbedded(ref);
+    const staleGuard = first.props.onShouldStartLoadWithRequest as (
+      request: { url: string },
+    ) => boolean;
+    // The first view uses its own allowance.
+    expect(staleGuard({ url: 'https://qrlwallet.com/' })).toBe(true);
+
+    await act(async () => ref.current?.reload());
+    const second = screen.root.findByType('NativeWebView' as never);
+
+    // The dying view asks to navigate after the remount.
+    expect(staleGuard({ url: 'https://qrlwallet.com/' })).toBe(false);
+    expect(staleGuard({ url: 'https://qrlwallet.com/#/transfer' })).toBe(false);
+    expect(staleGuard({ url: 'https://zondscan.com/' })).toBe(false);
+    // And a view on its way out cannot launch the browser either.
+    expect(openURL).not.toHaveBeenCalled();
+
+    // The replacement's own document load is still admitted.
+    expect(second.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(true);
+  });
+
   it('drops every callback from a view that is no longer on screen', async () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const first = await renderEmbedded();
