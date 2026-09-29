@@ -243,7 +243,12 @@ sessions are restored and reconnected during store initialisation, so clearing
 them from outside would race: a restored pairing writes itself back at its
 next checkpoint and survives. The bootstrap therefore sets
 `window.__QRL_EMBEDDED_MIGRATION__` next to the embedded flag, and the page
-clears its own pairing keys before anything reads them. The native marker is
+clears its own pairing keys before anything reads them. The document the WebView is handed is built once per epoch and then left
+alone: the flag and the per-load token are read from refs at that moment, so
+nothing that happens during a session can rebuild the document string. An
+acknowledgement that changed it would make the WebView load the document
+again mid-session, reloading the wallet under whoever was typing a PIN. The
+acknowledged state reaches the next document instead. The native marker is
 written only when the page acknowledges over the bridge with
 `EMBEDDED_MIGRATION_DONE`, so a launch where the page never acknowledged
 retries instead of silently considering itself migrated. The acknowledgement

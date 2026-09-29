@@ -619,6 +619,56 @@ describe('embedded QRLWebView', () => {
     expect(NativeBridge.handle).not.toHaveBeenCalled();
   });
 
+  it('does not re-serve the document when the page acknowledges', async () => {
+    // The acknowledgement used to change state that fed the document string,
+    // so the WebView was handed a new document mid-session and the wallet
+    // reloaded under the user, possibly through a PIN entry. The rendered
+    // document must be a function of the epoch alone.
+    const view = await renderEmbedded();
+    const servedSource = view.props.source;
+    const token = documentTokenFrom(servedSource.html as string);
+    expect(servedSource.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = true;');
+    await act(async () => view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }));
+    await act(async () => view.props.onLoadEnd());
+
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({
+            type: 'EMBEDDED_MIGRATION_DONE',
+          })}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+
+    const after = screen.root.findByType('NativeWebView' as never);
+    // Referentially identical, so react-native-webview has nothing to reload.
+    expect(after.props.source).toBe(servedSource);
+    expect(after.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = true;');
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(screen.toJSON())).not.toContain('replaced by another page');
+  });
+
+  it('hands the next document the acknowledged state, not the old flag', async () => {
+    const ref = createRef<QRLWebViewRef>();
+    const view = await renderEmbedded(ref);
+    const token = documentTokenFrom(view.props.source.html as string);
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({
+            type: 'EMBEDDED_MIGRATION_DONE',
+          })}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    await act(async () => ref.current?.reload());
+    const next = screen.root.findByType('NativeWebView' as never);
+    expect(next.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = false;');
+  });
+
   it('records the migration only once the page acknowledges it', async () => {
     const view = await renderEmbedded();
     const token = documentTokenFrom(view.props.source.html as string);

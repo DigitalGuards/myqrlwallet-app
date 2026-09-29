@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, BackHandler, Linking, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useFocusEffect } from '@react-navigation/native';
@@ -151,7 +151,15 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // from the days the WebView loaded the live site. The document has to know
   // before its own stores initialise, so it is read before the document is
   // served and passed in through the bootstrap.
-  const [migrationPending, setMigrationPending] = useState<boolean | null>(null);
+  // Held in a ref on purpose. The value goes into the document the WebView is
+  // handed, so making it state would rebuild that document the moment the page
+  // acknowledges, the WebView would call loadDataWithBaseURL again mid-session,
+  // and the wallet would reload under the user, possibly through a PIN entry.
+  // The document must be a function of the epoch alone; the acknowledgement
+  // reaches the next one.
+  const migrationPendingRef = useRef<boolean | null>(null);
+  // Flips once, when the first read resolves, so the document can be built.
+  const [migrationResolved, setMigrationResolved] = useState(false);
   // Cleared once a message has arrived carrying the token, so a bridge that
   // never binds is reported instead of failing silently.
   const [bridgeUnbound, setBridgeUnbound] = useState(false);
@@ -197,11 +205,15 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     let cancelled = false;
     isStorageMigrationPending()
       .then((pending) => {
-        if (!cancelled) setMigrationPending(pending);
+        if (cancelled) return;
+        migrationPendingRef.current = pending;
+        setMigrationResolved(true);
       })
       .catch(() => {
         // Erring towards running the pass: it only drops caches and pairings.
-        if (!cancelled) setMigrationPending(true);
+        if (cancelled) return;
+        migrationPendingRef.current = true;
+        setMigrationResolved(true);
       });
     loadEmbeddedWalletHtml()
       .then((html) => {
@@ -240,7 +252,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const cacheClearDone = useRef(false);
   useEffect(() => {
     if (!isEmbedded || documentLoadedAt === null || cacheClearDone.current) return;
-    if (migrationPending !== true || !webViewRef.current) return;
+    if (migrationPendingRef.current !== true || !webViewRef.current) return;
     cacheClearDone.current = true;
     Logger.debug('QRLWebView', 'Clearing web caches inherited from the hosted wallet');
     try {
@@ -249,7 +261,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       Logger.warn('QRLWebView', 'Could not clear the WebView cache:', clearError);
     }
     webViewRef.current.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
-  }, [isEmbedded, documentLoadedAt, migrationPending]);
+  }, [isEmbedded, documentLoadedAt, migrationResolved]);
 
   // Every message the shipped document sends carries the token, so the first
   // one proves the bootstrap bound the bridge. If none arrives the wallet is
@@ -594,7 +606,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       // The page cleared its own inherited sessions. Only now is the marker
       // written, so a launch where the page never acknowledged retries.
       Logger.debug('QRLWebView', 'The wallet acknowledged the inherited storage migration');
-      setMigrationPending(false);
+      migrationPendingRef.current = false;
       void markStorageMigrationDone();
       return;
     }
@@ -686,14 +698,30 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // this branch: a source object holding a URL must not be constructible in
   // embedded mode at all, so a future rendering mistake cannot put the live
   // page on screen.
-  const embeddedSource = isEmbedded
-    ? embeddedRawHtml !== null && migrationPending !== null
-      ? {
-          html: withEmbeddedFlag(embeddedRawHtml, documentToken.current, migrationPending),
-          baseUrl: EMBEDDED_BASE_URL,
-        }
-      : null
-    : { uri: remoteUri };
+  // Built once per epoch and then left alone. Anything that changed this
+  // object mid-session would hand the WebView a new document and reload the
+  // wallet under the user, so the token and the migration flag are read from
+  // refs here and a new document is produced only when the epoch advances.
+  const embeddedSource = useMemo(
+    () => {
+      if (!isEmbedded) return { uri: remoteUri };
+      if (embeddedRawHtml === null || !migrationResolved) return null;
+      return {
+        html: withEmbeddedFlag(
+          embeddedRawHtml,
+          documentToken.current,
+          migrationPendingRef.current === true,
+        ),
+        baseUrl: EMBEDDED_BASE_URL,
+      };
+    },
+    // documentEpoch is what makes a new document: reloadDocument rotates the
+    // token and advances the epoch together. The linter cannot see that,
+    // because the token and the migration flag are read from refs so that
+    // changing either cannot rebuild the document under a live session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isEmbedded, remoteUri, embeddedRawHtml, migrationResolved, documentEpoch],
+  );
 
   // Embedded mode admits every origin here on purpose. This list is not a
   // security boundary: react-native-webview opens whatever falls outside it
