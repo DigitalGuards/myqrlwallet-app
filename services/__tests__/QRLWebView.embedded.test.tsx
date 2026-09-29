@@ -57,9 +57,9 @@ const { loadEmbeddedWalletHtml } = jest.requireMock('../EmbeddedWalletDocument')
 const { BRIDGE_TOKEN_SEPARATOR } = jest.requireActual('../EmbeddedWalletDocument.ts') as {
   BRIDGE_TOKEN_SEPARATOR: string;
 };
-const { markStorageMigrationDone } = jest.requireMock('../EmbeddedStorageMigration') as {
-  markStorageMigrationDone: jest.Mock;
-};
+const { markStorageMigrationDone, isStorageMigrationPending } = jest.requireMock(
+  '../EmbeddedStorageMigration',
+) as { markStorageMigrationDone: jest.Mock; isStorageMigrationPending: jest.Mock };
 
 /** The token the component minted for the document currently on screen. */
 const documentTokenFrom = (html: string): string => {
@@ -73,7 +73,12 @@ describe('embedded QRLWebView', () => {
   const runtime = globalThis as typeof globalThis & { __DEV__: boolean };
   const originalDev = __DEV__;
 
-  const webViewNodeMock = { injectJavaScript: jest.fn(), reload: jest.fn(), goBack: jest.fn() };
+  const webViewNodeMock = {
+    injectJavaScript: jest.fn(),
+    reload: jest.fn(),
+    goBack: jest.fn(),
+    clearCache: jest.fn(),
+  };
 
   const renderEmbedded = async (ref?: React.Ref<QRLWebViewRef>) => {
     await act(async () => {
@@ -93,7 +98,9 @@ describe('embedded QRLWebView', () => {
     jest.clearAllMocks();
     runtime.__DEV__ = false;
     webViewNodeMock.injectJavaScript.mockClear();
+    webViewNodeMock.clearCache.mockClear();
     loadEmbeddedWalletHtml.mockResolvedValue(EMBEDDED_HTML);
+    isStorageMigrationPending.mockResolvedValue(true);
   });
   afterEach(async () => {
     jest.restoreAllMocks();
@@ -267,6 +274,7 @@ describe('embedded QRLWebView', () => {
     expect(script).toContain('window.location.hash="/transfer"');
 
     webViewNodeMock.injectJavaScript.mockClear();
+    webViewNodeMock.clearCache.mockClear();
     for (const route of [
       '/transfer',
       '#/transfer";window.stealSeed()//',
@@ -571,6 +579,44 @@ describe('embedded QRLWebView', () => {
   it('tells the document whether it still owes the inherited storage pass', async () => {
     const view = await renderEmbedded();
     expect(view.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = true;');
+  });
+
+  it('tells an already migrated install it owes nothing', async () => {
+    isStorageMigrationPending.mockResolvedValue(false);
+    const view = await renderEmbedded();
+    expect(view.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = false;');
+    // And it does not clear caches on a launch that has already been through.
+    expect(webViewNodeMock.clearCache).not.toHaveBeenCalled();
+  });
+
+  it('runs the whole handshake once for an upgraded install', async () => {
+    const view = await renderEmbedded();
+    const token = documentTokenFrom(view.props.source.html as string);
+    expect(view.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = true;');
+
+    // The caches half runs natively once the document is up.
+    await act(async () => view.props.onLoadEnd());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(webViewNodeMock.clearCache).toHaveBeenCalledWith(true);
+    expect(webViewNodeMock.injectJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('serviceWorker') as unknown as string,
+    );
+    expect(markStorageMigrationDone).not.toHaveBeenCalled();
+
+    // The page clears its own sessions and says so.
+    const ack = `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({
+      type: 'EMBEDDED_MIGRATION_DONE',
+    })}`;
+    await act(async () => view.props.onMessage({ nativeEvent: { data: ack, url: 'https://qrlwallet.com/' } }));
+    expect(markStorageMigrationDone).toHaveBeenCalledTimes(1);
+
+    // A repeat acknowledgement does not record it twice.
+    await act(async () => view.props.onMessage({ nativeEvent: { data: ack, url: 'https://qrlwallet.com/' } }));
+    expect(markStorageMigrationDone).toHaveBeenCalledTimes(2);
+    expect(NativeBridge.handle).not.toHaveBeenCalled();
   });
 
   it('records the migration only once the page acknowledges it', async () => {

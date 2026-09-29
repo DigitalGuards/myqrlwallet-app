@@ -191,7 +191,11 @@ drops a message that does not present it. A replacement document has no
 wrapper and cannot produce one.
 
 The bootstrap is inserted at the very top of the head, above the document's
-Content-Security-Policy meta. A meta policy governs only what follows it, so a
+Content-Security-Policy meta. That policy now allows exactly two hashed
+scripts plus `wasm-unsafe-eval`, with no `'unsafe-inline'`, so a script the
+policy governed would have to be hashed at build time. A per-load token
+cannot be, which is why the bootstrap sits where the policy does not reach
+it, and why everything else in the document can be hashed. A meta policy governs only what follows it, so a
 script above it runs outside that policy. That is deliberate: this script is
 the app's own code, shipped in the app binary, and keeping it out of the
 policy is what lets the document declare a policy with hashes instead of
@@ -231,7 +235,10 @@ The caches half runs natively after load: unregister every service worker,
 empty the Cache Storage API, drop the WebView HTTP cache. None of that is
 state the wallet's stores read at boot, so running it late is safe.
 
-The sessions half runs inside the document, before its stores initialise. dApp
+The sessions half runs inside the document, before its stores initialise. It
+clears the connect SDK's session and inflight keys, both spellings of the
+wallet's own pairing list, and orphaned remote-signer rows from every account
+list. dApp
 sessions are restored and reconnected during store initialisation, so clearing
 them from outside would race: a restored pairing writes itself back at its
 next checkpoint and survives. The bootstrap therefore sets

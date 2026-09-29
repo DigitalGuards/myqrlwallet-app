@@ -268,35 +268,6 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     return () => clearTimeout(timer);
   }, [isEmbedded, documentLoadedAt]);
 
-  // One-time hygiene pass over the storage an upgrading install inherits from
-  // the days the WebView loaded the live site. See EmbeddedStorageMigration.
-  const migrationDone = useRef(false);
-  useEffect(() => {
-    if (!isEmbedded || documentLoadedAt === null || migrationDone.current) return;
-    let cancelled = false;
-    (async () => {
-      if (!(await isStorageMigrationPending())) {
-        migrationDone.current = true;
-        return;
-      }
-      if (cancelled || !webViewRef.current) return;
-      migrationDone.current = true;
-      Logger.debug('QRLWebView', 'Clearing web caches inherited from the hosted wallet');
-      try {
-        webViewRef.current.clearCache?.(true);
-      } catch (clearError) {
-        Logger.warn('QRLWebView', 'Could not clear the WebView cache:', clearError);
-      }
-      webViewRef.current.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
-      await markStorageMigrationDone();
-    })().catch((migrationError: unknown) => {
-      Logger.warn('QRLWebView', 'Inherited storage migration failed:', migrationError);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isEmbedded, documentLoadedAt]);
-
   // Helper to check if we can hide loading screen
   const tryHideLoadingScreen = useCallback(() => {
     if (minTimeElapsed.current && contentLoaded.current) {

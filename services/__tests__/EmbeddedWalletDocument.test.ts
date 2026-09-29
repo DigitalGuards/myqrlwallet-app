@@ -47,12 +47,26 @@ describe('embedded wallet document', () => {
     const html = withEmbeddedFlag(shipped, token, false);
     const csp = html.indexOf('Content-Security-Policy');
     expect(html.indexOf('window.__QRL_EMBEDDED__ = true;')).toBeLessThan(csp);
-    // Once the frontend emits script-src hashes instead of 'unsafe-inline',
-    // the bootstrap keeps working because that policy does not govern it.
+
     const metaTag = shipped.slice(shipped.lastIndexOf('<meta', csp), shipped.indexOf('>', csp) + 1);
     const policy = /content="([^"]*)"/.exec(metaTag)?.[1] ?? '';
+    // The document now allows only two hashed scripts, so an inline script
+    // with no hash would be refused if the policy governed it. The bootstrap
+    // carries a per-load token and cannot be hashed at build time, so its
+    // position above the meta is what keeps it running and is what let the
+    // frontend drop 'unsafe-inline' for everything else.
+    expect(policy).toMatch(/script-src[^;]*'sha256-/);
+    expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/);
     expect(policy).toContain("frame-src 'none'");
     expect(policy).toContain("child-src 'none'");
+  });
+
+  it('keeps the shipped document reading the migration flag it is handed', () => {
+    // The app sets the flag and waits for an acknowledgement. If the document
+    // stopped reading it, the pass would never run and never be recorded.
+    const shipped = readFileSync(documentPath, 'utf8');
+    expect(shipped).toContain('__QRL_EMBEDDED_MIGRATION__');
+    expect(shipped).toContain('EMBEDDED_MIGRATION_DONE');
   });
 
   it('takes its own tag back out of the DOM', () => {
