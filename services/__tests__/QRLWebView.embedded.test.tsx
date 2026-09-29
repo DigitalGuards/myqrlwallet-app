@@ -19,6 +19,7 @@ jest.mock('../NativeBridge', () => ({
   setWebViewRef: jest.fn(),
   resetWebAppReady: jest.fn(),
   sendQRResult: jest.fn(),
+  handle: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../EmbeddedWalletDocument', () => {
   const actual = jest.requireActual('../EmbeddedWalletDocument.ts') as Record<string, unknown>;
@@ -193,6 +194,60 @@ describe('embedded QRLWebView', () => {
     });
     expect(ref.current?.navigateToEmbeddedRoute('#/transfer')).toBe(false);
     expect(webViewNodeMock.injectJavaScript).not.toHaveBeenCalled();
+  });
+
+  it('accepts a bridge message from the Android about:blank document', async () => {
+    // Android loads the string with loadDataWithBaseURL(..., historyUrl=null),
+    // so the wallet document reports about:blank. Before the normaliser every
+    // bridge message was dropped here and SEED_STORED never reached native.
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    const message = JSON.stringify({ type: 'SEED_STORED', payload: { address: 'Q00' } });
+    for (const url of ['about:blank', 'about:blank#/transfer', 'https://qrlwallet.com/']) {
+      (NativeBridge.handle as jest.Mock).mockClear();
+      await act(async () => view.props.onMessage({ nativeEvent: { data: message, url } }));
+      expect(NativeBridge.handle).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'SEED_STORED' }),
+      );
+    }
+  });
+
+  it('still drops a bridge message from any other document', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    const message = JSON.stringify({ type: 'SEED_STORED', payload: { address: 'Q00' } });
+    for (const url of [
+      'about:srcdoc',
+      'about:blank?x=1',
+      'https://attacker.invalid/',
+      'http://qrlwallet.com/',
+      'file:///wallet/index.html',
+      undefined,
+    ]) {
+      (NativeBridge.handle as jest.Mock).mockClear();
+      await act(async () => view.props.onMessage({ nativeEvent: { data: message, url } }));
+      expect(NativeBridge.handle).not.toHaveBeenCalled();
+    }
+  });
+
+  it('never accepts about:blank as the wallet document in remote mode', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    await act(async () => {
+      screen = create(<QRLWebView webSource="remote" />, {
+        createNodeMock: () => webViewNodeMock,
+      });
+    });
+    const view = screen.root.findByType('NativeWebView' as never);
+    const message = JSON.stringify({ type: 'SEED_STORED', payload: { address: 'Q00' } });
+    (NativeBridge.handle as jest.Mock).mockClear();
+    await act(async () =>
+      view.props.onMessage({ nativeEvent: { data: message, url: 'about:blank' } }),
+    );
+    expect(NativeBridge.handle).not.toHaveBeenCalled();
+    await act(async () =>
+      view.props.onMessage({ nativeEvent: { data: message, url: 'https://qrlwallet.com/' } }),
+    );
+    expect(NativeBridge.handle).toHaveBeenCalledTimes(1);
   });
 
   it('shows the loading screen until the bundled document has been read', async () => {

@@ -43,6 +43,45 @@ content process (`onContentProcessDidTerminate` on iOS,
 `onRenderProcessGone` on Android) and the retry button both hand the document
 to a fresh WebView instead of calling `reload()`.
 
+## The Android about:blank quirk
+
+react-native-webview loads a string on Android with
+`loadDataWithBaseURL(baseUrl, html, mime, encoding, null)`. The last argument
+is the history URL, and passing `null` makes `WebView.getUrl()` report
+`about:blank` even though the document's origin is the base URL. Every bridge
+message therefore arrives with `nativeEvent.url === 'about:blank'` (plus the
+fragment after a hash navigation). The origin check that guards bridge
+authority dropped all of them, so on Android `SEED_STORED` never reached
+native and "Set Transaction PIN" failed with "Native secure seed backup
+failed". iOS is unaffected: `WKWebView.loadHTMLString(_:baseURL:)` sets
+`webView.url` to the base URL.
+
+`normalizeEmbeddedDocumentUrl` in `services/EmbeddedNavigationPolicy.ts` maps
+`about:blank` and `about:blank#<fragment>` back onto the base URL, and
+`QRLWebView` routes every consumer of `nativeEvent.url` through one helper so
+the quirk cannot be handled in one caller and missed in another. It applies in
+embedded mode only. In remote and dev mode a document at `about:blank` is not
+the wallet, and accepting it would hand bridge authority to a blank page.
+
+The rewrite is safe because in embedded mode the injected document is the only
+document that can be at `about:blank` in that WebView: the navigation guard
+refuses every other document load, the embedded CSP sets `frame-src` and
+`child-src` to `'none'` so there are no subframes, and `onMessage` reports the
+top-level document URL.
+
+### Why not patch react-native-webview
+
+The other fix is a patch-package change passing `baseUrl` as the history URL,
+which would make `getUrl()` return `https://qrlwallet.com/` directly. It was
+rejected. With a history URL set, `WebView.reload()` fetches that URL from the
+network into the same origin, and `onShouldStartLoadWithRequest` is not
+consulted for a programmatic reload, so the embedded document could be
+silently replaced by whatever the server returns. That trades a
+fail-closed bug for exactly the code-substitution risk this whole change
+exists to remove. The patch would also apply to every WebView in the app and
+would need re-verifying on each react-native-webview upgrade, while the
+normaliser is app-side, scoped to embedded mode and unit-tested.
+
 ## Web source modes
 
 `EXPO_PUBLIC_WEB_SOURCE` selects where the wallet comes from:

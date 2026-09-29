@@ -23,6 +23,7 @@ import {
 import {
   EMBEDDED_BASE_URL,
   classifyEmbeddedNavigation,
+  normalizeEmbeddedDocumentUrl,
 } from '../services/EmbeddedNavigationPolicy';
 import QuantumLoadingScreen from './QuantumLoadingScreen';
 
@@ -260,6 +261,18 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     navigateToEmbeddedRoute,
   }), [reloadDocument, navigateToEmbeddedRoute]);
 
+  // The single place a URL reported by the WebView is turned into the URL the
+  // document actually runs on. Every trust decision and every origin log goes
+  // through it, so Android's about:blank quirk cannot be handled in one caller
+  // and missed in another. Outside embedded mode it is the identity function:
+  // a document at about:blank is not the wallet when the wallet is loaded from
+  // a URL, and accepting it would hand bridge authority to a blank page.
+  // See normalizeEmbeddedDocumentUrl for why the rewrite is safe.
+  const documentUrlForTrust = useCallback(
+    (url: string): string => (isEmbedded ? normalizeEmbeddedDocumentUrl(url) : url),
+    [isEmbedded],
+  );
+
   const handleLoadStart = (event?: { nativeEvent?: { loading?: boolean } }) => {
     // The wallet's own route changes keep the same document; resetting there
     // would drop the bridge handshake and re-lock the app on every tap. The
@@ -290,7 +303,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   const handleNavigationStateChange = (newNavState: { url: string; loading: boolean }) => {
     Logger.debug('QRLWebView', 'Navigation state changed', {
-      origin: walletUrlOriginForLog(newNavState.url),
+      origin: walletUrlOriginForLog(documentUrlForTrust(newNavState.url)),
       loading: newNavState.loading,
     });
     // If page has loaded completely, ensure loading indicator is hidden
@@ -332,7 +345,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Handle messages from the WebView
   const handleMessage = async (event: WebViewMessageEvent) => {
-    const { data, url } = event.nativeEvent;
+    const { data } = event.nativeEvent;
+    const url = documentUrlForTrust(event.nativeEvent.url);
     if (typeof url !== 'string' || !isUrlAllowed(url)) {
       Logger.warn(
         'QRLWebView',
