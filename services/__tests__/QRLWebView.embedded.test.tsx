@@ -112,6 +112,30 @@ describe('embedded QRLWebView', () => {
     expect(guard({ url: 'https://qrlwallet.com/transfer' })).toBe(false);
   });
 
+  it('spends the one document allowance on Android, where the guard never runs', async () => {
+    // loadDataWithBaseURL does not go through shouldOverrideUrlLoading, so the
+    // injected document never reaches the guard on Android. Without spending
+    // the allowance at document start, the first real navigation to
+    // https://qrlwallet.com/ would be admitted and would fetch the live page.
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
+    // A hash route inside the document is still fine.
+    expect(view.props.onShouldStartLoadWithRequest({ url: 'about:blank#/transfer' })).toBe(true);
+  });
+
+  it('admits the document again after a recovery reload on Android', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const ref = createRef<QRLWebViewRef>();
+    const view = await renderEmbedded(ref);
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
+    await act(async () => ref.current?.reload());
+    const reloaded = screen.root.findByType('NativeWebView' as never);
+    expect(reloaded.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(true);
+  });
+
   it('opens a foreign origin outside the app instead of loading it', async () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     const view = await renderEmbedded();

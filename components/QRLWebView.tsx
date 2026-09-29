@@ -285,6 +285,14 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       return;
     }
     documentStarted.current = true;
+    // Consume the one allowed base-URL load here rather than only in the
+    // navigation guard. Android's loadDataWithBaseURL never goes through
+    // shouldOverrideUrlLoading, so on Android the guard is not called for the
+    // injected document and the allowance would still be unspent: the first
+    // real navigation to https://qrlwallet.com/ would then be admitted and
+    // would fetch the live page over the shipped one. iOS calls the guard
+    // before this, so there the flag is already false and this is a no-op.
+    initialDocumentPending.current = false;
     NativeBridge.resetWebAppReady();
     onDocumentLoadStart?.();
     setIsLoading(true);

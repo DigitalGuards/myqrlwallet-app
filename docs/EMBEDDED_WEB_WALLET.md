@@ -69,6 +69,13 @@ refuses every other document load, the embedded CSP sets `frame-src` and
 `child-src` to `'none'` so there are no subframes, and `onMessage` reports the
 top-level document URL.
 
+The same Android path has a second consequence. `loadDataWithBaseURL` never
+goes through `shouldOverrideUrlLoading`, so the navigation guard is not called
+for the injected document and its one-shot base-URL allowance would stay
+unspent, letting the first real navigation to `https://qrlwallet.com/` through.
+The allowance is therefore spent when a document starts loading, not only when
+the guard admits one. On iOS the guard runs first and that is a no-op.
+
 ### Why not patch react-native-webview
 
 The other fix is a patch-package change passing `baseUrl` as the history URL,
