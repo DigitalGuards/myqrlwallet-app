@@ -384,16 +384,41 @@ describe('embedded QRLWebView', () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const view = await renderEmbedded();
     const servedToken = documentTokenFrom(view.props.source.html as string);
-    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    await act(async () =>
+      view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+    );
     expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
 
-    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    await act(async () =>
+      view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+    );
     const recovered = screen.root.findByType('NativeWebView' as never);
     expect(recovered.props.source.baseUrl).toBe('https://qrlwallet.com/');
     // A fresh token, so a message held by the document that was pushed out
     // cannot be replayed into the one that replaced it.
     expect(documentTokenFrom(recovered.props.source.html as string)).not.toBe(servedToken);
     expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves the wallet router alone when it replaces state during module init', async () => {
+    // The regression that put the app on the error screen on every cold
+    // start: React Router calls history.replaceState while the page is still
+    // loading, and that event arrives with loading:true.
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    const servedToken = documentTokenFrom(view.props.source.html as string);
+    await act(async () =>
+      view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+    );
+    for (let update = 0; update < 5; update += 1) {
+      await act(async () =>
+        view.props.onLoadStart({ nativeEvent: { newDocument: false, loading: true } }),
+      );
+    }
+    const same = screen.root.findByType('NativeWebView' as never);
+    expect(documentTokenFrom(same.props.source.html as string)).toBe(servedToken);
+    expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(screen.toJSON())).not.toContain('replaced by another page');
   });
 
   it('gives up loudly if a foreign document keeps coming back', async () => {
@@ -403,8 +428,12 @@ describe('embedded QRLWebView', () => {
       const current = screen.root.findAllByType('NativeWebView' as never)[0];
       if (!current) break;
       // One accepted document start, then a second one in the same load.
-      await act(async () => current.props.onLoadStart({ nativeEvent: { loading: true } }));
-      await act(async () => current.props.onLoadStart({ nativeEvent: { loading: true } }));
+      await act(async () =>
+        current.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+      );
+      await act(async () =>
+        current.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+      );
     }
     expect(screen.root.findAllByType('NativeWebView' as never)).toHaveLength(0);
     expect(JSON.stringify(screen.toJSON())).toContain('replaced by another page');
@@ -415,7 +444,8 @@ describe('embedded QRLWebView', () => {
     const view = await renderEmbedded();
     const servedToken = documentTokenFrom(view.props.source.html as string);
     await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
-    // The wallet's own hash routes report loading:false on a loaded page.
+    // The wallet's own hash routes report loading:false on a loaded page, and
+    // an unpatched build has no tag to read.
     await act(async () => view.props.onLoadStart({ nativeEvent: { loading: false } }));
     const same = screen.root.findByType('NativeWebView' as never);
     expect(documentTokenFrom(same.props.source.html as string)).toBe(servedToken);

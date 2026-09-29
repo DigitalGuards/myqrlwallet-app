@@ -32,10 +32,10 @@ index 5932fc1..4b3725e 100644
       * WebView must be created with an context of the current activity
       * <p>
 diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
-index 251939e..8209f9a 100644
+index 251939e..2f1bc1d 100644
 --- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
 +++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
-@@ -34,10 +34,117 @@ import com.reactnativecommunity.webview.events.TopShouldStartLoadWithRequestEven
+@@ -34,10 +34,121 @@ import com.reactnativecommunity.webview.events.TopShouldStartLoadWithRequestEven
  import android.webkit.CookieManager;
  import android.webkit.CookieSyncManager;
  
@@ -146,14 +146,60 @@ index 251939e..8209f9a 100644
 +            return super.shouldInterceptRequest(view, request);
 +        }
 +
-+        FLog.w(TAG, "Refused a request to the wallet origin that the bundle does not serve");
++        // The path is logged, and only the path: it names a resource on the
++        // app's own origin and carries no query string. Everything the
++        // document needs is inlined in it, so anything reaching here is a
++        // request the WebView made on its own, such as /favicon.ico.
++        FLog.w(TAG, "Refused a request to the wallet origin that the bundle does not serve: " + targetPath);
 +        return refusedResponse();
 +    }
 +    // MyQRLWallet patch ends.
      protected static final int SHOULD_OVERRIDE_URL_LOADING_TIMEOUT = 250;
  
      protected boolean mLastLoadFailed = false;
-@@ -114,17 +221,29 @@ public class RNCWebViewClient extends WebViewClient {
+@@ -78,11 +189,19 @@ public class RNCWebViewClient extends WebViewClient {
+     public void doUpdateVisitedHistory (WebView webView, String url, boolean isReload) {
+       super.doUpdateVisitedHistory(webView, url, isReload);
+ 
++      // MyQRLWallet patch: upstream emits the only Android loading-start event
++      // from here, which fires both for a new document and for a same-document
++      // history update. JS could then tell them apart only by the `loading`
++      // flag, and a replaceState during module init arrives with loading true,
++      // so a routine router call looked exactly like a document swap. This
++      // event is now tagged explicitly.
++      WritableMap historyEvent = createWebViewEvent(webView, url);
++      historyEvent.putBoolean("newDocument", false);
+       ((RNCWebView) webView).dispatchEvent(
+         webView,
+         new TopLoadingStartEvent(
+           RNCWebViewWrapper.getReactTagFromWebView(webView),
+-          createWebViewEvent(webView, url)));
++          historyEvent));
+     }
+ 
+     @Override
+@@ -90,6 +209,20 @@ public class RNCWebViewClient extends WebViewClient {
+       super.onPageStarted(webView, url, favicon);
+       mLastLoadFailed = false;
+ 
++      // MyQRLWallet patch: a real document load, and the only callback that
++      // means one. It fires for the initial load, for a reload and for a
++      // history traversal that leaves the document, and never for a hash
++      // change, a pushState or a replaceState. Tagging it lets JS recognise a
++      // document swap without depending on the order of the two callbacks or
++      // on a progress value.
++      WritableMap startEvent = createWebViewEvent(webView, url);
++      startEvent.putBoolean("newDocument", true);
++      ((RNCWebView) webView).dispatchEvent(
++        webView,
++        new TopLoadingStartEvent(
++          RNCWebViewWrapper.getReactTagFromWebView(webView),
++          startEvent));
++
+       RNCWebView reactWebView = (RNCWebView) webView;
+       reactWebView.callInjectedJavaScriptBeforeContentLoaded();
+     }
+@@ -114,17 +247,29 @@ public class RNCWebViewClient extends WebViewClient {
                      final long startTime = SystemClock.elapsedRealtime();
                      while (lockObject.get() == RNCWebViewModuleImpl.ShouldOverrideUrlLoadingLock.ShouldOverrideCallbackState.UNDECIDED) {
                          if (SystemClock.elapsedRealtime() - startTime > SHOULD_OVERRIDE_URL_LOADING_TIMEOUT) {

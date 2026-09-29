@@ -102,6 +102,24 @@ A second layer sits in JavaScript: a second document start inside one load is
 treated as foreign and the shipped string is re-served with a fresh token,
 bounded so a WebView that reported two starts per load could not loop.
 
+That layer needs to know what a document start actually is, and upstream does
+not say. Android emits its only loading-start event from
+`doUpdateVisitedHistory`, which fires for same-document history updates too,
+leaving JS to guess from a `loading` progress flag. React Router calls
+`history.replaceState` during module init, while the page is still loading, so
+that event arrives with `loading: true` and looked exactly like a page swap:
+on device the app landed on its "replaced by another page" screen on every
+cold start. The patch therefore tags the events at the source. `onPageStarted`
+carries `newDocument: true` and is the one callback that means a document is
+being replaced; `doUpdateVisitedHistory` carries `newDocument: false`. The
+result no longer depends on the order of the two callbacks or on a progress
+value, and an unpatched build still falls back to the old heuristic.
+
+The shipped document inlines everything, so any request that reaches the
+refusal branch is one the WebView made on its own, `/favicon.ico` being the
+usual one. The refusal logs the path, without its query, so the next device
+run names it.
+
 On iOS `decidePolicyForNavigationAction` does see reloads, and navigation type
 `reload` is refused by the guard. That still wants a device check once an iOS
 build exists.

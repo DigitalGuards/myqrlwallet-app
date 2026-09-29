@@ -10,7 +10,10 @@ import {
   NATIVE_WEBVIEW_CAPABILITY_SCRIPT,
   NATIVE_WEBVIEW_INJECTED_OBJECT,
 } from '../services/NativeWalletProfile';
-import { isSameDocumentHistoryUpdate } from '../services/WebViewLoadStart';
+import {
+  isSameDocumentHistoryUpdate,
+  type WebViewLoadStartEvent,
+} from '../services/WebViewLoadStart';
 import {
   isAllowedWalletDocumentUrl,
   walletUrlOriginForLog,
@@ -416,7 +419,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     navigateToEmbeddedRoute,
   }), [reloadDocument, navigateToEmbeddedRoute]);
 
-  const handleLoadStart = (event?: { nativeEvent?: { loading?: boolean } }) => {
+  const handleLoadStart = (event?: { nativeEvent?: WebViewLoadStartEvent }) => {
     // The wallet's own route changes keep the same document; resetting there
     // would drop the bridge handshake and re-lock the app on every tap. The
     // first load start always starts a document, so the screen's initial
@@ -432,6 +435,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     // fragment rule and the guard lets it through; what it cannot fake is
     // being the only document this epoch served. Re-serve the shipped string
     // with a fresh token instead of letting the new document settle.
+    //
+    // Reaching here means the event was tagged as a new document, or came
+    // from iOS where every load start is one. A same-document history update
+    // returned above, which is what keeps the wallet's own replaceState
+    // during module init from being read as a page swap.
     if (isEmbedded && documentStarted.current) {
       foreignDocumentRecoveries.current += 1;
       if (foreignDocumentRecoveries.current > MAX_FOREIGN_DOCUMENT_RECOVERIES) {
