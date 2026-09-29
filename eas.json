@@ -19,6 +19,15 @@
     "preview": {
       "distribution": "internal"
     },
+    "preview-embedded": {
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "embedded-dev",
+        "EXPO_PUBLIC_WEB_SOURCE": "embedded",
+        "RCT_USE_PREBUILT_RNCORE": "0",
+        "RCT_USE_RN_DEP": "0"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {
