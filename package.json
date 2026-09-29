@@ -11,6 +11,8 @@
     "test": "jest --watchAll",
     "test:ci": "jest --runInBand",
     "typecheck": "tsc --noEmit",
+    "verify:embedded-web": "node scripts/verify-embedded-web.js",
+    "eas-build-post-install": "node scripts/verify-embedded-web.js",
     "build": "expo export --platform all",
     "lint": "expo lint",
     "postinstall": "patch-package"

@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const projectRoot = resolve(__dirname, '../..');
+const easConfig = JSON.parse(readFileSync(resolve(projectRoot, 'eas.json'), 'utf8')) as {
+  cli: { requireCommit?: boolean };
+  build: Record<string, { env?: Record<string, string>; developmentClient?: boolean }>;
+};
 const appConfig = JSON.parse(readFileSync(resolve(projectRoot, 'app.json'), 'utf8')) as {
   expo: {
     scheme?: string | string[];
@@ -117,5 +121,33 @@ describe('generated native security configuration', () => {
     expect(webViewSource).toContain('allowFileAccess={false}');
     expect(webViewSource).toContain('allowFileAccessFromFileURLs={false}');
     expect(webViewSource).toContain('allowUniversalAccessFromFileURLs={false}');
+  });
+
+  it('keeps the dev client from claiming a URL scheme of its own', () => {
+    // The expo-dev-client plugin adds an exp+<slug> scheme to every variant
+    // unless it is listed explicitly with the option turned off.
+    expect(appConfig.expo.plugins).toEqual(
+      expect.arrayContaining([['expo-dev-client', { addGeneratedScheme: false }]]),
+    );
+  });
+
+  it('pins the wallet source in every profile that ships a binary', () => {
+    for (const profile of ['production', 'preview', 'preview-embedded', 'development-embedded']) {
+      expect(easConfig.build[profile]?.env?.EXPO_PUBLIC_WEB_SOURCE).toBe('embedded');
+    }
+  });
+
+  it('requires a committed tree for a cloud build', () => {
+    expect(easConfig.cli.requireCommit).toBe(true);
+  });
+
+  it('verifies the bundled wallet digest during a cloud build and in CI', () => {
+    const pkg = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts['eas-build-post-install']).toContain('verify-embedded-web');
+    const ci = readFileSync(resolve(projectRoot, '.github/workflows/ci.yml'), 'utf8');
+    expect(ci).toContain('npm run verify:embedded-web');
+    expect(ci).toContain('reproduce-embedded-web.sh');
   });
 });

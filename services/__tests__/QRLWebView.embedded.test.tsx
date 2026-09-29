@@ -30,16 +30,23 @@ jest.mock('../NativeBridge', () => ({
 jest.mock('../EmbeddedWalletDocument', () => {
   const actual = jest.requireActual('../EmbeddedWalletDocument.ts') as Record<string, unknown>;
   return {
-    EMBEDDED_FLAG_SCRIPT: actual.EMBEDDED_FLAG_SCRIPT,
-    withEmbeddedFlag: actual.withEmbeddedFlag,
-    EMBEDDED_WALLET_BUILD_INFO: { frontendCommitShort: 'abcdef123456' },
+    ...actual,
     loadEmbeddedWalletHtml: jest.fn(),
   };
 });
 
-const { loadEmbeddedWalletHtml, withEmbeddedFlag } = jest.requireMock('../EmbeddedWalletDocument') as {
+const { loadEmbeddedWalletHtml } = jest.requireMock('../EmbeddedWalletDocument') as {
   loadEmbeddedWalletHtml: jest.Mock;
-  withEmbeddedFlag: (html: string) => string;
+};
+const { BRIDGE_TOKEN_SEPARATOR } = jest.requireActual('../EmbeddedWalletDocument.ts') as {
+  BRIDGE_TOKEN_SEPARATOR: string;
+};
+
+/** The token the component minted for the document currently on screen. */
+const documentTokenFrom = (html: string): string => {
+  const match = /var t="([0-9a-f]{64})/.exec(html);
+  if (!match) throw new Error('no document token in the served html');
+  return match[1];
 };
 
 describe('embedded QRLWebView', () => {
@@ -67,7 +74,7 @@ describe('embedded QRLWebView', () => {
     jest.clearAllMocks();
     runtime.__DEV__ = false;
     webViewNodeMock.injectJavaScript.mockClear();
-    loadEmbeddedWalletHtml.mockResolvedValue(withEmbeddedFlag(EMBEDDED_HTML));
+    loadEmbeddedWalletHtml.mockResolvedValue(EMBEDDED_HTML);
   });
   afterEach(async () => {
     jest.restoreAllMocks();
@@ -82,9 +89,15 @@ describe('embedded QRLWebView', () => {
       html: expect.stringContaining('window.__QRL_EMBEDDED__ = true;') as unknown as string,
       baseUrl: 'https://qrlwallet.com/',
     });
-    // The flag has to be the first script in the head, ahead of the wallet.
-    expect(view.props.source.html).toContain('<head><script>window.__QRL_EMBEDDED__ = true;</script>');
-    expect(view.props.originWhitelist).toEqual(['https://qrlwallet.com', 'about:*']);
+    // The bootstrap has to be the first script in the head, ahead of the
+    // wallet's own scripts.
+    const html = view.props.source.html as string;
+    expect(html).toContain('<head><script>(function(){window.__QRL_EMBEDDED__ = true;');
+    expect(html.indexOf('__QRL_EMBEDDED__')).toBeLessThan(html.indexOf('<title>'));
+    // Deliberately open: react-native-webview opens anything outside this
+    // list with Linking.openURL before the component sees it, so widening it
+    // is what makes the navigation policy the only gate.
+    expect(view.props.originWhitelist).toEqual(['*']);
     expect(view.props.mixedContentMode).toBe('never');
     expect(view.props.userAgent).toContain('MyQRLWallet/1.4.2');
   });
@@ -118,13 +131,13 @@ describe('embedded QRLWebView', () => {
     expect(guard({ url: 'https://qrlwallet.com/transfer' })).toBe(false);
   });
 
-  it('spends the one document allowance on Android, where the guard never runs', async () => {
-    // loadDataWithBaseURL does not go through shouldOverrideUrlLoading, so the
-    // injected document never reaches the guard on Android. Without spending
-    // the allowance at document start, the first real navigation to
-    // https://qrlwallet.com/ would be admitted and would fetch the live page.
+  it('never admits a base URL navigation on Android', async () => {
+    // loadDataWithBaseURL does not go through shouldOverrideUrlLoading, so any
+    // base-URL request that reaches the guard is a navigation the page asked
+    // for and would fetch the live page.
     jest.replaceProperty(Platform, 'OS', 'android');
     const view = await renderEmbedded();
+    expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
     await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
     expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
     // A hash route inside the document is still fine.
@@ -133,11 +146,22 @@ describe('embedded QRLWebView', () => {
     ).toBe(true);
   });
 
-  it('admits the document again after a recovery reload on Android', async () => {
-    jest.replaceProperty(Platform, 'OS', 'android');
+  it('refuses a reload navigation that would fetch the live page', async () => {
+    const view = await renderEmbedded();
+    for (const navigationType of ['reload', 'backforward', 'formsubmit', 'formresubmit']) {
+      expect(
+        view.props.onShouldStartLoadWithRequest({
+          url: 'https://qrlwallet.com/#/transfer',
+          navigationType,
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it('admits the document again after a recovery reload on iOS only', async () => {
     const ref = createRef<QRLWebViewRef>();
     const view = await renderEmbedded(ref);
-    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' });
     expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
     await act(async () => ref.current?.reload());
     const reloaded = screen.root.findByType('NativeWebView' as never);
@@ -149,6 +173,15 @@ describe('embedded QRLWebView', () => {
     const view = await renderEmbedded();
     expect(view.props.onShouldStartLoadWithRequest({ url: 'https://zondscan.com/tx/0x1' })).toBe(false);
     expect(openURL).toHaveBeenCalledWith('https://zondscan.com/tx/0x1');
+  });
+
+  it('refuses to hand a scheme the OS would act on to Linking', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const view = await renderEmbedded();
+    for (const url of ['qrlconnect://?q=PAYLOAD', 'intent://x#Intent;scheme=https;end', 'tel:+31']) {
+      expect(view.props.onShouldStartLoadWithRequest({ url })).toBe(false);
+    }
+    expect(openURL).not.toHaveBeenCalled();
   });
 
   it('never hands a qrlwallet.com document to the system browser', async () => {
@@ -181,10 +214,17 @@ describe('embedded QRLWebView', () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const view = await renderEmbedded();
     expect(view.props.onRenderProcessGone).toBe(view.props.onContentProcessDidTerminate);
+    const servedSource = view.props.source;
     view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' });
     await act(async () => view.props.onRenderProcessGone({ nativeEvent: { didCrash: true } }));
     const recovered = screen.root.findByType('NativeWebView' as never);
-    expect(recovered.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(true);
+    // Android recovery re-serves the string through loadDataWithBaseURL, which
+    // never consults the guard, so the base URL stays refused there.
+    expect(recovered.props.source).toEqual(servedSource);
+    expect(recovered.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
+    expect(
+      recovered.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/#/' }),
+    ).toBe(true);
   });
 
   it('reloads through the ref by handing the document over again', async () => {
@@ -232,7 +272,7 @@ describe('embedded QRLWebView', () => {
     // Without this gate the mismatch only surfaces as a failed seed backup,
     // after the user has imported a seed and set a transaction PIN.
     loadEmbeddedWalletHtml.mockResolvedValue(
-      withEmbeddedFlag('<!doctype html><html><head><title>v2</title></head><body></body></html>'),
+      '<!doctype html><html><head><title>v2</title></head><body></body></html>',
     );
     await act(async () => {
       screen = create(<QRLWebView webSource="embedded" />, {
@@ -248,6 +288,72 @@ describe('embedded QRLWebView', () => {
     expect(text).toContain('TEST_NET_V3');
   });
 
+  it('accepts a bridge message only when it carries the document token', async () => {
+    // The origin check accepts any document on qrlwallet.com, so the token is
+    // what ties bridge authority to the document this app actually served.
+    const view = await renderEmbedded();
+    const token = documentTokenFrom(view.props.source.html as string);
+    const message = JSON.stringify({ type: 'SEED_STORED', payload: { address: 'Q00' } });
+
+    (NativeBridge.handle as jest.Mock).mockClear();
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: { data: message, url: 'https://qrlwallet.com/' },
+      }),
+    );
+    expect(NativeBridge.handle).not.toHaveBeenCalled();
+
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: {
+          data: `${'f'.repeat(64)}${BRIDGE_TOKEN_SEPARATOR}${message}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    expect(NativeBridge.handle).not.toHaveBeenCalled();
+
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${message}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    expect(NativeBridge.handle).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'SEED_STORED' }),
+    );
+  });
+
+  it('re-serves the rebind script so a late bridge still gets bound', async () => {
+    const view = await renderEmbedded();
+    expect(view.props.injectedJavaScript).toContain('__qrlBindBridge');
+    // The rebind script must carry no token: injected scripts run in every
+    // document the WebView loads, including one that is not ours.
+    expect(view.props.injectedJavaScript).not.toMatch(/[0-9a-f]{64}/);
+    expect(view.props.injectedJavaScriptBeforeContentLoaded).not.toMatch(/[0-9a-f]{64}/);
+  });
+
+  it('takes a bridge message in remote mode without any token', async () => {
+    await act(async () => {
+      screen = create(<QRLWebView webSource="remote" />, {
+        createNodeMock: () => webViewNodeMock,
+      });
+    });
+    const view = screen.root.findByType('NativeWebView' as never);
+    (NativeBridge.handle as jest.Mock).mockClear();
+    await act(async () =>
+      view.props.onMessage({
+        nativeEvent: {
+          data: JSON.stringify({ type: 'SEED_STORED', payload: {} }),
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    expect(NativeBridge.handle).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the loading screen until the bundled document has been read', async () => {
     let resolveHtml: ((html: string) => void) | undefined;
     loadEmbeddedWalletHtml.mockReturnValue(
@@ -261,7 +367,7 @@ describe('embedded QRLWebView', () => {
     expect(screen.root.findAllByType('NativeWebView' as never)).toHaveLength(0);
     expect(screen.root.findByType('QuantumLoadingScreen' as never).props.visible).toBe(true);
     await act(async () => {
-      resolveHtml?.(withEmbeddedFlag(EMBEDDED_HTML));
+      resolveHtml?.(EMBEDDED_HTML);
       await Promise.resolve();
     });
     expect(screen.root.findAllByType('NativeWebView' as never)).toHaveLength(1);

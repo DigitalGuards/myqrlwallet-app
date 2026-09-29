@@ -15,10 +15,14 @@ import {
   isAllowedWalletDocumentUrl,
   walletUrlOriginForLog,
 } from '../services/WalletWebOrigin';
-import { resolveWebSourceMode, type WebSourceMode } from '../services/WebSource';
+import { resolveWebSource, type WebSourceMode } from '../services/WebSource';
 import {
+  BRIDGE_TOKEN_SEPARATOR,
   EMBEDDED_FLAG_SCRIPT,
+  EMBEDDED_REBIND_SCRIPT,
+  createDocumentToken,
   loadEmbeddedWalletHtml,
+  withEmbeddedFlag,
 } from '../services/EmbeddedWalletDocument';
 import {
   EMBEDDED_BASE_URL,
@@ -28,6 +32,12 @@ import {
   detectEmbeddedWalletProfile,
   embeddedProfileErrorMessage,
 } from '../services/EmbeddedWalletProfile';
+import { externalOpenDecision } from '../services/ExternalLinkPolicy';
+import {
+  EMBEDDED_STORAGE_MIGRATION_SCRIPT,
+  isStorageMigrationPending,
+  markStorageMigrationDone,
+} from '../services/EmbeddedStorageMigration';
 import QuantumLoadingScreen from './QuantumLoadingScreen';
 
 // ============================================================
@@ -39,7 +49,12 @@ import QuantumLoadingScreen from './QuantumLoadingScreen';
 const DEV_URL = process.env.EXPO_PUBLIC_DEV_URL || 'http://10.0.2.2:5173';
 
 // Where the wallet document comes from. See services/WebSource.ts.
-const CONFIGURED_WEB_SOURCE = resolveWebSourceMode(process.env.EXPO_PUBLIC_WEB_SOURCE, __DEV__);
+const CONFIGURED_WEB_SOURCE_RESOLUTION = resolveWebSource({
+  requested: process.env.EXPO_PUBLIC_WEB_SOURCE,
+  isDevelopment: __DEV__,
+  remoteAcknowledgement: process.env.EXPO_PUBLIC_ALLOW_REMOTE_WALLET,
+});
+const CONFIGURED_WEB_SOURCE = CONFIGURED_WEB_SOURCE_RESOLUTION.mode;
 
 // Routes handed to the embedded document from a system link. Kept tight
 // because the value ends up in an injected assignment.
@@ -78,6 +93,10 @@ export interface QRLWebViewRef {
 // warm cache load is not artificially delayed (was 3000ms of forced wait).
 const MIN_LOADING_TIME = 1200;
 export const MAX_BRIDGE_MESSAGE_CHARS = 300 * 1024;
+// How long the shipped document has to send its first bridge message before
+// the binding is reported as broken. The wallet sends WEB_APP_READY as soon as
+// it boots, so silence this long means the bootstrap did not wrap the bridge.
+export const BRIDGE_BIND_TIMEOUT_MS = 20000;
 
 const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri,
@@ -96,11 +115,35 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const webViewRef = useRef<WebView>(null);
 
   const mode = webSource ?? CONFIGURED_WEB_SOURCE;
+
+  // A build profile that asked for something a release build will not serve.
+  useEffect(() => {
+    const refused = CONFIGURED_WEB_SOURCE_RESOLUTION.refused;
+    if (webSource === undefined && refused) {
+      Logger.error(
+        'QRLWebView',
+        `Refused the configured web source "${refused.requested}" (${refused.reason}); serving ${CONFIGURED_WEB_SOURCE}`,
+      );
+    }
+  }, [webSource]);
   const isEmbedded = mode === 'embedded';
   const remoteUri = uri ?? (mode === 'dev' ? DEV_URL : 'https://qrlwallet.com');
 
-  // The embedded document, read once from the app bundle.
-  const [embeddedHtml, setEmbeddedHtml] = useState<string | null>(null);
+  // The embedded document, read once from the app bundle, without the
+  // bootstrap. The bootstrap carries a per-load token, so it is applied for
+  // each epoch rather than cached with the document.
+  const [embeddedRawHtml, setEmbeddedRawHtml] = useState<string | null>(null);
+  // Proves a bridge message came from the document this app served. The
+  // origin check alone cannot: it accepts any document on qrlwallet.com.
+  const documentToken = useRef<string>('');
+  if (isEmbedded && documentToken.current === '') {
+    documentToken.current = createDocumentToken();
+  }
+  // Cleared once a message has arrived carrying the token, so a bridge that
+  // never binds is reported instead of failing silently.
+  const [bridgeUnbound, setBridgeUnbound] = useState(false);
+  const bridgeBound = useRef(false);
+  const [documentLoadedAt, setDocumentLoadedAt] = useState<number | null>(null);
   // Bumped to force a fresh loadDataWithBaseURL. The navigation guard refuses
   // a second load of the base URL, so recovering a dead content process means
   // handing the WebView the document again rather than calling reload().
@@ -127,7 +170,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const customUserAgent = userAgent || 
     `Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 MyQRLWallet/${Constants.expoConfig?.version || '1.0.0'}`;
 
-  // Read the embedded wallet document out of the app bundle.
+  // Read the embedded wallet document out of the app bundle. Re-runs on a new
+  // epoch so Retry after a failed read or a rejected document reaches this
+  // again instead of leaving the loading screen up forever.
   useEffect(() => {
     if (!isEmbedded) return;
     let cancelled = false;
@@ -143,7 +188,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
           setError(profileError);
           return;
         }
-        setEmbeddedHtml(html);
+        setEmbeddedRawHtml(html);
       })
       .catch((loadError: unknown) => {
         Logger.error('QRLWebView', 'Failed to read the embedded wallet document:', loadError);
@@ -152,7 +197,53 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     return () => {
       cancelled = true;
     };
-  }, [isEmbedded]);
+  }, [isEmbedded, documentEpoch]);
+
+  // Every message the shipped document sends carries the token, so the first
+  // one proves the bootstrap bound the bridge. If none arrives the wallet is
+  // on screen but no native feature works, which is worth saying out loud
+  // rather than leaving the user to discover at the first PIN prompt.
+  useEffect(() => {
+    if (!isEmbedded || documentLoadedAt === null || bridgeBound.current) return;
+    const timer = setTimeout(() => {
+      if (bridgeBound.current) return;
+      Logger.error(
+        'QRLWebView',
+        'No bridge message carried the document token; the wallet cannot reach native features',
+      );
+      setBridgeUnbound(true);
+    }, BRIDGE_BIND_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [isEmbedded, documentLoadedAt]);
+
+  // One-time hygiene pass over the storage an upgrading install inherits from
+  // the days the WebView loaded the live site. See EmbeddedStorageMigration.
+  const migrationDone = useRef(false);
+  useEffect(() => {
+    if (!isEmbedded || documentLoadedAt === null || migrationDone.current) return;
+    let cancelled = false;
+    (async () => {
+      if (!(await isStorageMigrationPending())) {
+        migrationDone.current = true;
+        return;
+      }
+      if (cancelled || !webViewRef.current) return;
+      migrationDone.current = true;
+      Logger.debug('QRLWebView', 'Clearing web caches inherited from the hosted wallet');
+      try {
+        webViewRef.current.clearCache?.(true);
+      } catch (clearError) {
+        Logger.warn('QRLWebView', 'Could not clear the WebView cache:', clearError);
+      }
+      webViewRef.current.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
+      await markStorageMigrationDone();
+    })().catch((migrationError: unknown) => {
+      Logger.warn('QRLWebView', 'Inherited storage migration failed:', migrationError);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEmbedded, documentLoadedAt]);
 
   // Helper to check if we can hide loading screen
   const tryHideLoadingScreen = useCallback(() => {
@@ -244,6 +335,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     if (isEmbedded) {
       initialDocumentPending.current = true;
       documentStarted.current = false;
+      // A new document gets a new token, so a message held by an old one
+      // cannot be replayed into the new document's bridge.
+      documentToken.current = createDocumentToken();
+      bridgeBound.current = false;
+      setBridgeUnbound(false);
       setDocumentEpoch((epoch) => epoch + 1);
       return;
     }
@@ -303,6 +399,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const handleLoadEnd = () => {
     setIsLoading(false);
     contentLoaded.current = true;
+    setDocumentLoadedAt(Date.now());
     tryHideLoadingScreen();
     // Notify parent that WebView content is loaded
     if (onLoad) {
@@ -331,6 +428,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   const retryLoading = () => {
     setError(null);
+    setBridgeUnbound(false);
+    setDocumentLoadedAt(null);
     setIsLoading(true);
     reloadDocument();
   };
@@ -354,7 +453,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Handle messages from the WebView
   const handleMessage = async (event: WebViewMessageEvent) => {
-    const { data, url } = event.nativeEvent;
+    const { url } = event.nativeEvent;
+    let data = event.nativeEvent.data;
     if (typeof url !== 'string' || !isUrlAllowed(url)) {
       Logger.warn(
         'QRLWebView',
@@ -366,6 +466,21 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     if (typeof data !== 'string' || data.length > MAX_BRIDGE_MESSAGE_CHARS) {
       Logger.warn('QRLWebView', 'Dropped bridge message outside the size budget');
       return;
+    }
+    if (isEmbedded) {
+      // The origin check above accepts any document on qrlwallet.com. Only
+      // the document this app served knows the token, so anything without it
+      // is not the shipped wallet and gets no bridge authority.
+      const expected = documentToken.current + BRIDGE_TOKEN_SEPARATOR;
+      if (!data.startsWith(expected)) {
+        Logger.warn('QRLWebView', 'Dropped a bridge message that did not present the document token');
+        return;
+      }
+      data = data.slice(expected.length);
+      if (!bridgeBound.current) {
+        bridgeBound.current = true;
+        setBridgeUnbound(false);
+      }
     }
 
     // Handle legacy PAGE_LOADED message
@@ -400,13 +515,34 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     }
   };
 
+  // The only path out of the app. react-native-webview would otherwise hand
+  // anything outside originWhitelist straight to Linking.openURL, including
+  // tel:, intent: and the app's own qrlconnect: pairing scheme, so embedded
+  // mode whitelists every origin to force each request through this policy.
+  const openExternally = useCallback((url: string) => {
+    const decision = externalOpenDecision(url);
+    if (decision.action !== 'open') {
+      Logger.warn('QRLWebView', `Refused to open a link outside the app (${decision.reason})`);
+      return;
+    }
+    Logger.debug('QRLWebView', 'Opening an external link outside the wallet', walletUrlOriginForLog(url));
+    Linking.openURL(decision.url).catch((openError: unknown) => {
+      Logger.warn('QRLWebView', 'Could not open an external link:', openError);
+    });
+  }, []);
+
   // Handle navigation requests
-  const onShouldStartLoadWithRequest = (request: { url: string }): boolean => {
+  const onShouldStartLoadWithRequest = (request: {
+    url: string;
+    navigationType?: string;
+    isTopFrame?: boolean;
+  }): boolean => {
     const { url } = request;
 
     if (isEmbedded) {
-      const decision = classifyEmbeddedNavigation(url, {
+      const decision = classifyEmbeddedNavigation(request, {
         initialDocumentPending: initialDocumentPending.current,
+        platform: Platform.OS,
         baseUrl: EMBEDDED_BASE_URL,
       });
       if (decision.action === 'allow') {
@@ -416,10 +552,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         return true;
       }
       if (decision.action === 'open-external') {
-        Logger.debug('QRLWebView', 'Opening an external link outside the wallet', walletUrlOriginForLog(url));
-        Linking.openURL(url).catch((openError: unknown) => {
-          Logger.warn('QRLWebView', 'Could not open an external link:', openError);
-        });
+        openExternally(url);
         return false;
       }
       Logger.warn(
@@ -446,16 +579,38 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // In embedded mode the WebView is given the document itself, under the
   // production base URL so the wallet keeps the qrlwallet.com origin and the
-  // storage that goes with it.
-  const embeddedSource = isEmbedded && embeddedHtml !== null
-    ? { html: embeddedHtml, baseUrl: EMBEDDED_BASE_URL }
+  // storage that goes with it. There is deliberately no remote fallback in
+  // this branch: a source object holding a URL must not be constructible in
+  // embedded mode at all, so a future rendering mistake cannot put the live
+  // page on screen.
+  const embeddedSource = isEmbedded
+    ? embeddedRawHtml !== null
+      ? {
+          html: withEmbeddedFlag(embeddedRawHtml, documentToken.current),
+          baseUrl: EMBEDDED_BASE_URL,
+        }
+      : null
     : { uri: remoteUri };
 
+  // Embedded mode admits every origin here on purpose. This list is not a
+  // security boundary: react-native-webview opens whatever falls outside it
+  // with Linking.openURL before the component sees the request, so widening
+  // it is what makes classifyEmbeddedNavigation the only gate.
   const originWhitelist = isEmbedded
-    ? ['https://qrlwallet.com', 'about:*']
+    ? ['*']
     : mode === 'dev'
       ? ['http://*', 'https://*']
       : ['https://qrlwallet.com'];
+
+  // Runs at document end. Re-binds the bridge if the WebView installed
+  // window.ReactNativeWebView after the document head script ran. Carries no
+  // token: injected scripts run in every document the WebView loads.
+  const afterContentScript = [
+    isEmbedded ? EMBEDDED_REBIND_SCRIPT : null,
+    Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : null,
+  ]
+    .filter((script): script is string => script !== null)
+    .join('\n') || undefined;
 
   const beforeContentScript = [
     isEmbedded ? EMBEDDED_FLAG_SCRIPT : null,
@@ -466,7 +621,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Nothing to render yet in embedded mode: the document is still being read
   // from the bundle. The loading screen below stays up.
-  const documentReady = !isEmbedded || embeddedHtml !== null;
+  const documentReady = embeddedSource !== null;
 
   return (
     <View style={[styles.outerContainer, { backgroundColor: '#080C16' }]}>
@@ -476,16 +631,19 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         paddingTop: insets.top || 40,
         paddingBottom: insets.bottom
       }]}>
-        {error ? (
+        {error || bridgeUnbound ? (
           <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>Error: {error}</Text>
+            <Text style={styles.errorText}>
+              {error ??
+                'The bundled wallet could not connect to this app. Reload to try again.'}
+            </Text>
             <TouchableOpacity style={styles.retryButton} onPress={retryLoading}>
               <Text style={styles.retryButtonText}>Retry</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <>
-            {documentReady ? (
+            {embeddedSource ? (
             <WebView
               ref={webViewRef}
               // Remounted on a new epoch so the shipped document is handed to
@@ -503,9 +661,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               // carries; both are needed because Android can deliver this one
               // after the document's own scripts have run.
               injectedJavaScriptBeforeContentLoaded={beforeContentScript}
-              injectedJavaScript={
-                Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : undefined
-              }
+              injectedJavaScript={afterContentScript}
               style={styles.webView}
               originWhitelist={originWhitelist}
               userAgent={customUserAgent}

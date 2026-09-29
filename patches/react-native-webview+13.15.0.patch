@@ -1,0 +1,37 @@
+diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+index 251939e..114c258 100644
+--- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
++++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+@@ -114,17 +114,29 @@ public class RNCWebViewClient extends WebViewClient {
+                     final long startTime = SystemClock.elapsedRealtime();
+                     while (lockObject.get() == RNCWebViewModuleImpl.ShouldOverrideUrlLoadingLock.ShouldOverrideCallbackState.UNDECIDED) {
+                         if (SystemClock.elapsedRealtime() - startTime > SHOULD_OVERRIDE_URL_LOADING_TIMEOUT) {
+-                            FLog.w(TAG, "Did not receive response to shouldOverrideUrlLoading in time, defaulting to allow loading.");
++                            // MyQRLWallet patch: the upstream default here is
++                            // `return false`, which lets the navigation
++                            // proceed when the JS policy did not answer in
++                            // time. The embedded wallet runs from a string
++                            // under the qrlwallet.com base URL, so an allowed
++                            // navigation can replace the shipped document with
++                            // whatever the server returns. A missing answer
++                            // must therefore block, not allow.
++                            FLog.w(TAG, "Did not receive response to shouldOverrideUrlLoading in time, blocking the load.");
+                             RNCWebViewModuleImpl.shouldOverrideUrlLoadingLock.removeLock(lockIdentifier);
+-                            return false;
++                            return true;
+                         }
+                         lockObject.wait(SHOULD_OVERRIDE_URL_LOADING_TIMEOUT);
+                     }
+                 }
+             } catch (InterruptedException e) {
++                // MyQRLWallet patch: block instead of allowing. See the
++                // timeout branch above for why an unanswered policy check
++                // must not let a navigation through.
+                 FLog.e(TAG, "shouldOverrideUrlLoading was interrupted while waiting for result.", e);
+                 RNCWebViewModuleImpl.shouldOverrideUrlLoadingLock.removeLock(lockIdentifier);
+-                return false;
++                Thread.currentThread().interrupt();
++                return true;
+             }
+ 
+             final boolean shouldOverride = lockObject.get() == RNCWebViewModuleImpl.ShouldOverrideUrlLoadingLock.ShouldOverrideCallbackState.SHOULD_OVERRIDE;

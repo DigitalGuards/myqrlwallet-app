@@ -1,5 +1,6 @@
 import { Asset } from 'expo-asset';
 import { File } from 'expo-file-system';
+import * as Crypto from 'expo-crypto';
 
 import buildInfo from '../assets/web/BUILD_INFO.json';
 
@@ -30,28 +31,98 @@ export const EMBEDDED_WALLET_BUILD_INFO: EmbeddedWalletBuildInfo =
   buildInfo as EmbeddedWalletBuildInfo;
 
 /**
- * The wallet router reads this flag once, while its module graph evaluates,
- * and picks hash routing when it is true. A path push would otherwise make a
- * reload fetch that path from the live server.
+ * Set on the document as a fallback for the bootstrap script below.
  *
- * It is set twice on purpose. `injectedJavaScriptBeforeContentLoaded` is the
- * documented hook, but on Android it is delivered from onPageStarted and can
- * lose the race against the document's own script. Writing the flag into the
- * document head before handing the string to the WebView removes the race:
- * the app owns these bytes, and the embedded CSP allows inline script.
+ * The wallet router reads `window.__QRL_EMBEDDED__` once, while its module
+ * graph evaluates, and picks hash routing when it is true. A path push would
+ * otherwise make a reload fetch that path from the live server.
+ *
+ * It carries no token. Injected scripts run in every document the WebView
+ * loads, so anything put here would also run in a document that is not ours.
  */
 export const EMBEDDED_FLAG_SCRIPT = 'window.__QRL_EMBEDDED__ = true; true;';
 
-const BOOTSTRAP_TAG = '<script>window.__QRL_EMBEDDED__ = true;</script>';
+/**
+ * Runs at document end, inside the document, and re-binds the bridge if the
+ * WebView installed `window.ReactNativeWebView` after the head script ran.
+ *
+ * It names a function the bootstrap stored; a document that is not the shipped
+ * one has no such function and this does nothing there. It contains no token,
+ * which is why it is safe to hand to every document.
+ */
+export const EMBEDDED_REBIND_SCRIPT =
+  '(function(){try{if(typeof window.__qrlBindBridge==="function")window.__qrlBindBridge();}catch(e){}})();true;';
 
-/** Insert the embedded flag as the first script in the document head. */
-export function withEmbeddedFlag(html: string): string {
+/** Separator between the document token and the message the wallet sent. */
+export const BRIDGE_TOKEN_SEPARATOR = '\u0000';
+
+/** A fresh 256-bit document token, hex encoded. */
+export function createDocumentToken(): string {
+  const bytes = Crypto.getRandomBytes(32);
+  let hex = '';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex;
+}
+
+/**
+ * The script written into the document head.
+ *
+ * Two jobs:
+ *   1. set `window.__QRL_EMBEDDED__` before any of the wallet's own scripts
+ *      run. `injectedJavaScriptBeforeContentLoaded` is the documented hook for
+ *      this, but Android delivers it from onPageStarted and can lose the race,
+ *      and the app owns these bytes, so the flag is written here as well.
+ *   2. prove to native that a bridge message came from this document.
+ *
+ * The second one is why the token lives here and nowhere else. The origin
+ * check that guards the bridge accepts any document on https://qrlwallet.com,
+ * so it cannot tell the shipped wallet from another document that somehow
+ * reached that origin. The bootstrap wraps `ReactNativeWebView.postMessage`
+ * so every message this document sends carries a per-load secret that only
+ * native and this document know, and native drops anything that does not
+ * carry it. A replacement document has no wrapper and cannot produce one.
+ *
+ * `__qrlBindBridge` is kept on the window so the document-end injected script
+ * can re-run the wrap if `ReactNativeWebView` only appeared after this ran.
+ * It closes over the token rather than exposing it.
+ */
+export function embeddedBootstrapScript(token: string): string {
+  if (!/^[0-9a-f]{64}$/.test(token)) {
+    throw new Error('Embedded document token must be 64 hex characters');
+  }
+  return (
+    '<script>(function(){' +
+    'window.__QRL_EMBEDDED__ = true;' +
+    `var t=${JSON.stringify(token + BRIDGE_TOKEN_SEPARATOR)};` +
+    'function wrap(b){' +
+    'if(!b||b.__qrlBound)return b;' +
+    'var p=b.postMessage;' +
+    'if(typeof p!=="function")return b;' +
+    'b.postMessage=function(m){return p.call(b,t+String(m));};' +
+    'try{Object.defineProperty(b,"__qrlBound",{value:true});}catch(e){b.__qrlBound=true;}' +
+    'return b;};' +
+    'window.__qrlBindBridge=function(){try{wrap(window.ReactNativeWebView);}catch(e){}};' +
+    'window.__qrlBindBridge();' +
+    // The bridge object may not exist yet on Android. Wrap whatever is
+    // assigned to it later, and keep the property writable so the WebView's
+    // own assignment still works.
+    'if(!window.ReactNativeWebView){var s;try{Object.defineProperty(window,"ReactNativeWebView",{' +
+    'configurable:true,' +
+    'get:function(){return s;},' +
+    'set:function(v){s=wrap(v);}' +
+    '});}catch(e){}}' +
+    '})();</script>'
+  );
+}
+
+/** Insert the bootstrap as the first script in the document head. */
+export function withEmbeddedFlag(html: string, token: string): string {
   const headIndex = html.indexOf('<head>');
   if (headIndex === -1) {
     throw new Error('Embedded wallet document has no <head>');
   }
   const cut = headIndex + '<head>'.length;
-  return html.slice(0, cut) + BOOTSTRAP_TAG + html.slice(cut);
+  return html.slice(0, cut) + embeddedBootstrapScript(token) + html.slice(cut);
 }
 
 let cachedHtml: string | null = null;
@@ -69,13 +140,14 @@ async function readEmbeddedDocument(): Promise<string> {
   if (!localUri) {
     throw new Error('Embedded wallet asset has no local URI');
   }
-  return withEmbeddedFlag(await new File(localUri).text());
+  return await new File(localUri).text();
 }
 
 /**
- * Read the embedded document. The result is cached for the process: it is a
- * few megabytes of immutable text, and a crash recovery re-load must not pay
- * for a second read from disk.
+ * Read the embedded document, without the bootstrap. The result is cached for
+ * the process: it is a few megabytes of immutable text, and a crash recovery
+ * re-load must not pay for a second read from disk. The bootstrap is applied
+ * per load, because its token is per load.
  */
 export function loadEmbeddedWalletHtml(): Promise<string> {
   if (cachedHtml !== null) return Promise.resolve(cachedHtml);

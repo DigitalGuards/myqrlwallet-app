@@ -29,17 +29,17 @@ describe('native Testnet v3 compatibility contract', () => {
     expect(source).toContain('injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}');
     expect(source).toContain('NativeBridge.resetWebAppReady()');
     expect(source).toContain('isAllowedWalletDocumentUrl');
-    // Android only sees the capabilities through these injected scripts.
-    expect(source).toContain(
-      "Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : undefined",
-    );
+    // Android only sees the capabilities through these injected scripts. Both
+    // hooks compose them with the embedded-mode scripts, so the assertion is
+    // on the composed lists rather than on a bare ternary.
     expect(source).toMatch(/injectedJavaScriptBeforeContentLoaded=\{beforeContentScript\}/);
-    // beforeContentScript is the embedded flag plus, on Android, the same
-    // capability script the after-load hook injects.
-    expect(source).toMatch(
-      /const beforeContentScript = \[[\s\S]*Platform\.OS === 'android' \? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : null,/,
-    );
-    expect(source).toMatch(/injectedJavaScript=\{\s*Platform\.OS === 'android'/);
+    expect(source).toMatch(/injectedJavaScript=\{afterContentScript\}/);
+    for (const name of ['beforeContentScript', 'afterContentScript']) {
+      const list = new RegExp(
+        `const ${name} = \\[[\\s\\S]*?Platform\\.OS === 'android' \\? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : null,`,
+      );
+      expect(source).toMatch(list);
+    }
   });
 
   it('defines injectedObjectJson on the document and keeps the installed bridge', () => {

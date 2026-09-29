@@ -1,22 +1,40 @@
 import {
   EMBEDDED_BASE_URL,
   classifyEmbeddedNavigation,
+  type EmbeddedNavigationRequest,
 } from '../EmbeddedNavigationPolicy';
 
-const pending = { initialDocumentPending: true };
-const consumed = { initialDocumentPending: false };
+const iosPending = { initialDocumentPending: true, platform: 'ios' };
+const iosConsumed = { initialDocumentPending: false, platform: 'ios' };
+const androidPending = { initialDocumentPending: true, platform: 'android' };
+const androidConsumed = { initialDocumentPending: false, platform: 'android' };
+
+const req = (url: string, extra: Partial<EmbeddedNavigationRequest> = {}) => ({ url, ...extra });
 
 describe('embedded wallet navigation policy', () => {
-  it('admits the injected document exactly once per load', () => {
-    expect(classifyEmbeddedNavigation(EMBEDDED_BASE_URL, pending)).toEqual({
+  it('admits the injected document exactly once on iOS', () => {
+    expect(classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL), iosPending)).toEqual({
       action: 'allow',
       reason: 'initial-document',
     });
-    expect(classifyEmbeddedNavigation('https://qrlwallet.com', pending)).toEqual({
+    expect(classifyEmbeddedNavigation(req('https://qrlwallet.com'), iosPending)).toEqual({
       action: 'allow',
       reason: 'initial-document',
     });
-    expect(classifyEmbeddedNavigation(EMBEDDED_BASE_URL, consumed)).toEqual({
+    expect(classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL), iosConsumed)).toEqual({
+      action: 'block',
+      reason: 'repeat-document',
+    });
+  });
+
+  it('never admits a base URL request on Android', () => {
+    // loadDataWithBaseURL does not consult the guard there, so any base-URL
+    // request that arrives is a navigation the page asked for.
+    expect(classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL), androidPending)).toEqual({
+      action: 'block',
+      reason: 'repeat-document',
+    });
+    expect(classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL), androidConsumed)).toEqual({
       action: 'block',
       reason: 'repeat-document',
     });
@@ -26,12 +44,60 @@ describe('embedded wallet navigation policy', () => {
     for (const url of [
       'https://qrlwallet.com/#/',
       'https://qrlwallet.com/#/transfer',
-      'https://qrlwallet.com#/settings',
       'https://qrlwallet.com/#/nft/0x0000000000000000000000000000000000000001/7',
     ]) {
-      expect(classifyEmbeddedNavigation(url, consumed)).toEqual({
-        action: 'allow',
-        reason: 'fragment',
+      for (const state of [iosConsumed, androidConsumed]) {
+        expect(classifyEmbeddedNavigation(req(url), state)).toEqual({
+          action: 'allow',
+          reason: 'fragment',
+        });
+      }
+    }
+  });
+
+  it('refuses a URL that only looks like a fragment of the document', () => {
+    // Each of these parses with a hash and an empty-looking query but is a
+    // real network navigation that would fetch the live page.
+    for (const url of [
+      'https://qrlwallet.com/?#/transfer',
+      'https://qrlwallet.com?#/transfer',
+      'https://qrlwallet.com#/transfer',
+      'https://qrlwallet.com/index.html#/transfer',
+      'https://qrlwallet.com:443/#/transfer',
+      'https://QRLWALLET.com/#/transfer',
+      'https://qrlwallet.com./#/transfer',
+    ]) {
+      expect(classifyEmbeddedNavigation(req(url), iosConsumed).action).toBe('block');
+    }
+  });
+
+  it('refuses a reload, a history traversal and a form submission', () => {
+    // WebKit reloads a loadHTMLString page by fetching the base URL, so a
+    // location.reload() from inside the wallet would pull the live page in.
+    for (const navigationType of ['reload', 'backforward', 'formsubmit', 'formresubmit']) {
+      for (const url of [EMBEDDED_BASE_URL, 'https://qrlwallet.com/#/transfer']) {
+        expect(classifyEmbeddedNavigation(req(url, { navigationType }), iosPending)).toEqual({
+          action: 'block',
+          reason: 'navigation-type',
+        });
+      }
+    }
+  });
+
+  it('admits the injected document only as a top-frame click-free load', () => {
+    expect(
+      classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL, { navigationType: 'other' }), iosPending),
+    ).toEqual({ action: 'allow', reason: 'initial-document' });
+    expect(
+      classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL, { navigationType: 'click' }), iosPending),
+    ).toEqual({ action: 'block', reason: 'navigation-type' });
+  });
+
+  it('refuses any navigation that reports itself as a subframe', () => {
+    for (const url of [EMBEDDED_BASE_URL, 'https://qrlwallet.com/#/transfer', 'https://zondscan.com/']) {
+      expect(classifyEmbeddedNavigation(req(url, { isTopFrame: false }), iosPending)).toEqual({
+        action: 'block',
+        reason: 'subframe',
       });
     }
   });
@@ -42,10 +108,10 @@ describe('embedded wallet navigation policy', () => {
       'https://qrlwallet.com/index.html',
       'https://qrlwallet.com/?redirect=1',
       'https://qrlwallet.com/connect?q=payload',
+      'https://qrlwallet.com./',
     ]) {
-      const decision = classifyEmbeddedNavigation(url, consumed);
+      const decision = classifyEmbeddedNavigation(req(url), iosConsumed);
       expect(decision.action).toBe('block');
-      expect(decision).not.toEqual(expect.objectContaining({ action: 'open-external' }));
     }
   });
 
@@ -56,7 +122,7 @@ describe('embedded wallet navigation policy', () => {
       'http://example.invalid/page',
       'https://qrlwallet.com.attacker.invalid/',
     ]) {
-      expect(classifyEmbeddedNavigation(url, consumed)).toEqual({ action: 'open-external' });
+      expect(classifyEmbeddedNavigation(req(url), iosConsumed)).toEqual({ action: 'open-external' });
     }
   });
 
@@ -71,17 +137,13 @@ describe('embedded wallet navigation policy', () => {
       'not a url',
       '',
     ]) {
-      expect(classifyEmbeddedNavigation(url, pending).action).toBe('block');
+      expect(classifyEmbeddedNavigation(req(url), iosPending).action).toBe('block');
     }
   });
 
   it('refuses an http downgrade or an alternate port on the wallet host', () => {
-    for (const url of [
-      'http://qrlwallet.com/',
-      'https://qrlwallet.com:8443/',
-      'http://qrlwallet.com/#/transfer',
-    ]) {
-      expect(classifyEmbeddedNavigation(url, pending)).toEqual({
+    for (const url of ['http://qrlwallet.com/', 'https://qrlwallet.com:8443/']) {
+      expect(classifyEmbeddedNavigation(req(url), iosPending)).toEqual({
         action: 'block',
         reason: 'same-origin-path',
       });
@@ -89,11 +151,11 @@ describe('embedded wallet navigation policy', () => {
   });
 
   it('allows the WebView own empty documents', () => {
-    expect(classifyEmbeddedNavigation('about:blank', consumed)).toEqual({
+    expect(classifyEmbeddedNavigation(req('about:blank'), iosConsumed)).toEqual({
       action: 'allow',
       reason: 'webview-internal',
     });
-    expect(classifyEmbeddedNavigation('about:srcdoc', consumed)).toEqual({
+    expect(classifyEmbeddedNavigation(req('about:srcdoc'), iosConsumed)).toEqual({
       action: 'allow',
       reason: 'webview-internal',
     });
@@ -101,6 +163,6 @@ describe('embedded wallet navigation policy', () => {
 
   it('rejects an oversized URL without parsing it', () => {
     const huge = `https://qrlwallet.com/#/${'a'.repeat(9000)}`;
-    expect(classifyEmbeddedNavigation(huge, consumed).action).toBe('block');
+    expect(classifyEmbeddedNavigation(req(huge), iosConsumed).action).toBe('block');
   });
 });

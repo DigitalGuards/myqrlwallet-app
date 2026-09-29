@@ -138,6 +138,30 @@ const info = {
 require('node:fs').writeFileSync(outPath, JSON.stringify(info, null, 2) + '\n');
 NODE
 
+# PIN.json is the reviewed artifact. A reviewer checks these five lines rather
+# than a three megabyte blob, and the build and CI re-verify the document
+# against them.
+node - "$OUT_DIR/PIN.json" "$FRONTEND_COMMIT" "$SHA256" "$BYTES" "$WALLET_PROFILE" <<'NODE'
+const [, , outPath, commit, sha256, bytes, walletProfile] = process.argv;
+const fs = require('node:fs');
+let existing = {};
+try {
+  existing = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+} catch {
+  existing = {};
+}
+const pin = {
+  comment:
+    'Reviewed pin for the wallet document shipped in assets/web/index.html. A build verifies the file against this before it is packaged, so changing the wallet requires changing this file in a reviewed commit.',
+  frontendCommit: commit,
+  frontendRef: existing.frontendRef ?? '',
+  walletProfile,
+  sha256,
+  bytes: Number(bytes),
+};
+fs.writeFileSync(outPath, JSON.stringify(pin, null, 2) + '\n');
+NODE
+
 echo "sync-embedded-web: wrote $OUT_HTML"
 echo "sync-embedded-web:   frontend  $FRONTEND_COMMIT"
 echo "sync-embedded-web:   sha256    $SHA256"

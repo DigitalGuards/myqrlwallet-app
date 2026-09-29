@@ -88,15 +88,86 @@ integrity of the document comes from it being inside the signed app binary.
 A unit test pins the bash markers in the sync script to the TypeScript ones so
 the two cannot drift.
 
+## Binding the bridge to the shipped document
+
+The origin check that guards bridge authority accepts any document on
+https://qrlwallet.com, so it cannot tell the shipped wallet from another
+document that reached that origin. In embedded mode the app therefore mints a
+256-bit token per load, writes it into the document head, and the bootstrap
+there wraps `ReactNativeWebView.postMessage` so every message this document
+sends carries it. Native strips and checks the token before anything else and
+drops a message that does not present it. A replacement document has no
+wrapper and cannot produce one.
+
+The token lives only in the HTML string. Injected scripts run in every
+document the WebView loads, so putting it there would hand it to exactly the
+documents it is meant to exclude. The document-end injected script names
+`window.__qrlBindBridge`, a function the bootstrap left on the window, which
+closes over the token: it re-binds the bridge if `ReactNativeWebView` only
+appeared after the head script ran, and does nothing in a document that has no
+such function.
+
+A new document gets a new token, so a message held by an old one cannot be
+replayed. If no message carries the token within 20 seconds of load, the app
+says so rather than leaving a wallet on screen whose native features silently
+do nothing.
+
+## Storage inherited from the hosted wallet
+
+An upgrading install keeps the qrlwallet.com origin, which is the point: the
+accounts survive. It also keeps everything the served page ever wrote,
+including service workers, which outlive the page that registered them and can
+answer fetches. On the first embedded launch the app unregisters every service
+worker, empties the Cache Storage API, drops the WebView HTTP cache and clears
+dApp pairing sessions, which are short-lived by design. Encrypted seeds, PIN
+material and the address book are left untouched: this pass is not allowed to
+be the reason someone loses an account. A marker in SecureStore keeps it to
+once per install.
+
+Three parts are deliberately not done yet, because each needs the web wallet
+to answer a question it has no message for: verifying the seeds the page holds
+against the address and ciphertext hash native recorded at SEED_STORED time,
+clearing qrlwallet.com cookies (react-native-webview exposes no API without
+another native dependency), and flagging the address book for review.
+
+## Supply chain
+
+`assets/web/PIN.json` is the reviewed digest of the document: five lines a
+reviewer actually reads, instead of a three megabyte blob nobody does.
+
+- `scripts/verify-embedded-web.js` checks the committed document against it,
+  and refuses a build recorded from a dirty frontend checkout or a profile
+  other than v3. It runs as `npm run verify:embedded-web`, as the
+  `eas-build-post-install` hook so a cloud build fails before it is signed,
+  and in CI on every push.
+- `scripts/reproduce-embedded-web.sh` goes further: it clones the frontend at
+  the pinned commit, rebuilds and compares digests, so the pin is tied to
+  public source rather than to a blob someone committed. CI runs it in its own
+  job.
+- `eas.json` sets `requireCommit`, so a cloud build cannot be made from an
+  uncommitted tree.
+
+The pin currently names a commit on the frontend pull-request branch, which a
+squash merge will make unreachable. `ALLOW_UNREACHABLE_PIN` in the CI job
+exists only for that window: once the frontend merges, re-sync from a tagged
+commit on its default branch and drop the flag.
+
 ## Web source modes
 
 `EXPO_PUBLIC_WEB_SOURCE` selects where the wallet comes from:
 
 - `embedded` (the default in a release build): the bundled document.
 - `remote`: `https://qrlwallet.com` live, the previous behaviour, kept as a
-  fallback for a release that has to ship without a usable document.
+  fallback for a release that has to ship without a usable document. A release
+  build also requires `EXPO_PUBLIC_ALLOW_REMOTE_WALLET` to be set to
+  `the-server-can-replace-wallet-code`, so choosing it is a decision visible in
+  a diff.
 - `dev`: the local frontend dev server at `EXPO_PUBLIC_DEV_URL`. This is the
-  default when `__DEV__` is true.
+  default when `__DEV__` is true, and a release build refuses it: an
+  `EXPO_PUBLIC_` value is baked in at build time, so a stray one would
+  otherwise ship a wallet pointed at someone's laptop.
+
+Every EAS profile that ships a binary pins `EXPO_PUBLIC_WEB_SOURCE=embedded`.
 
 Settings shows which one is in use, and in embedded mode the frontend commit
 the document was built from.
