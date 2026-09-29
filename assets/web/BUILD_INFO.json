@@ -1,8 +1,8 @@
 {
-  "frontendCommit": "41f0ecfe1cb5a3ed6f548819a3c7298bfda576db",
-  "frontendCommitShort": "41f0ecfe1cb5",
+  "frontendCommit": "8b6b6fff8281b769570783bb0d61f424b8dc220b",
+  "frontendCommitShort": "8b6b6fff8281",
   "frontendDirty": false,
-  "builtAt": "2026-09-29T07:55:40.058Z",
-  "sha256": "016ddfedfd54e16e5c191b28bbd3387a9f1a71842342718bbc0e1b4878a0c3e9",
-  "bytes": 3252131
+  "builtAt": "2026-09-29T10:05:24.748Z",
+  "sha256": "fa4545cbb9dbada470d87d1c5e5e84a78e219eaaddcd86b487d6c71954ab1eac",
+  "bytes": 3253563
 }

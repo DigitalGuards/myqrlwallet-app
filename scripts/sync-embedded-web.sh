@@ -67,10 +67,19 @@ echo "sync-embedded-web: building the embedded document from $FRONTEND_COMMIT"
 BUILT_HTML="$FRONTEND_DIR/dist-embedded/index.html"
 [ -f "$BUILT_HTML" ] || fail "build:embedded produced no dist-embedded/index.html"
 
-# The build directory must hold exactly one file. Anything beside the document
-# is something the build failed to inline and would be fetched at runtime.
-LEFTOVERS="$(find "$FRONTEND_DIR/dist-embedded" -mindepth 1 ! -path "$BUILT_HTML" -print)"
+# The build directory must hold the document and nothing else except the
+# checksum the frontend writes beside it. Anything more is something the build
+# failed to inline and would be fetched from the network at runtime.
+BUILT_SHA="$BUILT_HTML.sha256"
+LEFTOVERS="$(find "$FRONTEND_DIR/dist-embedded" -mindepth 1 ! -path "$BUILT_HTML" ! -path "$BUILT_SHA" -print)"
 [ -z "$LEFTOVERS" ] || fail "dist-embedded holds files beside index.html:"$'\n'"$LEFTOVERS"
+
+# When the frontend published a checksum, the document has to match it before
+# anything is copied into the app bundle.
+if [ -f "$BUILT_SHA" ]; then
+  (cd "$FRONTEND_DIR/dist-embedded" && sha256sum -c --quiet index.html.sha256) ||
+    fail "dist-embedded/index.html does not match index.html.sha256"
+fi
 
 # Content checks. Each of these is a live request to the server at runtime.
 reject_pattern() {
