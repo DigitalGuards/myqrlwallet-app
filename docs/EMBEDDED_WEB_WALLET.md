@@ -99,6 +99,13 @@ sends carries it. Native strips and checks the token before anything else and
 drops a message that does not present it. A replacement document has no
 wrapper and cannot produce one.
 
+The bootstrap is inserted after the document's Content-Security-Policy meta,
+not at the top of the head: a meta policy only governs what follows it, so
+inserting above it would leave the one script the app adds outside the policy
+the document declares. The script is inline with no nonce, which is why the
+embedded policy keeps `'unsafe-inline'`: a per-load token cannot be hashed at
+build time.
+
 The token lives only in the HTML string. Injected scripts run in every
 document the WebView loads, so putting it there would hand it to exactly the
 documents it is meant to exclude. The document-end injected script names

@@ -115,13 +115,35 @@ export function embeddedBootstrapScript(token: string): string {
   );
 }
 
-/** Insert the bootstrap as the first script in the document head. */
+/**
+ * Insert the bootstrap as the first script in the document head.
+ *
+ * It goes after the Content-Security-Policy meta rather than at the very top
+ * of the head. A meta policy only governs what follows it, so inserting above
+ * it would leave the one script the app adds outside the policy the document
+ * declares, and would move the policy later than the frontend deliberately
+ * put it. The script is inline with no nonce and the embedded policy allows
+ * 'unsafe-inline', which is why the policy keeps that keyword: a per-load
+ * token cannot be hashed at build time.
+ */
 export function withEmbeddedFlag(html: string, token: string): string {
   const headIndex = html.indexOf('<head>');
   if (headIndex === -1) {
     throw new Error('Embedded wallet document has no <head>');
   }
-  const cut = headIndex + '<head>'.length;
+  const headStart = headIndex + '<head>'.length;
+
+  let cut = headStart;
+  const cspIndex = html.indexOf('Content-Security-Policy', headStart);
+  if (cspIndex !== -1) {
+    const metaStart = html.lastIndexOf('<meta', cspIndex);
+    const metaEnd = html.indexOf('>', cspIndex);
+    if (metaStart === -1 || metaStart < headStart || metaEnd === -1) {
+      throw new Error('Embedded wallet document has a malformed Content-Security-Policy meta');
+    }
+    cut = metaEnd + 1;
+  }
+
   return html.slice(0, cut) + embeddedBootstrapScript(token) + html.slice(cut);
 }
 

@@ -8,6 +8,7 @@ import SeedStorageService from './SeedStorageService';
 import DAppConnectionStore from './DAppConnectionStore';
 import WebViewService from './WebViewService';
 import Logger from './Logger';
+import { isWalletOwnHost } from './ExternalLinkPolicy';
 import { isQrlAddress } from './QrlAddress';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
@@ -1571,7 +1572,14 @@ class NativeBridge {
    * Handle open URL request - opens in device's default browser
    */
   private async handleOpenUrl(url: string) {
-    const safeUrl = parseExternalHttpUrl(url);
+    // The embedded wallet intercepts every external link and sends it here,
+    // so this is the second half of the single external-open boundary. The
+    // scheme rules are unchanged (https, plus http on loopback); what is added
+    // is that the app never sends the user to the site it serves the wallet
+    // from, which would show the live page the embedded build exists to stop
+    // depending on.
+    const parsedUrl = parseExternalHttpUrl(url);
+    const safeUrl = parsedUrl !== null && !isWalletOwnHost(parsedUrl) ? parsedUrl : null;
     if (safeUrl === null) {
       Logger.warn('NativeBridge', 'Rejected unsafe external URL');
       this.sendToWeb({

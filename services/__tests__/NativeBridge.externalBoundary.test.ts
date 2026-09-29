@@ -131,6 +131,26 @@ describe('NativeBridge hosted WebView boundaries', () => {
     send.mockRestore();
   });
 
+  it.each([
+    'https://qrlwallet.com/',
+    'https://qrlwallet.com/terms',
+    'https://www.qrlwallet.com/privacy',
+    'https://QRLWallet.com/security',
+    'https://qrlwallet.com./legal',
+  ])('refuses to send the user to the hosted wallet at %s', async (url) => {
+    // The embedded wallet routes every external link through OPEN_URL, so
+    // this is where a link back to the live site would otherwise open a
+    // browser on the page the app stopped depending on.
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+
+    await handleBridge({ type: 'OPEN_URL', payload: { url } });
+
+    expect(mockCanOpenUrl).not.toHaveBeenCalled();
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith({ type: 'ERROR', payload: { message: 'Invalid URL' } });
+    send.mockRestore();
+  });
+
   it('opens a parsed HTTPS URL without credentials', async () => {
     const url = 'https://example.com/wallet/help?network=testnet#setup';
 

@@ -18,10 +18,49 @@ const buildInfo = JSON.parse(
 describe('embedded wallet document', () => {
   const token = 'a'.repeat(64);
 
-  it('puts the bootstrap first inside the head', () => {
+  it('puts the bootstrap first inside a head with no policy', () => {
     const html = withEmbeddedFlag('<!doctype html><html><head><title>x</title></head></html>', token);
     expect(html).toContain('<head><script>');
     expect(html.indexOf('window.__QRL_EMBEDDED__ = true;')).toBeLessThan(html.indexOf('<title>'));
+  });
+
+  it('puts the bootstrap after the policy the document declares', () => {
+    // A meta policy only governs what follows it, so the one script the app
+    // adds has to come after it, and ahead of the wallet's own scripts.
+    const source =
+      '<!doctype html><html><head>\n' +
+      '    <meta http-equiv="Content-Security-Policy" content="script-src \'unsafe-inline\'" />\n' +
+      '    <title>x</title><script>wallet()</script></head></html>';
+    const html = withEmbeddedFlag(source, token);
+    const csp = html.indexOf('Content-Security-Policy');
+    const bootstrap = html.indexOf('window.__QRL_EMBEDDED__ = true;');
+    expect(csp).toBeGreaterThan(-1);
+    expect(bootstrap).toBeGreaterThan(csp);
+    expect(bootstrap).toBeLessThan(html.indexOf('<title>'));
+    expect(bootstrap).toBeLessThan(html.indexOf('wallet()'));
+    // The policy tag itself is untouched.
+    expect(html).toContain('<meta http-equiv="Content-Security-Policy" content="script-src \'unsafe-inline\'" />');
+  });
+
+  it('lands after the policy in the document actually shipped', () => {
+    const shipped = readFileSync(documentPath, 'utf8');
+    const html = withEmbeddedFlag(shipped, token);
+    const csp = html.indexOf('Content-Security-Policy');
+    const bootstrap = html.indexOf('window.__QRL_EMBEDDED__ = true;');
+    expect(bootstrap).toBeGreaterThan(csp);
+    // And the policy still allows an inline script with no nonce, which is
+    // what the per-load token script is.
+    const metaTag = shipped.slice(shipped.lastIndexOf('<meta', csp), shipped.indexOf('>', csp) + 1);
+    const policy = /content="([^"]*)"/.exec(metaTag)?.[1] ?? '';
+    expect(policy).toContain("script-src 'unsafe-inline'");
+    expect(policy).toContain("frame-src 'none'");
+    expect(policy).toContain("child-src 'none'");
+  });
+
+  it('refuses a document whose policy tag it cannot find the end of', () => {
+    expect(() =>
+      withEmbeddedFlag('<html><head><meta http-equiv="Content-Security-Policy" content="x"', token),
+    ).toThrow(/malformed Content-Security-Policy/);
   });
 
   it('refuses a document without a head rather than shipping a broken one', () => {

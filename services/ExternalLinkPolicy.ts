@@ -28,6 +28,19 @@ function normalizeHost(host: string): string {
   return host.toLowerCase().replace(/\.$/, '');
 }
 
+/**
+ * True when the URL names a host this app serves the wallet from. Opening one
+ * outside the app would show the live site, which is the dependency the
+ * embedded build removes.
+ */
+export function isWalletOwnHost(url: string): boolean {
+  try {
+    return WALLET_HOSTS.has(normalizeHost(new URL(url).hostname));
+  } catch {
+    return false;
+  }
+}
+
 export function externalOpenDecision(url: string): ExternalOpenDecision {
   if (typeof url !== 'string' || url.length === 0 || url.length > MAX_EXTERNAL_URL_LENGTH) {
     return { action: 'refuse', reason: 'length' };

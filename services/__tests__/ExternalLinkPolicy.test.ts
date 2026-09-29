@@ -1,4 +1,4 @@
-import { externalOpenDecision } from '../ExternalLinkPolicy';
+import { externalOpenDecision, isWalletOwnHost } from '../ExternalLinkPolicy';
 
 describe('external link policy', () => {
   it('opens ordinary https links and the two inert handoff schemes', () => {
@@ -54,5 +54,18 @@ describe('external link policy', () => {
       action: 'refuse',
       reason: 'length',
     });
+  });
+
+  it('recognises the hosts the app serves the wallet from', () => {
+    for (const url of [
+      'https://qrlwallet.com/',
+      'https://www.qrlwallet.com/x',
+      'https://QRLWallet.com./y',
+    ]) {
+      expect(isWalletOwnHost(url)).toBe(true);
+    }
+    for (const url of ['https://zondscan.com/', 'https://qrlwallet.com.attacker.invalid/', 'junk']) {
+      expect(isWalletOwnHost(url)).toBe(false);
+    }
   });
 });
