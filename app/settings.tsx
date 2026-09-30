@@ -446,17 +446,21 @@ export default function SettingsScreen() {
     );
   };
 
-  const clearCache = async () => {
+  // Named for what it does. It removes two native AsyncStorage keys, the
+  // stored cookie blob and the last-session timestamp. It never touched a
+  // WebView cache, and in embedded mode there is no web cache to clear: the
+  // wallet is served from the app bundle.
+  const clearSessionData = async () => {
     Alert.alert(
-      'Clear Web Cache',
-      'This clears the saved web session data (cookies and cached state). Your wallet, seed, and PIN are not affected. Continue?',
+      'Reset Session Data',
+      'This clears the saved session timestamp and cookie data this app keeps. Your wallet, seed, PIN and address book are not affected. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear',
+          text: 'Reset',
           onPress: async () => {
             await WebViewService.clearSessionData();
-            Alert.alert('Web Cache Cleared', 'Saved web session data has been cleared.');
+            Alert.alert('Session Data Reset', 'The saved session data has been cleared.');
           },
         },
       ]
@@ -641,9 +645,9 @@ export default function SettingsScreen() {
           <Row
             icon="refresh"
             tint={C.gray}
-            title="Clear Web Cache"
-            subtitle="Clears saved web session data. Your wallet is not affected."
-            onPress={clearCache}
+            title="Reset Session Data"
+            subtitle="Clears the session data this app keeps. Your wallet is not affected."
+            onPress={clearSessionData}
           />
         </Section>
 

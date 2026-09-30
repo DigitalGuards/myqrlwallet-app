@@ -222,6 +222,22 @@ replayed. If no message carries the token within 20 seconds of load, the app
 says so rather than leaving a wallet on screen whose native features silently
 do nothing.
 
+## The Android back button
+
+The old handler called `goBack()` for every press and returned true, so BACK
+never left the app and an open modal stayed open. The wallet's hash routes
+also replace their history entry, so on device one BACK from any screen landed
+on the bare base entry.
+
+The page is asked instead. Native sends a bound `NATIVE_BACK`, and the page
+answers `BACK_HANDLED` when it closed a modal or moved back a route, or
+`BACK_AT_ROOT` when it has nothing left. On `BACK_AT_ROOT` the app calls
+`BackHandler.exitApp()`, which on Android 12 and later backgrounds the root
+task so the wallet stays warm and the lock still applies on return. If the
+page does not answer within 400 ms, or the bridge is not bound, the decision
+falls back to what the WebView reports through `onNavigationStateChange`.
+`goBack()` is never called blindly.
+
 ## Storage inherited from the hosted wallet
 
 An upgrading install keeps the qrlwallet.com origin, which is the point: the
@@ -258,6 +274,11 @@ NativeBridge.
 Encrypted seeds, PIN material and the address book are left untouched: this
 pass is not allowed to be the reason someone loses an account.
 
+Copied seed material is marked `sensitive: true` by the page, and native then
+keeps it out of the reply and clears it from the clipboard after a minute if
+it is still there. Android's sensitive-content flag and an iOS expiry date
+need a native module expo-clipboard does not provide.
+
 Three parts are deliberately not done yet, because each needs the web wallet
 to answer a question it has no message for: verifying the seeds the page holds
 against the address and ciphertext hash native recorded at SEED_STORED time,
@@ -281,6 +302,15 @@ reviewer actually reads, instead of a three megabyte blob nobody does.
   job.
 - `eas.json` sets `requireCommit`, so a cloud build cannot be made from an
   uncommitted tree.
+
+The reproduce job fails closed. The pinned frontend commit is public and
+fetchable by SHA, so a pin that cannot be fetched is a finding rather than a
+skip. `ALLOW_UNREACHABLE_PIN` survives only as an explicit `workflow_dispatch`
+input for the window where the pin names a pull-request branch whose commit a
+squash merge has orphaned; nothing sets it on a push or a pull request. CI
+runs with `contents: read` and pins its actions by commit, because the
+reproduce job runs another repository's build and therefore its lifecycle
+scripts.
 
 The pin names either `frontendTag` or a bare `frontendCommit`. A tag is the
 intended end state: it survives a squash merge and it is a name a person can

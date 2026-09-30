@@ -7,7 +7,10 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "embedded-dev"
+      }
     },
     "development-embedded": {
       "developmentClient": true,

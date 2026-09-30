@@ -537,6 +537,19 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     // authorization check runs even when a warm-cache load reports 100%.
     const loadStartEvent = event?.nativeEvent;
     const isTagged = typeof loadStartEvent?.newDocument === 'boolean';
+    // The Android protections all live in the react-native-webview patch: the
+    // request interceptor, the fail-closed navigation check and this tag. A
+    // patch that applied but lost content would leave the wallet running with
+    // none of them and no sign of it, so the missing tag is treated as the
+    // missing patch.
+    if (isEmbedded && Platform.OS === 'android' && !isTagged) {
+      Logger.error('QRLWebView', 'The WebView patch is missing: load events carry no document tag');
+      NativeBridge.resetWebAppReady();
+      setError(
+        'This app build is missing a required WebView protection. Reinstall the app from the store.',
+      );
+      return;
+    }
     if (
       isSameDocumentHistoryUpdate(Platform.OS, loadStartEvent) &&
       (isTagged || documentStarted.current)

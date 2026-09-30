@@ -20,6 +20,8 @@ const REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/;
 const CHANNEL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PIN_PATTERN = /^\d{4,6}$/;
 const MAX_CLIPBOARD_CHARS = 64 * 1024;
+/** How long copied seed material may sit on the clipboard. */
+const SENSITIVE_CLIPBOARD_TTL_MS = 60 * 1000;
 const MAX_SHARE_TEXT_CHARS = 64 * 1024;
 const MAX_SHARE_TITLE_CHARS = 256;
 const MAX_LOG_CHARS = 4096;
@@ -83,11 +85,14 @@ export function parseExternalHttpUrl(value: string): string | null {
   try {
     const parsed = new URL(value);
     const hostname = parsed.hostname.toLowerCase();
+    // Loopback is a development convenience. A release build opening a local
+    // service in the browser is never something the wallet needs.
     const isLoopback =
-      hostname === 'localhost' ||
-      hostname.endsWith('.localhost') ||
-      hostname === '127.0.0.1' ||
-      hostname === '[::1]';
+      __DEV__ &&
+      (hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]');
     if (
       (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) ||
       parsed.username !== '' ||
@@ -281,6 +286,7 @@ type DAppShowWebViewCallback = () => void;
  */
 class NativeBridge {
   private webViewRef: RefObject<WebView | null> | null = null;
+  private sensitiveClipboardTimer: ReturnType<typeof setTimeout> | null = null;
   private qrScanCallback: QRScanCallback | null = null;
   private pendingQrScan: NativeQrScanRequest | null = null;
   private pendingDAppIntent: PendingDAppIntent | null = null;
@@ -874,7 +880,9 @@ class NativeBridge {
           });
           return;
         }
-        await this.handleCopyToClipboard(text);
+        // The page marks seed material so native can keep it off the
+        // clipboard's long-term memory and out of the reply.
+        await this.handleCopyToClipboard(text, payload?.sensitive === true);
         break;
       }
 
@@ -1404,7 +1412,12 @@ class NativeBridge {
         const redirectUrl = typeof payload?.redirectUrl === 'string' ? payload.redirectUrl : '';
         // The redirect URL is attacker controlled. Keep the same credential-free
         // HTTP(S) boundary as OPEN_URL and never log the raw bearer/query data.
-        const safeRedirectUrl = parseExternalHttpUrl(redirectUrl);
+        // The wallet's own hosts are refused here too: a dApp naming them
+        // would send the user to the live site the embedded build exists to
+        // stop depending on.
+        const parsedRedirect = parseExternalHttpUrl(redirectUrl);
+        const safeRedirectUrl =
+          parsedRedirect !== null && !isWalletOwnHost(parsedRedirect) ? parsedRedirect : null;
         if (safeRedirectUrl !== null) {
           Logger.debug('NativeBridge', 'Opening validated dApp return URL');
           try {
@@ -1454,7 +1467,7 @@ class NativeBridge {
   /**
    * Handle copy to clipboard request
    */
-  private async handleCopyToClipboard(text: string) {
+  private async handleCopyToClipboard(text: string, sensitive = false) {
     if (!text) {
       this.sendToWeb({
         type: 'ERROR',
@@ -1465,6 +1478,15 @@ class NativeBridge {
 
     try {
       await Clipboard.setStringAsync(text);
+      if (sensitive) {
+        // Seed material. Keyboard apps with clipboard history, clipboard
+        // managers and the Android clipboard preview all retain whatever is
+        // on it, so it does not stay there, and it is not echoed back into
+        // the page either.
+        this.scheduleSensitiveClipboardClear(text);
+        this.sendToWeb({ type: 'CLIPBOARD_SUCCESS' });
+        return;
+      }
       this.sendToWeb({
         type: 'CLIPBOARD_SUCCESS',
         payload: { text },
@@ -1476,6 +1498,29 @@ class NativeBridge {
         payload: { message: 'Failed to copy to clipboard' },
       });
     }
+  }
+
+  /**
+   * Remove copied seed material from the clipboard after a short window.
+   *
+   * Only if it is still there: overwriting whatever the user copied since
+   * would be worse than leaving it. expo-clipboard exposes neither Android's
+   * sensitive-content flag nor an iOS expiry date, so this is the part that
+   * can be done without a native module.
+   */
+  private scheduleSensitiveClipboardClear(text: string) {
+    if (this.sensitiveClipboardTimer) clearTimeout(this.sensitiveClipboardTimer);
+    this.sensitiveClipboardTimer = setTimeout(() => {
+      this.sensitiveClipboardTimer = null;
+      void (async () => {
+        try {
+          const current = await Clipboard.getStringAsync();
+          if (current === text) await Clipboard.setStringAsync('');
+        } catch (error) {
+          Logger.warn('NativeBridge', 'Could not clear the clipboard:', error);
+        }
+      })();
+    }, SENSITIVE_CLIPBOARD_TTL_MS);
   }
 
   /**

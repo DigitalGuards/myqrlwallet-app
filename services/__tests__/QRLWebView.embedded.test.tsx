@@ -189,7 +189,9 @@ describe('embedded QRLWebView', () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const view = await renderEmbedded();
     expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
-    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    await act(async () =>
+      view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+    );
     expect(view.props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/' })).toBe(false);
     // A hash route inside the document is still fine.
     expect(
@@ -608,14 +610,37 @@ describe('embedded QRLWebView', () => {
     expect(JSON.stringify(screen.toJSON())).toContain('replaced by another page');
   });
 
+  it('refuses to run on Android when the WebView patch is missing', async () => {
+    // The Android protections all live in the patch: the request interceptor,
+    // the fail-closed navigation check and the document tag. A patch that
+    // applied but lost content would leave the wallet running with none of
+    // them, so an untagged load event is treated as the missing patch.
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    const text = JSON.stringify(screen.toJSON());
+    expect(text).toContain('missing a required WebView protection');
+    expect(screen.root.findAllByType('NativeWebView' as never)).toHaveLength(0);
+  });
+
+  it('accepts an untagged load event on iOS, where the patch does not apply', async () => {
+    const view = await renderEmbedded();
+    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
+    expect(JSON.stringify(screen.toJSON())).not.toContain('missing a required WebView protection');
+    expect(screen.root.findAllByType('NativeWebView' as never)).toHaveLength(1);
+  });
+
   it('leaves an Android same-document history update alone', async () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const view = await renderEmbedded();
     const servedToken = documentTokenFrom(view.props.source.html as string);
-    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: true } }));
-    // The wallet's own hash routes report loading:false on a loaded page, and
-    // an unpatched build has no tag to read.
-    await act(async () => view.props.onLoadStart({ nativeEvent: { loading: false } }));
+    await act(async () =>
+      view.props.onLoadStart({ nativeEvent: { newDocument: true, loading: true } }),
+    );
+    // The wallet's own hash routes report a history update.
+    await act(async () =>
+      view.props.onLoadStart({ nativeEvent: { newDocument: false, loading: false } }),
+    );
     const same = screen.root.findByType('NativeWebView' as never);
     expect(documentTokenFrom(same.props.source.html as string)).toBe(servedToken);
     expect(NativeBridge.resetWebAppReady).toHaveBeenCalledTimes(1);

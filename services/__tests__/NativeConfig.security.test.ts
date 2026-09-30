@@ -137,6 +137,29 @@ describe('generated native security configuration', () => {
     }
   });
 
+  it('keeps production identifiers off every development-client profile', () => {
+    // A dev-client build loads whatever bundle a link hands it. Sharing the
+    // production bundle id would let one replace the installed wallet on the
+    // same device and inherit its container and keychain.
+    for (const [name, profile] of Object.entries(easConfig.build)) {
+      if (profile.developmentClient !== true) continue;
+      expect([name, profile.env?.APP_VARIANT]).toEqual([name, 'embedded-dev']);
+    }
+  });
+
+  it('never lets the reproduce gate pass by default when the pin is unreachable', () => {
+    const ci = readFileSync(resolve(projectRoot, '.github/workflows/ci.yml'), 'utf8');
+    expect(ci).toContain('permissions:');
+    expect(ci).toContain('contents: read');
+    // The escape hatch is a manual input only.
+    expect(ci).toMatch(/ALLOW_UNREACHABLE_PIN:\s*\$\{\{ github\.event_name == 'workflow_dispatch'/);
+    expect(ci).not.toMatch(/ALLOW_UNREACHABLE_PIN:\s*'1'/);
+    // Third-party actions are pinned by commit.
+    expect(ci).not.toMatch(/uses: actions\/[a-z-]+@v\d/);
+    expect(ci).toMatch(/uses: actions\/checkout@[0-9a-f]{40}/);
+    expect(ci).toMatch(/uses: actions\/setup-node@[0-9a-f]{40}/);
+  });
+
   it('requires a committed tree for a cloud build', () => {
     expect(easConfig.cli.requireCommit).toBe(true);
   });

@@ -57,10 +57,13 @@ export function externalOpenDecision(url: string): ExternalOpenDecision {
     return { action: 'refuse', reason: 'scheme' };
   }
 
+  // Userinfo is refused whatever the scheme. It is an origin-confusion trick
+  // and never legitimate in a link the wallet hands to the OS.
+  if (parsed.username || parsed.password) {
+    return { action: 'refuse', reason: 'credentials' };
+  }
+
   if (parsed.protocol === 'https:') {
-    if (parsed.username || parsed.password) {
-      return { action: 'refuse', reason: 'credentials' };
-    }
     // A trailing dot resolves to the same host, so it has to be stripped
     // before the comparison or it would slip past as a foreign origin.
     if (WALLET_HOSTS.has(normalizeHost(parsed.hostname))) {
@@ -68,5 +71,10 @@ export function externalOpenDecision(url: string): ExternalOpenDecision {
     }
   }
 
-  return { action: 'open', url };
+  // The normalized form, never the caller's string. WHATWG and Android's Uri
+  // parser disagree about inputs such as `https://evil.example\@wallet/`:
+  // WHATWG reads the host as evil.example, Android reads the authority after
+  // the last '@'. Handing on what this policy actually judged removes the
+  // disagreement.
+  return { action: 'open', url: parsed.href };
 }

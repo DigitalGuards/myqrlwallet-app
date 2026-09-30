@@ -12,6 +12,22 @@ describe('external link policy', () => {
     }
   });
 
+  it('hands on the normalized URL, so the OS reads the host this policy judged', () => {
+    // WHATWG and Android's Uri parser disagree here: WHATWG reads the host as
+    // evil.example, Android reads the authority after the last '@' as the
+    // wallet host. Passing on the parsed form removes the disagreement.
+    expect(externalOpenDecision('https://evil.example\\@qrlwallet.com/')).toEqual({
+      action: 'open',
+      url: 'https://evil.example/@qrlwallet.com/',
+    });
+  });
+
+  it('refuses userinfo whatever the scheme', () => {
+    for (const url of ['https://user:pass@zondscan.com/', 'mailto://user:pass@example.com']) {
+      expect(externalOpenDecision(url).action).toBe('refuse');
+    }
+  });
+
   it('refuses every scheme the app or the OS would act on', () => {
     // react-native-webview would hand all of these to Linking.openURL before
     // the component's own policy runs, including the app's pairing scheme.
