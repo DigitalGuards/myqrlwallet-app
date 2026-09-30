@@ -2,6 +2,7 @@ jest.mock('react-native', () => ({
   Alert: { alert: jest.fn() },
   Share: { share: jest.fn() },
   Platform: { OS: 'ios' },
+  BackHandler: { exitApp: jest.fn() },
   Linking: { canOpenURL: jest.fn(), openURL: jest.fn() },
 }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(), getStringAsync: jest.fn() }));
@@ -42,7 +43,7 @@ jest.mock('../Logger', () => ({
   default: { debug: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-import { Linking, Share } from 'react-native';
+import { BackHandler, Linking, Platform, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import NativeBridge, { BridgeMessage } from '../NativeBridge';
@@ -50,6 +51,11 @@ import DAppConnectionStore from '../DAppConnectionStore';
 import Logger from '../Logger';
 import WebViewService from '../WebViewService';
 
+const mockExitApp = BackHandler.exitApp as jest.MockedFunction<typeof BackHandler.exitApp>;
+/** The mock above is a plain object, so the platform is just a field. */
+const setPlatform = (os: string) => {
+  (Platform as unknown as { OS: string }).OS = os;
+};
 const mockCanOpenUrl = Linking.canOpenURL as jest.MockedFunction<typeof Linking.canOpenURL>;
 const mockOpenUrl = Linking.openURL as jest.MockedFunction<typeof Linking.openURL>;
 const mockShare = Share.share as jest.MockedFunction<typeof Share.share>;
@@ -104,6 +110,7 @@ describe('NativeBridge hosted WebView boundaries', () => {
     jest.clearAllMocks();
     mockCanOpenUrl.mockResolvedValue(true);
     mockOpenUrl.mockResolvedValue(undefined);
+    setPlatform('ios');
   });
 
   it.each([
@@ -197,17 +204,58 @@ describe('NativeBridge hosted WebView boundaries', () => {
     expect(JSON.stringify(mockError.mock.calls)).not.toContain(redirectUrl);
   });
 
-  it('opens a validated HTTPS DAPP_RETURN URL without logging its query', async () => {
-    const redirectUrl = 'https://dapp.example/return?bearer=do-not-log';
+  it('refuses a DAPP_RETURN that names the wallet itself', async () => {
+    setPlatform('android');
 
     await handleBridge({
       type: 'DAPP_RETURN',
-      payload: { redirectUrl },
+      payload: { redirectUrl: 'https://qrlwallet.com/connect' },
     });
 
-    expect(mockOpenUrl).toHaveBeenCalledWith(redirectUrl);
+    expect(mockExitApp).not.toHaveBeenCalled();
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it('backgrounds the wallet for a validated DAPP_RETURN on Android', async () => {
+    // Opening the URL made a new browser tab every time, and that tab loses
+    // the connect SDK's cross-tab lock and goes silently DISCONNECTED, so the
+    // user was left on a page the answer could never reach.
+    setPlatform('android');
+    const redirectUrl = 'https://dapp.example/return?bearer=do-not-log';
+
+    await handleBridge({ type: 'DAPP_RETURN', payload: { redirectUrl } });
+
+    expect(mockExitApp).toHaveBeenCalledTimes(1);
+    expect(mockOpenUrl).not.toHaveBeenCalled();
     expect(JSON.stringify(mockWarn.mock.calls)).not.toContain('do-not-log');
     expect(JSON.stringify(mockError.mock.calls)).not.toContain('do-not-log');
+  });
+
+  it('does nothing for a DAPP_RETURN on iOS', async () => {
+    // Safari opens a new tab with the same defect, and iOS has no public way
+    // to move the app to the back.
+    setPlatform('ios');
+
+    await handleBridge({
+      type: 'DAPP_RETURN',
+      payload: { redirectUrl: 'https://dapp.example/return' },
+    });
+
+    expect(mockExitApp).not.toHaveBeenCalled();
+    expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it('never backgrounds the wallet after a wallet-initiated disconnect', async () => {
+    // The user is standing in the wallet's own session list.
+    setPlatform('android');
+
+    await handleBridge({
+      type: 'DAPP_RETURN',
+      payload: { redirectUrl: 'https://dapp.example/return', reason: 'disconnect' },
+    });
+
+    expect(mockExitApp).not.toHaveBeenCalled();
+    expect(mockOpenUrl).not.toHaveBeenCalled();
   });
 
   it('emits exactly one haptic event for one DAPP_HAPTIC message', async () => {

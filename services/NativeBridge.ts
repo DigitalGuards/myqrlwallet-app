@@ -1,5 +1,5 @@
 import { RefObject } from 'react';
-import { Alert, Share, Platform, Linking } from 'react-native';
+import { Alert, BackHandler, Share, Platform, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
@@ -9,6 +9,7 @@ import DAppConnectionStore from './DAppConnectionStore';
 import WebViewService from './WebViewService';
 import Logger from './Logger';
 import { isWalletOwnHost } from './ExternalLinkPolicy';
+import { resolveDAppReturn } from './DAppReturnPolicy';
 import { isQrlAddress } from './QrlAddress';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
@@ -1405,29 +1406,32 @@ class NativeBridge {
         break;
 
       case 'DAPP_RETURN': {
-        // Peer redirect: after the wallet resolves a restricted request, bounce
-        // the user back to the originating dApp so a same-device deep-link flow
-        // does not strand them in the wallet. The user just tapped Approve, so
-        // this is a user-initiated navigation.
+        // The user came from a browser tab, so the wallet gets out of the way
+        // rather than opening a URL. Opening one made a new tab every time,
+        // and that tab loses the connect SDK's cross-tab lock to the original
+        // and goes silently DISCONNECTED, so the user was left looking at a
+        // dead page after every approval. See services/DAppReturnPolicy.ts.
         const redirectUrl = typeof payload?.redirectUrl === 'string' ? payload.redirectUrl : '';
-        // The redirect URL is attacker controlled. Keep the same credential-free
-        // HTTP(S) boundary as OPEN_URL and never log the raw bearer/query data.
-        // The wallet's own hosts are refused here too: a dApp naming them
-        // would send the user to the live site the embedded build exists to
-        // stop depending on.
+        // Still parsed and normalized, and the wallet's own hosts are still
+        // refused, so a URL this app would not have opened cannot move it
+        // around either.
         const parsedRedirect = parseExternalHttpUrl(redirectUrl);
-        const safeRedirectUrl =
-          parsedRedirect !== null && !isWalletOwnHost(parsedRedirect) ? parsedRedirect : null;
-        if (safeRedirectUrl !== null) {
-          Logger.debug('NativeBridge', 'Opening validated dApp return URL');
-          try {
-            await Linking.openURL(safeRedirectUrl);
-          } catch {
-            Logger.warn('NativeBridge', 'Failed to open validated return URL');
-          }
-        } else {
-          Logger.warn('NativeBridge', 'Ignoring unsafe dApp return URL');
+        const outcome = resolveDAppReturn({
+          platform: Platform.OS,
+          redirectUrl: parsedRedirect,
+          reason: typeof payload?.reason === 'string' ? payload.reason : undefined,
+        });
+
+        if (outcome.action === 'background-app') {
+          Logger.debug('NativeBridge', 'Returning to the dApp by backgrounding the wallet');
+          // Reaches invokeDefaultOnBackPressed, which the withBackgroundOnBack
+          // config plugin makes moveTaskToBack on every API level, so Android
+          // brings the task the user came from back to the front.
+          BackHandler.exitApp();
+          break;
         }
+
+        Logger.debug('NativeBridge', `Not returning to the dApp (${outcome.reason})`);
         break;
       }
 

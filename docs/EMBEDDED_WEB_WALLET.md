@@ -248,6 +248,36 @@ authoritative and revokes authorization immediately, so the link waits behind
 an unlock prompt. That is deliberate and is not worked around: see the note
 at the end of this document.
 
+## Returning the user to a dApp
+
+After an approval the wallet used to open the dApp's URL. There is no way to
+target an existing browser tab from a URL open, so Chrome made a new one every
+time: on an emulator the count reached eight. The new tab hydrates the stored
+session, asks the connect SDK for its cross-tab Web Lock, loses it to the
+original tab and goes DISCONNECTED without emitting anything, while the
+original tab is still holding the pending request promise. The user was left
+looking at the tab where nothing would ever happen.
+
+The user came from a tab, so the wallet gets out of the way instead.
+`services/DAppReturnPolicy.ts` decides:
+
+- **Android**: move the wallet's task to the back, which brings the task the
+  user came from back to the front. That is `BackHandler.exitApp()`, which
+  reaches `invokeDefaultOnBackPressed`, which the config plugin above makes
+  `moveTaskToBack(true)`.
+- **iOS**: do nothing. Opening the URL creates a Safari tab with exactly the
+  same defect, and there is no public way to move the app to the back. The
+  user has the system's own back-to-app breadcrumb, and telling them so
+  belongs in the page, which owns the approval UI.
+- **A wallet-initiated disconnect**: never bounce. The dApp hears about it
+  over the relay, and the user is standing in the wallet's own session list,
+  where making the app vanish would be the wrong answer.
+
+The redirect URL is still parsed, normalized and checked against the wallet's
+own hosts even though nothing opens it. A URL the wallet would have refused to
+open does not get to move the app around either, and the checks stay live if a
+platform ever regains a way to return without a new tab.
+
 ## Storage inherited from the hosted wallet
 
 An upgrading install keeps the qrlwallet.com origin, which is the point: the
