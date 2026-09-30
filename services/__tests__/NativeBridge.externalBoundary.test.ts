@@ -4,7 +4,7 @@ jest.mock('react-native', () => ({
   Platform: { OS: 'ios' },
   Linking: { canOpenURL: jest.fn(), openURL: jest.fn() },
 }));
-jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(), getStringAsync: jest.fn() }));
 jest.mock('expo-crypto', () => ({ getRandomBytes: jest.fn(() => new Uint8Array(16).fill(1)) }));
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(),
@@ -483,5 +483,65 @@ describe('NativeBridge hosted WebView boundaries', () => {
       expect.objectContaining({ payload: expect.objectContaining({ address: QIP55_ADDRESS }) }),
     );
     send.mockRestore();
+  });
+
+  describe('sensitive clipboard payloads', () => {
+    const mockGetStringAsync = Clipboard.getStringAsync as jest.MockedFunction<
+      typeof Clipboard.getStringAsync
+    >;
+    const seed = 'absent squirrel gallery pledge ancient scatter marble ribbon';
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      mockSetStringAsync.mockResolvedValue(undefined as never);
+      mockGetStringAsync.mockResolvedValue(seed);
+    });
+    afterEach(() => {
+      jest.runOnlyPendingTimers();
+      jest.useRealTimers();
+    });
+
+    it('keeps seed material out of the reply and off the clipboard', async () => {
+      // Keyboard apps with clipboard history, clipboard managers and the
+      // Android clipboard preview all retain whatever is on it.
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+
+      await handleBridge({ type: 'COPY_TO_CLIPBOARD', payload: { text: seed, sensitive: true } });
+
+      expect(mockSetStringAsync).toHaveBeenCalledWith(seed);
+      // No echo: the reply carries no payload at all.
+      expect(send).toHaveBeenCalledWith({ type: 'CLIPBOARD_SUCCESS' });
+      expect(JSON.stringify(send.mock.calls)).not.toContain(seed);
+
+      mockSetStringAsync.mockClear();
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(mockSetStringAsync).toHaveBeenCalledWith('');
+      send.mockRestore();
+    });
+
+    it('leaves alone whatever the user copied since', async () => {
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+      await handleBridge({ type: 'COPY_TO_CLIPBOARD', payload: { text: seed, sensitive: true } });
+
+      mockGetStringAsync.mockResolvedValue('something the user copied later');
+      mockSetStringAsync.mockClear();
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(mockSetStringAsync).not.toHaveBeenCalled();
+      send.mockRestore();
+    });
+
+    it('treats an ordinary copy as before', async () => {
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+      await handleBridge({ type: 'COPY_TO_CLIPBOARD', payload: { text: 'Q0123', sensitive: false } });
+
+      expect(send).toHaveBeenCalledWith({
+        type: 'CLIPBOARD_SUCCESS',
+        payload: { text: 'Q0123' },
+      });
+      mockSetStringAsync.mockClear();
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(mockSetStringAsync).not.toHaveBeenCalled();
+      send.mockRestore();
+    });
   });
 });

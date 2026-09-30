@@ -3,6 +3,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
+  BACK_AT_ROOT_MESSAGE_TYPE,
+  BACK_HANDLED_MESSAGE_TYPE,
+  NATIVE_BACK_MESSAGE_TYPE,
+} from '../EmbeddedBackPolicy';
+import {
   BRIDGE_TOKEN_SEPARATOR,
   createDocumentToken,
   embeddedBootstrapScript,
@@ -61,12 +66,27 @@ describe('embedded wallet document', () => {
     expect(policy).toContain("child-src 'none'");
   });
 
-  it('keeps the shipped document reading the migration flag it is handed', () => {
-    // The app sets the flag and waits for an acknowledgement. If the document
-    // stopped reading it, the pass would never run and never be recorded.
+  it('keeps the shipped document holding up its end of every contract', () => {
+    // These are the four things native asks of the page. Each one fails
+    // silently if the document stops doing it: the storage pass would never
+    // run or never be recorded, a back press would always fall through to the
+    // WebView's own history, and seed material would be echoed back and left
+    // on the clipboard. None of that is visible in a green test run unless
+    // the document itself is checked.
     const shipped = readFileSync(documentPath, 'utf8');
+
+    // Storage migration: reads the flag, answers when it has cleared.
     expect(shipped).toContain('__QRL_EMBEDDED_MIGRATION__');
     expect(shipped).toContain('EMBEDDED_MIGRATION_DONE');
+
+    // Android back: answers NATIVE_BACK with one of the two outcomes.
+    expect(shipped).toContain(NATIVE_BACK_MESSAGE_TYPE);
+    expect(shipped).toContain(BACK_HANDLED_MESSAGE_TYPE);
+    expect(shipped).toContain(BACK_AT_ROOT_MESSAGE_TYPE);
+
+    // Clipboard: marks seed material so native can keep it out of the reply
+    // and clear it afterwards.
+    expect(shipped).toMatch(/COPY_TO_CLIPBOARD[^)]{0,120}sensitive/);
   });
 
   it('takes its own tag back out of the DOM', () => {
