@@ -37,6 +37,13 @@ import {
 } from '../services/EmbeddedWalletProfile';
 import { externalOpenDecision } from '../services/ExternalLinkPolicy';
 import {
+  NATIVE_BACK_MESSAGE_TYPE,
+  NATIVE_BACK_TIMEOUT_MS,
+  isBackAnswer,
+  resolveBackPress,
+  type BackAnswer,
+} from '../services/EmbeddedBackPolicy';
+import {
   EMBEDDED_STORAGE_MIGRATION_SCRIPT,
   isMigrationAcknowledgement,
   isStorageMigrationPending,
@@ -82,6 +89,13 @@ interface QRLWebViewProps {
   onQRScanRequest?: (request: NativeQrScanRequest) => void;
   onLoad?: () => void;  // Called when WebView content is loaded
   onDocumentLoadStart?: () => void;
+  /**
+   * Fires with the message whenever the document itself cannot be shown, and
+   * with null when that clears. The screen needs it: a failure raised before
+   * any load start leaves the screen in its "no document yet" state, where
+   * its lock overlay would cover this component's own error and Retry.
+   */
+  onDocumentError?: (message: string | null) => void;
   skipLoadingScreen?: boolean;  // Skip the quantum loading animation
 }
 
@@ -105,6 +119,8 @@ export const BRIDGE_BIND_TIMEOUT_MS = 20000;
 // and says so. A bounded count, because a WebView that somehow reports two
 // document starts per load would otherwise loop.
 export const MAX_FOREIGN_DOCUMENT_RECOVERIES = 3;
+export const BRIDGE_UNBOUND_MESSAGE =
+  'The bundled wallet could not connect to this app. Reload to try again.';
 
 const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   uri,
@@ -113,6 +129,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   onQRScanRequest,
   onLoad,
   onDocumentLoadStart,
+  onDocumentError,
   skipLoadingScreen = false
 }, ref) => {
   const insets = useSafeAreaInsets();
@@ -160,11 +177,28 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const migrationPendingRef = useRef<boolean | null>(null);
   // Flips once, when the first read resolves, so the document can be built.
   const [migrationResolved, setMigrationResolved] = useState(false);
+  // What the document currently on screen was actually told. The live ref can
+  // flip after that document was built, and the native half must agree with
+  // the document it is running against rather than with the newer value.
+  const servedMigrationPending = useRef(false);
+  // The two halves of the pass. The marker is written when both have run, so
+  // an install where only one completed retries on the next launch.
+  const pageAcknowledged = useRef(false);
+  const cachesCleared = useRef(false);
+  // Written once per install. Also what stops a remount from re-reading a
+  // marker whose write may not have landed yet and telling the next document
+  // it owes a pass that has already run.
+  const markerWritten = useRef(false);
   // Cleared once a message has arrived carrying the token, so a bridge that
   // never binds is reported instead of failing silently.
   const [bridgeUnbound, setBridgeUnbound] = useState(false);
   const bridgeBound = useRef(false);
   const [documentLoadedAt, setDocumentLoadedAt] = useState<number | null>(null);
+  // The bind deadline is armed here rather than at the load end. A document
+  // that wedges mid-parse never reports a load end, and the loading screen
+  // releases itself after 8 s, so the user would be left looking at a black
+  // WebView with no message and no Retry.
+  const [documentStartedAt, setDocumentStartedAt] = useState<number | null>(null);
   const foreignDocumentRecoveries = useRef(0);
   // Bumped to force a fresh loadDataWithBaseURL. The navigation guard refuses
   // a second load of the base URL, so recovering a dead content process means
@@ -203,7 +237,13 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   useEffect(() => {
     if (!isEmbedded) return;
     let cancelled = false;
-    isStorageMigrationPending()
+    if (markerWritten.current) {
+      // Already done in this process. Re-reading could see a write that has
+      // not landed and tell the next document it owes a pass that has run.
+      migrationPendingRef.current = false;
+      setMigrationResolved(true);
+    } else {
+      isStorageMigrationPending()
       .then((pending) => {
         if (cancelled) return;
         migrationPendingRef.current = pending;
@@ -215,6 +255,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         migrationPendingRef.current = true;
         setMigrationResolved(true);
       });
+    }
     loadEmbeddedWalletHtml()
       .then((html) => {
         if (cancelled) return;
@@ -249,26 +290,42 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // next checkpoint and survive. The bootstrap therefore carries a migration
   // flag the page reads before its stores start, and the native marker is
   // written only once the page acknowledges over the bridge.
-  const cacheClearDone = useRef(false);
-  useEffect(() => {
-    if (!isEmbedded || documentLoadedAt === null || cacheClearDone.current) return;
-    if (migrationPendingRef.current !== true || !webViewRef.current) return;
-    cacheClearDone.current = true;
+  // Writes the marker once both halves have run. Either half may finish
+  // first: the page acknowledges during script evaluation, which is before
+  // the load event, so on a real device the acknowledgement usually arrives
+  // first and the caches half has not started yet.
+  const markMigrationDoneIfComplete = useCallback(async () => {
+    if (markerWritten.current) return;
+    if (!pageAcknowledged.current || !cachesCleared.current) return;
+    markerWritten.current = true;
+    await markStorageMigrationDone();
+  }, []);
+
+  const clearInheritedCaches = useCallback(async () => {
+    if (cachesCleared.current || !servedMigrationPending.current) return;
+    const view = webViewRef.current;
+    if (!view) return;
+    cachesCleared.current = true;
     Logger.debug('QRLWebView', 'Clearing web caches inherited from the hosted wallet');
     try {
-      webViewRef.current.clearCache?.(true);
+      view.clearCache?.(true);
     } catch (clearError) {
       Logger.warn('QRLWebView', 'Could not clear the WebView cache:', clearError);
     }
-    webViewRef.current.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
-  }, [isEmbedded, documentLoadedAt, migrationResolved]);
+    view.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
+  }, []);
+
+  useEffect(() => {
+    if (!isEmbedded || documentLoadedAt === null) return;
+    void clearInheritedCaches().then(() => markMigrationDoneIfComplete());
+  }, [isEmbedded, documentLoadedAt, clearInheritedCaches, markMigrationDoneIfComplete]);
 
   // Every message the shipped document sends carries the token, so the first
   // one proves the bootstrap bound the bridge. If none arrives the wallet is
   // on screen but no native feature works, which is worth saying out loud
   // rather than leaving the user to discover at the first PIN prompt.
   useEffect(() => {
-    if (!isEmbedded || documentLoadedAt === null || bridgeBound.current) return;
+    if (!isEmbedded || documentStartedAt === null || bridgeBound.current) return;
     const timer = setTimeout(() => {
       if (bridgeBound.current) return;
       Logger.error(
@@ -278,7 +335,14 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       setBridgeUnbound(true);
     }, BRIDGE_BIND_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [isEmbedded, documentLoadedAt]);
+  }, [isEmbedded, documentStartedAt]);
+
+  // Tell the screen whenever the document cannot be shown, so it can get its
+  // lock overlay out of the way of this component's error and Retry.
+  const documentErrorMessage = error ?? (bridgeUnbound ? BRIDGE_UNBOUND_MESSAGE : null);
+  useEffect(() => {
+    onDocumentError?.(documentErrorMessage);
+  }, [documentErrorMessage, onDocumentError]);
 
   // Helper to check if we can hide loading screen
   const tryHideLoadingScreen = useCallback(() => {
@@ -334,20 +398,60 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     };
   }, [isLoading, tryHideLoadingScreen]);
 
+  // Whether the WebView reports history to walk, from onNavigationStateChange.
+  // Used only when the page does not answer a back press.
+  const canGoBack = useRef(false);
+  // The back press waiting for the page, if any.
+  const pendingBackPress = useRef<{
+    settle: (answer: BackAnswer | null) => void;
+  } | null>(null);
+
+  const applyBackOutcome = useCallback((answer: BackAnswer | null) => {
+    const outcome = resolveBackPress({ answer, canGoBack: canGoBack.current });
+    if (outcome.action === 'consume') return;
+    if (outcome.action === 'go-back') {
+      webViewRef.current?.goBack();
+      return;
+    }
+    // Android 12 and later background the root task rather than finishing it,
+    // so the wallet stays warm and the lock still applies on return.
+    BackHandler.exitApp();
+  }, []);
+
   // Handle back button press for Android
   useFocusEffect(
     useCallback(() => {
       const onBackPress = () => {
-        if (webViewRef.current) {
-          webViewRef.current.goBack();
-          return true; // Prevent default behavior
+        // Always consume the press here. The outcome is decided once the page
+        // answers or the deadline passes, and exiting is done explicitly.
+        if (pendingBackPress.current) return true;
+
+        const bound = bridgeBound.current && webViewRef.current !== null;
+        if (!bound) {
+          applyBackOutcome(null);
+          return true;
         }
-        return false;
+
+        let settled = false;
+        const settle = (answer: BackAnswer | null) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          pendingBackPress.current = null;
+          applyBackOutcome(answer);
+        };
+        const timer = setTimeout(() => settle(null), NATIVE_BACK_TIMEOUT_MS);
+        pendingBackPress.current = { settle };
+        NativeBridge.sendToWeb({ type: NATIVE_BACK_MESSAGE_TYPE });
+        return true;
       };
 
       const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-      return () => subscription.remove();
-    }, [])
+      return () => {
+        subscription.remove();
+        pendingBackPress.current?.settle(null);
+      };
+    }, [applyBackOutcome])
   );
 
   // Set up Native Bridge
@@ -374,9 +478,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       // cannot be replayed into the new document's bridge.
       documentToken.current = createDocumentToken();
       bridgeBound.current = false;
-      cacheClearDone.current = false;
+      cachesCleared.current = false;
+      pageAcknowledged.current = false;
       setBridgeUnbound(false);
       setDocumentLoadedAt(null);
+      setDocumentStartedAt(null);
       documentEpochRef.current += 1;
       setDocumentEpoch(documentEpochRef.current);
       return;
@@ -471,6 +577,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     initialDocumentPending.current = false;
     NativeBridge.resetWebAppReady();
     onDocumentLoadStart?.();
+    setDocumentStartedAt(Date.now());
     setIsLoading(true);
     setError(null);
   };
@@ -488,7 +595,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   };
 
   const handleNavigationStateChange = (
-    newNavState: { url: string; loading: boolean },
+    newNavState: { url: string; loading: boolean; canGoBack?: boolean },
     eventEpoch: number,
   ) => {
     if (!isCurrentEpoch(eventEpoch)) return;
@@ -496,6 +603,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       origin: walletUrlOriginForLog(newNavState.url),
       loading: newNavState.loading,
     });
+    canGoBack.current = newNavState.canGoBack === true;
     // If page has loaded completely, ensure loading indicator is hidden
     if (newNavState.loading === false) {
       setIsLoading(false);
@@ -518,6 +626,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     setError(null);
     setBridgeUnbound(false);
     setDocumentLoadedAt(null);
+    setDocumentStartedAt(null);
     foreignDocumentRecoveries.current = 0;
     setIsLoading(true);
     reloadDocument();
@@ -602,12 +711,19 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       Logger.warn('QRLWebView', 'Dropped malformed bridge message');
       return;
     }
+    if (isBackAnswer(message.type)) {
+      pendingBackPress.current?.settle(message.type);
+      return;
+    }
     if (isEmbedded && isMigrationAcknowledgement(message.type)) {
       // The page cleared its own inherited sessions. Only now is the marker
       // written, so a launch where the page never acknowledged retries.
       Logger.debug('QRLWebView', 'The wallet acknowledged the inherited storage migration');
       migrationPendingRef.current = false;
-      void markStorageMigrationDone();
+      pageAcknowledged.current = true;
+      // The page acknowledges while its scripts evaluate, before the load
+      // event, so this is usually where the caches half gets its chance.
+      void clearInheritedCaches().then(() => markMigrationDoneIfComplete());
       return;
     }
     Logger.debug('QRLWebView', 'Bridge message received', message.type);
@@ -706,12 +822,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     () => {
       if (!isEmbedded) return { uri: remoteUri };
       if (embeddedRawHtml === null || !migrationResolved) return null;
+      const owesMigration = migrationPendingRef.current === true;
+      servedMigrationPending.current = owesMigration;
       return {
-        html: withEmbeddedFlag(
-          embeddedRawHtml,
-          documentToken.current,
-          migrationPendingRef.current === true,
-        ),
+        html: withEmbeddedFlag(embeddedRawHtml, documentToken.current, owesMigration),
         baseUrl: EMBEDDED_BASE_URL,
       };
     },
@@ -766,12 +880,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
         paddingTop: insets.top || 40,
         paddingBottom: insets.bottom
       }]}>
-        {error || bridgeUnbound ? (
+        {documentErrorMessage !== null ? (
           <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>
-              {error ??
-                'The bundled wallet could not connect to this app. Reload to try again.'}
-            </Text>
+            <Text style={styles.errorText}>{documentErrorMessage}</Text>
             <TouchableOpacity style={styles.retryButton} onPress={retryLoading}>
               <Text style={styles.retryButtonText}>Retry</Text>
             </TouchableOpacity>

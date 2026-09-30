@@ -52,6 +52,11 @@ export default function WalletScreen() {
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [authCheckNonce, setAuthCheckNonce] = useState(0);
   const [webViewDocumentLoaded, setWebViewDocumentLoaded] = useState(false);
+  // Set when the WebView cannot show a document at all. A failure raised
+  // before the first load start leaves initialDocumentStarted false, so the
+  // authorization effect never runs and the lock overlay would sit on top of
+  // the only working way out, which is the WebView's own Retry.
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const isFocused = useIsFocused();
   const pathname = usePathname();
   const appState = useRef(AppState.currentState);
@@ -840,12 +845,16 @@ export default function WalletScreen() {
           ref={webViewRef}
           onLoad={handleWebViewLoad}
           onDocumentLoadStart={handleDocumentLoadStart}
+          onDocumentError={setDocumentError}
           skipLoadingScreen={skipLoadingScreen}
         />
       </RNView>
       {/* Opaque lock cover: hides wallet content during re-auth and blocks
           touches to the WebView underneath, while letting its JS keep running. */}
-      {!isAuthorized && (
+      {/* While the document itself is unusable there is no wallet content to
+          cover, and the WebView is showing the error and its Retry button, so
+          the overlay stands aside rather than sealing the app. */}
+      {!isAuthorized && documentError === null && (
         <RNView
           style={styles.lockOverlay}
           pointerEvents="auto"

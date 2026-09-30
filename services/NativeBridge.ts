@@ -186,7 +186,8 @@ export type NativeToWebMessageType =
   | 'DAPP_DISCONNECT' // Request web to disconnect a specific dApp session
   | 'SET_DISPLAY_PREFS' // Set Home card visibility (showTokensCard / showNftsCard)
   | 'RESTORE_CONTACTS' // Send the backed-up address book to the web wallet
-  | 'NAVIGATE'; // Ask the web wallet to navigate to an in-app route
+  | 'NAVIGATE' // Ask the web wallet to navigate to an in-app route
+  | 'NATIVE_BACK'; // Android hardware back: close a modal, go back, or answer at root
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;

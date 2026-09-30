@@ -21,7 +21,7 @@ export function redirectSystemPath({ path }: { path: string; initial: boolean })
     // Rejected payloads must also bypass the router's legacy query decoder.
     if (typeof path !== 'string' || path.length > 4096) return '/';
     if (
-      /^qrlconnect:/i.test(path) ||
+      /^qrlconnect(?:-embedded)?:/i.test(path) ||
       /^https:\/\/qrlwallet\.com(?::443)?\/connect(?:[?#]|$)/i.test(path)
     ) {
       return '/';

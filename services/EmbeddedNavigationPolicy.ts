@@ -101,19 +101,26 @@ export function classifyEmbeddedNavigation(
     return { action: 'block', reason: 'subframe' };
   }
 
-  if (typeof request.navigationType === 'string' &&
-      REFUSED_NAVIGATION_TYPES.has(request.navigationType)) {
-    return { action: 'block', reason: 'navigation-type' };
-  }
-
   const baseUrl = state.baseUrl ?? EMBEDDED_BASE_URL;
   const fragmentPrefix = baseUrl === EMBEDDED_BASE_URL ? FRAGMENT_PREFIX : `${baseUrl}#`;
 
   // Matched on the raw string, not on a parsed URL. `https://qrlwallet.com/?#/x`
   // parses with an empty-looking search and a hash, but it is a real network
   // navigation that would fetch the live page.
-  if (url.startsWith(fragmentPrefix)) {
+  //
+  // Checked ahead of the navigation types because the refusals below are
+  // about the base URL. A `backforward` within the fragment is the wallet
+  // walking its own hash history, which is the whole point of hash routing;
+  // refusing it would break the first in-app back arrow on iOS. A `reload`
+  // stays refused even on a fragment, because WebKit reloads a
+  // loadHTMLString page by refetching the base URL.
+  if (url.startsWith(fragmentPrefix) && request.navigationType !== 'reload') {
     return { action: 'allow', reason: 'fragment' };
+  }
+
+  if (typeof request.navigationType === 'string' &&
+      REFUSED_NAVIGATION_TYPES.has(request.navigationType)) {
+    return { action: 'block', reason: 'navigation-type' };
   }
 
   let base: URL;

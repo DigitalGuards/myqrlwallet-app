@@ -49,10 +49,9 @@ describe('embedded wallet request policy', () => {
       'https://qrlwallet.com/api/qrl-rpc/testnet',
       'https://qrlwallet.com/api/tx-history/Q00',
       'https://qrlwallet.com/api/ipfs/QmHash',
-      'https://qrlwallet.com/api',
-      // socket.io polling for the dApp relay, which is configured on /relay.
+      // socket.io polling for the dApp relay, which appends the slash.
       'https://qrlwallet.com/relay/?EIO=4&transport=polling',
-      'https://qrlwallet.com/relay',
+      'https://qrlwallet.com/relay/',
     ]) {
       expect(classifyEmbeddedRequest(subresource(url, 'POST'))).toEqual({
         action: 'allow',
@@ -97,6 +96,33 @@ describe('embedded wallet request policy', () => {
     ).toEqual({ action: 'refuse' });
   });
 
+  it('never lets a main-frame document come from the network, even on an API path', () => {
+    // Android does not route a POST navigation, a reload or a history
+    // traversal through shouldOverrideUrlLoading, so one aimed at an allowed
+    // path would commit a server document in the wallet origin.
+    for (const url of [
+      'https://qrlwallet.com/api/x',
+      'https://qrlwallet.com/relay/x',
+      'https://qrlwallet.com/api/qrl-rpc/testnet',
+    ]) {
+      expect(classifyEmbeddedRequest(mainFrameGet(url))).toEqual({ action: 'refuse' });
+      expect(
+        classifyEmbeddedRequest({ url, method: 'POST', isForMainFrame: true }),
+      ).toEqual({ action: 'refuse' });
+    }
+  });
+
+  it('does not admit a sibling of an allowed prefix', () => {
+    for (const url of [
+      'https://qrlwallet.com/relay-x.html',
+      'https://qrlwallet.com/relayfoo',
+      'https://qrlwallet.com/api',
+      'https://qrlwallet.com/apikeys.js',
+    ]) {
+      expect(classifyEmbeddedRequest(subresource(url))).toEqual({ action: 'refuse' });
+    }
+  });
+
   it('refuses a request it cannot parse rather than passing it on', () => {
     expect(classifyEmbeddedRequest(mainFrameGet('not a url'))).toEqual({ action: 'refuse' });
   });
@@ -115,6 +141,9 @@ describe('embedded wallet request policy', () => {
         (prefix) => `"${prefix}"`,
       ).join(', ')}}`,
     );
+    // The main-frame refusal has to exist on the Java side too.
+    expect(patch).toContain('if (request.isForMainFrame()) {');
+    expect(patch).toContain('volatile @Nullable String embeddedDocumentHtml');
     expect(patch).toContain('bundledDocumentResponse');
     expect(patch).toContain('setStatusCodeAndReasonPhrase(403');
     // And the document has to reach the client in the first place.

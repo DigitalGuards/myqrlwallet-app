@@ -71,17 +71,38 @@ describe('embedded wallet navigation policy', () => {
     }
   });
 
-  it('refuses a reload, a history traversal and a form submission', () => {
+  it('refuses a reload, a history traversal and a form submission of the document', () => {
     // WebKit reloads a loadHTMLString page by fetching the base URL, so a
     // location.reload() from inside the wallet would pull the live page in.
     for (const navigationType of ['reload', 'backforward', 'formsubmit', 'formresubmit']) {
-      for (const url of [EMBEDDED_BASE_URL, 'https://qrlwallet.com/#/transfer']) {
-        expect(classifyEmbeddedNavigation(req(url, { navigationType }), iosPending)).toEqual({
-          action: 'block',
-          reason: 'navigation-type',
-        });
-      }
+      expect(
+        classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL, { navigationType }), iosPending),
+      ).toEqual({ action: 'block', reason: 'navigation-type' });
     }
+  });
+
+  it('lets the wallet walk its own hash history', () => {
+    // A backforward within the fragment is the wallet moving between its own
+    // hash routes, which is what an in-app back arrow does. Refusing it broke
+    // that on iOS.
+    for (const navigationType of ['backforward', 'formsubmit', 'formresubmit', 'click', 'other']) {
+      expect(
+        classifyEmbeddedNavigation(
+          req('https://qrlwallet.com/#/transfer', { navigationType }),
+          iosConsumed,
+        ),
+      ).toEqual({ action: 'allow', reason: 'fragment' });
+    }
+  });
+
+  it('still refuses a reload even of a hash URL', () => {
+    // WebKit refetches the base URL for a reload whatever the fragment says.
+    expect(
+      classifyEmbeddedNavigation(
+        req('https://qrlwallet.com/#/transfer', { navigationType: 'reload' }),
+        iosConsumed,
+      ),
+    ).toEqual({ action: 'block', reason: 'navigation-type' });
   });
 
   it('admits the injected document only as a top-frame click-free load', () => {

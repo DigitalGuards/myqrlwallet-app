@@ -1,5 +1,5 @@
 import React, { act, createRef } from 'react';
-import { Linking, Platform } from 'react-native';
+import { BackHandler, Linking, Platform } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import QRLWebView, { type QRLWebViewRef } from '../../components/QRLWebView';
 import NativeBridge from '../NativeBridge';
@@ -14,7 +14,15 @@ const EMBEDDED_HTML =
   `<!doctype html><html lang="en"><head><title>wallet</title>${V3_MARKERS}</head><body></body></html>`;
 
 jest.mock('react-native-webview', () => ({ WebView: 'NativeWebView' }));
-jest.mock('@react-navigation/native', () => ({ useFocusEffect: jest.fn() }));
+// useFocusEffect had no coverage at all, so the back handler was never
+// exercised. Running the callback immediately is what the real hook does on a
+// focused screen.
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: (callback: () => (() => void) | void) => {
+    const { useEffect } = jest.requireActual('react') as typeof import('react');
+    useEffect(() => callback(), [callback]);
+  },
+}));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
@@ -33,6 +41,7 @@ jest.mock('../NativeBridge', () => ({
   setWebViewRef: jest.fn(),
   resetWebAppReady: jest.fn(),
   sendQRResult: jest.fn(),
+  sendToWeb: jest.fn(),
   handle: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../EmbeddedWalletDocument', () => {
@@ -73,6 +82,9 @@ describe('embedded QRLWebView', () => {
   const runtime = globalThis as typeof globalThis & { __DEV__: boolean };
   const originalDev = __DEV__;
 
+  // BackHandler is not a jest mock under jest-expo, so the registered
+  // hardwareBackPress handler is captured here to be pressed directly.
+  const backHandlers: Array<() => boolean> = [];
   const webViewNodeMock = {
     injectJavaScript: jest.fn(),
     reload: jest.fn(),
@@ -99,6 +111,19 @@ describe('embedded QRLWebView', () => {
     runtime.__DEV__ = false;
     webViewNodeMock.injectJavaScript.mockClear();
     webViewNodeMock.clearCache.mockClear();
+    webViewNodeMock.goBack.mockClear();
+    backHandlers.length = 0;
+    jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => true);
+    jest
+      .spyOn(BackHandler, 'addEventListener')
+      .mockImplementation((_event, handler: () => boolean | null | undefined) => {
+        backHandlers.push(() => handler() === true);
+        return {
+          remove: () => {
+            backHandlers.length = 0;
+          },
+        } as never;
+      });
     loadEmbeddedWalletHtml.mockResolvedValue(EMBEDDED_HTML);
     isStorageMigrationPending.mockResolvedValue(true);
   });
@@ -177,11 +202,18 @@ describe('embedded QRLWebView', () => {
     for (const navigationType of ['reload', 'backforward', 'formsubmit', 'formresubmit']) {
       expect(
         view.props.onShouldStartLoadWithRequest({
-          url: 'https://qrlwallet.com/#/transfer',
+          url: 'https://qrlwallet.com/',
           navigationType,
         }),
       ).toBe(false);
     }
+    // A hash traversal is the wallet's own back arrow, and is allowed.
+    expect(
+      view.props.onShouldStartLoadWithRequest({
+        url: 'https://qrlwallet.com/#/transfer',
+        navigationType: 'backforward',
+      }),
+    ).toBe(true);
   });
 
   it('admits the document again after a recovery reload on iOS only', async () => {
@@ -275,6 +307,19 @@ describe('embedded QRLWebView', () => {
 
     webViewNodeMock.injectJavaScript.mockClear();
     webViewNodeMock.clearCache.mockClear();
+    webViewNodeMock.goBack.mockClear();
+    backHandlers.length = 0;
+    jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => true);
+    jest
+      .spyOn(BackHandler, 'addEventListener')
+      .mockImplementation((_event, handler: () => boolean | null | undefined) => {
+        backHandlers.push(() => handler() === true);
+        return {
+          remove: () => {
+            backHandlers.length = 0;
+          },
+        } as never;
+      });
     for (const route of [
       '/transfer',
       '#/transfer";window.stealSeed()//',
@@ -590,33 +635,66 @@ describe('embedded QRLWebView', () => {
   });
 
   it('runs the whole handshake once for an upgraded install', async () => {
+    // The real order on device: the page runs its migration while its scripts
+    // evaluate, so the acknowledgement reaches native before the load event.
+    // Gating the caches half on the live pending flag meant it never ran, and
+    // the marker was written anyway so no later launch retried.
     const view = await renderEmbedded();
     const token = documentTokenFrom(view.props.source.html as string);
     expect(view.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = true;');
 
-    // The caches half runs natively once the document is up.
+    const ack = `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({
+      type: 'EMBEDDED_MIGRATION_DONE',
+    })}`;
+    await act(async () => view.props.onMessage({ nativeEvent: { data: ack, url: 'https://qrlwallet.com/' } }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Both halves ran, in that order, and only then was the marker written.
+    expect(webViewNodeMock.clearCache).toHaveBeenCalledWith(true);
+    expect(webViewNodeMock.injectJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('serviceWorker') as unknown as string,
+    );
+    expect(markStorageMigrationDone).toHaveBeenCalledTimes(1);
+    expect(NativeBridge.handle).not.toHaveBeenCalled();
+
+    // A repeat acknowledgement does not record it twice.
+    await act(async () => view.props.onMessage({ nativeEvent: { data: ack, url: 'https://qrlwallet.com/' } }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(markStorageMigrationDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not write the marker when only one half has run', async () => {
+    // The caches half alone is not the whole pass, and an install that never
+    // heard from the page has to retry on the next launch.
+    const view = await renderEmbedded();
     await act(async () => view.props.onLoadEnd());
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(webViewNodeMock.clearCache).toHaveBeenCalledWith(true);
-    expect(webViewNodeMock.injectJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('serviceWorker') as unknown as string,
-    );
     expect(markStorageMigrationDone).not.toHaveBeenCalled();
+  });
 
-    // The page clears its own sessions and says so.
-    const ack = `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({
-      type: 'EMBEDDED_MIGRATION_DONE',
-    })}`;
-    await act(async () => view.props.onMessage({ nativeEvent: { data: ack, url: 'https://qrlwallet.com/' } }));
-    expect(markStorageMigrationDone).toHaveBeenCalledTimes(1);
-
-    // A repeat acknowledgement does not record it twice.
-    await act(async () => view.props.onMessage({ nativeEvent: { data: ack, url: 'https://qrlwallet.com/' } }));
-    expect(markStorageMigrationDone).toHaveBeenCalledTimes(2);
-    expect(NativeBridge.handle).not.toHaveBeenCalled();
+  it('keeps the native half in step with what the served document was told', async () => {
+    // The live flag can flip after the document was built. The native half
+    // must agree with the document it is running against, or it clears
+    // pairings a document that was told it owes nothing has already restored.
+    isStorageMigrationPending.mockResolvedValue(false);
+    const view = await renderEmbedded();
+    expect(view.props.source.html).toContain('window.__QRL_EMBEDDED_MIGRATION__ = false;');
+    await act(async () => view.props.onLoadEnd());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(webViewNodeMock.clearCache).not.toHaveBeenCalled();
+    expect(markStorageMigrationDone).not.toHaveBeenCalled();
   });
 
   it('does not re-serve the document when the page acknowledges', async () => {
@@ -699,6 +777,119 @@ describe('embedded QRLWebView', () => {
       }),
     );
     expect(markStorageMigrationDone).not.toHaveBeenCalled();
+  });
+
+  const pressBack = async () => {
+    const handler = backHandlers.at(-1);
+    if (!handler) throw new Error('no hardwareBackPress handler registered');
+    let consumed = false;
+    await act(async () => {
+      consumed = handler();
+    });
+    return consumed;
+  };
+
+  const bindBridge = async (view: { props: Record<string, never> }) => {
+    const props = view.props as unknown as {
+      source: { html: string };
+      onMessage: (event: unknown) => void;
+    };
+    const token = documentTokenFrom(props.source.html);
+    await act(async () =>
+      props.onMessage({
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({ type: 'WEB_APP_READY' })}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    return token;
+  };
+
+  it('asks the page what a back press should mean', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    const token = await bindBridge(view as never);
+    (NativeBridge.sendToWeb as jest.Mock).mockClear();
+
+    expect(await pressBack()).toBe(true);
+    expect(NativeBridge.sendToWeb).toHaveBeenCalledWith({ type: 'NATIVE_BACK' });
+    // Nothing happens to the WebView until the page answers.
+    expect(webViewNodeMock.goBack).not.toHaveBeenCalled();
+    expect(BackHandler.exitApp).not.toHaveBeenCalled();
+
+    await act(async () =>
+      (view.props as never as { onMessage: (e: unknown) => void }).onMessage({
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({ type: 'BACK_HANDLED' })}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    expect(webViewNodeMock.goBack).not.toHaveBeenCalled();
+    expect(BackHandler.exitApp).not.toHaveBeenCalled();
+  });
+
+  it('backgrounds the app when the page is at its root', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    const token = await bindBridge(view as never);
+    await pressBack();
+    await act(async () =>
+      (view.props as never as { onMessage: (e: unknown) => void }).onMessage({
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({ type: 'BACK_AT_ROOT' })}`,
+          url: 'https://qrlwallet.com/',
+        },
+      }),
+    );
+    expect(BackHandler.exitApp).toHaveBeenCalledTimes(1);
+    expect(webViewNodeMock.goBack).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the WebView history when the page does not answer', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    await bindBridge(view as never);
+    await act(async () =>
+      (view.props as never as {
+        onNavigationStateChange: (s: unknown) => void;
+      }).onNavigationStateChange({ url: 'https://qrlwallet.com/#/x', loading: false, canGoBack: true }),
+    );
+    await pressBack();
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(webViewNodeMock.goBack).toHaveBeenCalledTimes(1);
+    expect(BackHandler.exitApp).not.toHaveBeenCalled();
+  });
+
+  it('leaves the app when nothing answers and there is no history', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = await renderEmbedded();
+    await bindBridge(view as never);
+    await act(async () =>
+      (view.props as never as {
+        onNavigationStateChange: (s: unknown) => void;
+      }).onNavigationStateChange({ url: 'https://qrlwallet.com/', loading: false, canGoBack: false }),
+    );
+    await pressBack();
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(BackHandler.exitApp).toHaveBeenCalledTimes(1);
+    expect(webViewNodeMock.goBack).not.toHaveBeenCalled();
+  });
+
+  it('never calls goBack blindly when the bridge has not bound', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    await renderEmbedded();
+    (NativeBridge.sendToWeb as jest.Mock).mockClear();
+    expect(await pressBack()).toBe(true);
+    // No document to ask, and the WebView reports no history.
+    expect(NativeBridge.sendToWeb).not.toHaveBeenCalled();
+    expect(webViewNodeMock.goBack).not.toHaveBeenCalled();
+    expect(BackHandler.exitApp).toHaveBeenCalledTimes(1);
   });
 
   it('shows the loading screen until the bundled document has been read', async () => {

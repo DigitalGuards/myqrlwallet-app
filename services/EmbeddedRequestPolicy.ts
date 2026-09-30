@@ -41,18 +41,20 @@ export interface EmbeddedRequestContext {
  * Path prefixes the wallet calls on its own origin.
  *
  * `/api/` is the RPC proxy, the transaction history, token and NFT services
- * and the IPFS proxy. `/relay` is the dApp connect relay: socket.io is
- * configured with that path, and its polling transport is an ordinary HTTP
- * request that this interceptor would otherwise refuse. WebSocket upgrades do
- * not pass through `shouldInterceptRequest` at all.
+ * and the IPFS proxy. `/relay/` is the dApp connect relay: socket.io is
+ * configured with that path and appends the trailing slash to its polling
+ * URL, which is an ordinary HTTP request this interceptor would otherwise
+ * refuse. WebSocket upgrades do not pass through `shouldInterceptRequest`.
+ *
+ * Both end in a slash so that a sibling path cannot match: a bare `/relay`
+ * prefix would also admit `/relay-x.html`.
  *
  * Nothing here can deliver a document or a script the WebView will execute:
  * they are JSON and socket.io frames.
  */
-export const WALLET_ORIGIN_ALLOWED_PREFIXES: readonly string[] = ['/api/', '/relay'];
+export const WALLET_ORIGIN_ALLOWED_PREFIXES: readonly string[] = ['/api/', '/relay/'];
 
 function isAllowedWalletPath(pathname: string): boolean {
-  if (pathname === '/api') return true;
   return WALLET_ORIGIN_ALLOWED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
@@ -82,9 +84,17 @@ export function classifyEmbeddedRequest(
     return { action: 'refuse' };
   }
 
-  const isBaseDocument = target.pathname === base.pathname;
-  if (context.isForMainFrame && context.method.toUpperCase() === 'GET' && isBaseDocument) {
-    return { action: 'serve-bundled-document' };
+  // A main-frame document never comes from the network on this origin. The
+  // only one that exists is the shipped document, and Android does not route
+  // a POST navigation, a reload or a history traversal through
+  // shouldOverrideUrlLoading, so any of those aimed at an otherwise allowed
+  // path would commit a server-supplied document in the wallet origin.
+  if (context.isForMainFrame) {
+    const isBaseDocument = target.pathname === base.pathname;
+    if (context.method.toUpperCase() === 'GET' && isBaseDocument) {
+      return { action: 'serve-bundled-document' };
+    }
+    return { action: 'refuse' };
   }
 
   if (isAllowedWalletPath(target.pathname)) {

@@ -1,8 +1,29 @@
+diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java
+index 07f73fd..778cfe4 100644
+--- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java
++++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java
+@@ -145,6 +145,16 @@ public class RNCWebChromeClient extends WebChromeClient implements LifecycleEven
+     @Override
+     public void onPermissionRequest(final PermissionRequest request) {
+ 
++        // MyQRLWallet patch: the embedded wallet document never needs a device
++        // capture permission. Its QR scanning is a native screen, and the app
++        // already holds CAMERA for that, which upstream would take as consent
++        // to hand the camera to the page without a prompt. Deny outright while
++        // a bundled document is loaded.
++        if (this.mWebView != null && this.mWebView.getEmbeddedDocumentHtml() != null) {
++            request.deny();
++            return;
++        }
++
+         grantedPermissions = new ArrayList<>();
+ 
+         ArrayList<String> requestedAndroidPermissions = new ArrayList<>();
 diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
-index 5932fc1..4b3725e 100644
+index 5932fc1..830f843 100644
 --- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
 +++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
-@@ -79,6 +79,28 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+@@ -79,6 +79,31 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
      protected boolean nestedScrollEnabled = false;
      protected ProgressChangedFilter progressChangedFilter;
  
@@ -12,8 +33,11 @@ index 5932fc1..4b3725e 100644
 +    // WebView fetch them, which is the only way to stop an in-page reload()
 +    // from pulling the live site into the app. See
 +    // services/EmbeddedRequestPolicy.ts for the rules.
-+    protected @Nullable String embeddedDocumentHtml = null;
-+    protected @Nullable String embeddedDocumentBaseUrl = null;
++    // volatile: written on the UI thread by the view manager and read on the
++    // network thread by shouldInterceptRequest. A stale null there would take
++    // the fail-open branch that hands the request to the network.
++    protected volatile @Nullable String embeddedDocumentHtml = null;
++    protected volatile @Nullable String embeddedDocumentBaseUrl = null;
 +
 +    public void setEmbeddedDocument(@Nullable String html, @Nullable String baseUrl) {
 +        this.embeddedDocumentHtml = html;
@@ -32,10 +56,10 @@ index 5932fc1..4b3725e 100644
       * WebView must be created with an context of the current activity
       * <p>
 diff --git a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
-index 251939e..2f1bc1d 100644
+index 251939e..eb25dcb 100644
 --- a/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
 +++ b/node_modules/react-native-webview/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
-@@ -34,10 +34,121 @@ import com.reactnativecommunity.webview.events.TopShouldStartLoadWithRequestEven
+@@ -34,10 +34,132 @@ import com.reactnativecommunity.webview.events.TopShouldStartLoadWithRequestEven
  import android.webkit.CookieManager;
  import android.webkit.CookieSyncManager;
  
@@ -69,11 +93,13 @@ index 251939e..2f1bc1d 100644
 +    // Other origins are untouched. services/EmbeddedRequestPolicy.ts states
 +    // the same rules in readable form and is unit tested; a test pins this
 +    // allowlist against that one.
-+    private static final String[] EMBEDDED_ALLOWED_PATH_PREFIXES = {"/api/", "/relay"};
++    // Both end in a slash so a sibling path cannot match: a bare "/relay"
++    // prefix would also admit "/relay-x.html". socket.io appends the trailing
++    // slash to its polling URL, so "/relay/" is what the wallet asks for.
++    private static final String[] EMBEDDED_ALLOWED_PATH_PREFIXES = {"/api/", "/relay/"};
 +
 +    private static boolean isAllowedEmbeddedPath(String path) {
 +        if (path == null) return false;
-+        if (path.equals("/api")) return true;
 +        for (String prefix : EMBEDDED_ALLOWED_PATH_PREFIXES) {
 +            if (path.startsWith(prefix)) return true;
 +        }
@@ -137,9 +163,18 @@ index 251939e..2f1bc1d 100644
 +        String targetPath = target.getPath() == null || target.getPath().isEmpty() ? "/" : target.getPath();
 +        String method = request.getMethod() == null ? "" : request.getMethod().toUpperCase(Locale.ROOT);
 +
-+        if (request.isForMainFrame() && "GET".equals(method) && basePath.equals(targetPath)) {
-+            FLog.w(TAG, "Answering a wallet document request from the app bundle");
-+            return bundledDocumentResponse(html);
++        // A main-frame document never comes from the network on this origin.
++        // Android does not route a POST navigation, a reload or a history
++        // traversal through shouldOverrideUrlLoading, so any of those aimed at
++        // an otherwise allowed path would commit a server-supplied document in
++        // the wallet origin.
++        if (request.isForMainFrame()) {
++            if ("GET".equals(method) && basePath.equals(targetPath)) {
++                FLog.w(TAG, "Answering a wallet document request from the app bundle");
++                return bundledDocumentResponse(html);
++            }
++            FLog.w(TAG, "Refused a main-frame request to the wallet origin: " + targetPath);
++            return refusedResponse();
 +        }
 +
 +        if (isAllowedEmbeddedPath(targetPath)) {
@@ -157,7 +192,7 @@ index 251939e..2f1bc1d 100644
      protected static final int SHOULD_OVERRIDE_URL_LOADING_TIMEOUT = 250;
  
      protected boolean mLastLoadFailed = false;
-@@ -78,11 +189,19 @@ public class RNCWebViewClient extends WebViewClient {
+@@ -78,11 +200,19 @@ public class RNCWebViewClient extends WebViewClient {
      public void doUpdateVisitedHistory (WebView webView, String url, boolean isReload) {
        super.doUpdateVisitedHistory(webView, url, isReload);
  
@@ -178,7 +213,7 @@ index 251939e..2f1bc1d 100644
      }
  
      @Override
-@@ -90,6 +209,20 @@ public class RNCWebViewClient extends WebViewClient {
+@@ -90,6 +220,20 @@ public class RNCWebViewClient extends WebViewClient {
        super.onPageStarted(webView, url, favicon);
        mLastLoadFailed = false;
  
@@ -199,7 +234,7 @@ index 251939e..2f1bc1d 100644
        RNCWebView reactWebView = (RNCWebView) webView;
        reactWebView.callInjectedJavaScriptBeforeContentLoaded();
      }
-@@ -114,17 +247,29 @@ public class RNCWebViewClient extends WebViewClient {
+@@ -114,17 +258,29 @@ public class RNCWebViewClient extends WebViewClient {
                      final long startTime = SystemClock.elapsedRealtime();
                      while (lockObject.get() == RNCWebViewModuleImpl.ShouldOverrideUrlLoadingLock.ShouldOverrideCallbackState.UNDECIDED) {
                          if (SystemClock.elapsedRealtime() - startTime > SHOULD_OVERRIDE_URL_LOADING_TIMEOUT) {
