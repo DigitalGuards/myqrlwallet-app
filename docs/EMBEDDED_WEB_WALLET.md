@@ -231,12 +231,22 @@ on the bare base entry.
 
 The page is asked instead. Native sends a bound `NATIVE_BACK`, and the page
 answers `BACK_HANDLED` when it closed a modal or moved back a route, or
-`BACK_AT_ROOT` when it has nothing left. On `BACK_AT_ROOT` the app calls
-`BackHandler.exitApp()`, which on Android 12 and later backgrounds the root
-task so the wallet stays warm and the lock still applies on return. If the
+`BACK_AT_ROOT` when it has nothing left. On `BACK_AT_ROOT` the app calls `BackHandler.exitApp()`, and
+`plugins/withBackgroundOnBack.js` makes that background the task rather than
+finish the activity. The Expo template only moves the task to the back up to
+API 30; from Android 12 it finishes, which threw away the loaded document and
+the unlocked session, so returning meant a cold start and another Device
+Login prompt. `android/` is generated, so it is a config plugin, and it
+throws if the template changes shape rather than quietly doing nothing. If the
 page does not answer within 400 ms, or the bridge is not bound, the decision
 falls back to what the WebView reports through `onNavigationStateChange`.
 `goBack()` is never called blindly.
+
+A deep link delivered while the app is in the foreground makes Android report
+a background then active transition. The lock treats every background as
+authoritative and revokes authorization immediately, so the link waits behind
+an unlock prompt. That is deliberate and is not worked around: see the note
+at the end of this document.
 
 ## Storage inherited from the hosted wallet
 
@@ -394,3 +404,29 @@ explicit, reviewable pin.
 
 The EAS profile `development-embedded` builds that variant as an internal
 development client.
+
+## Why the deep-link lock flicker is left alone
+
+Delivering a deep link to the foreground app produces a background then
+active AppState transition, and `createBackgroundLock` revokes authorization
+on every background. The link therefore waits behind an unlock prompt a
+second after the user was using the app.
+
+Softening that would mean one of two things, and both hand an unauthenticated
+party control of the lock:
+
+- Delay the lock on every background transition and cancel it if a deep link
+  arrives. Nothing tells the app at background time that a link is coming, so
+  the delay applies to every real backgrounding, which is exactly the moment
+  the lock exists for.
+- Lock immediately and un-revoke when a link arrives. Any installed app or
+  web page can send `qrlconnect://`, so this lets a third party reverse the
+  lock by timing an intent just after the user leaves.
+
+There is no signal in JavaScript that separates "our own intent re-focused
+us" from "the user left and came back". The cost of leaving it is one
+unexpected unlock prompt, and the link itself is not lost: `NativeBridge`
+holds the pending pairing intent through the lock and flushes it once the
+wallet is authorized again. The real fix is native, stopping the spurious
+transition at the activity, which is not something to change without a device
+to test it on.

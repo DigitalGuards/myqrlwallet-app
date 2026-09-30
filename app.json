@@ -103,7 +103,8 @@
         {
           "addGeneratedScheme": false
         }
-      ]
+      ],
+      "./plugins/withBackgroundOnBack"
     ],
     "experiments": {
       "typedRoutes": true
