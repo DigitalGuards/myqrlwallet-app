@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { Platform } from 'react-native';
 import {
   NATIVE_WALLET_BLOCKCHAIN,
   NATIVE_WALLET_CAPABILITIES,
+  NATIVE_WALLET_PLATFORM,
   NATIVE_WEBVIEW_CAPABILITY_SCRIPT,
   NATIVE_WEBVIEW_INJECTED_OBJECT,
 } from '../NativeWalletProfile';
@@ -23,7 +25,7 @@ describe('native Testnet v3 compatibility contract', () => {
     expect(Object.isFrozen(NATIVE_WALLET_CAPABILITIES)).toBe(true);
     expect(Object.isFrozen(NATIVE_WEBVIEW_INJECTED_OBJECT)).toBe(true);
     expect(JSON.parse(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT))).toEqual({
-      qrlWalletCapabilities: NATIVE_WALLET_CAPABILITIES,
+      qrlWalletCapabilities: { ...NATIVE_WALLET_CAPABILITIES, platform: NATIVE_WALLET_PLATFORM },
     });
     const source = readFileSync(resolve(__dirname, '../../components/QRLWebView.tsx'), 'utf8');
     expect(source).toContain('injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}');
@@ -61,5 +63,44 @@ describe('native Testnet v3 compatibility contract', () => {
     run(bare);
     const created = bare.ReactNativeWebView as { injectedObjectJson: () => string };
     expect(created.injectedObjectJson()).toBe(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT));
+  });
+
+  it('tells the page which platform it is on, because the user agent cannot', () => {
+    // The WebView is given a fixed iPhone user agent on every platform, so a
+    // page asking "am I on iOS" from the user agent got yes on Android.
+    const webViewSource = readFileSync(
+      resolve(__dirname, '../../components/QRLWebView.tsx'),
+      'utf8',
+    );
+    expect(webViewSource).toContain('iPhone; CPU iPhone OS');
+
+    expect(NATIVE_WALLET_PLATFORM).toBe(Platform.OS);
+    const injected = JSON.parse(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT)) as {
+      qrlWalletCapabilities: { platform?: string };
+    };
+    expect(injected.qrlWalletCapabilities.platform).toBe(Platform.OS);
+  });
+
+  it('carries the platform on every path the page can read it from', () => {
+    // The WebView installs injectedObjectJson itself at mount, and the script
+    // below redefines it at document start and after load on Android. All
+    // three have to agree, or the answer depends on which one won.
+    const run = (win: Record<string, unknown>) =>
+      new Function('window', NATIVE_WEBVIEW_CAPABILITY_SCRIPT)(win);
+    const win: Record<string, unknown> = {};
+    run(win);
+    const bridge = win.ReactNativeWebView as { injectedObjectJson: () => string };
+    const fromScript = JSON.parse(bridge.injectedObjectJson()) as {
+      qrlWalletCapabilities: { platform?: string; chainId?: string };
+    };
+    expect(fromScript.qrlWalletCapabilities.platform).toBe(Platform.OS);
+    // And the network identity is still there alongside it.
+    expect(fromScript.qrlWalletCapabilities.chainId).toBe(NATIVE_WALLET_CAPABILITIES.chainId);
+  });
+
+  it('keeps the platform out of the pinned network identity', () => {
+    // NATIVE_WALLET_CAPABILITIES is the QIP-55 identity contract. A host fact
+    // does not belong in it, and the test above pins it exactly.
+    expect(NATIVE_WALLET_CAPABILITIES).not.toHaveProperty('platform');
   });
 });
