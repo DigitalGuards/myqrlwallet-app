@@ -66,6 +66,40 @@ describe('embedded wallet document', () => {
     expect(policy).toContain("child-src 'none'");
   });
 
+  it('declares a policy that covers every script it will actually run', () => {
+    // The policy allows only hashed scripts, so a hash that does not match
+    // its script means the document refuses to run its own code and the
+    // wallet shows a blank page. Only executable scripts count: a
+    // type="application/json" or "application/ld+json" block is a data
+    // island, never prepared as a script, and CSP does not govern it.
+    const shipped = readFileSync(documentPath, 'utf8');
+    const csp = shipped.indexOf('Content-Security-Policy');
+    const metaTag = shipped.slice(shipped.lastIndexOf('<meta', csp), shipped.indexOf('>', csp) + 1);
+    const policy = /content="([^"]*)"/.exec(metaTag)?.[1] ?? '';
+    const allowed = [...policy.matchAll(/'sha256-([A-Za-z0-9+/=]+)'/g)].map((match) => match[1]);
+    expect(allowed.length).toBeGreaterThan(0);
+
+    const executable: { attributes: string; digest: string }[] = [];
+    const pattern = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
+    for (let match = pattern.exec(shipped); match !== null; match = pattern.exec(shipped)) {
+      const attributes = match[1];
+      const type = /type\s*=\s*"([^"]*)"/.exec(attributes)?.[1] ?? '';
+      const isExecutable =
+        type === '' || type === 'module' || type === 'text/javascript' || type === 'module ';
+      if (!isExecutable) continue;
+      executable.push({
+        attributes,
+        digest: createHash('sha256').update(match[2], 'utf8').digest('base64'),
+      });
+    }
+
+    // The flag script and the app bundle.
+    expect(executable).toHaveLength(2);
+    for (const script of executable) {
+      expect(allowed).toContain(script.digest);
+    }
+  });
+
   it('keeps the shipped document holding up its end of every contract', () => {
     // These are the four things native asks of the page. Each one fails
     // silently if the document stops doing it: the storage pass would never
@@ -87,6 +121,16 @@ describe('embedded wallet document', () => {
     // Clipboard: marks seed material so native can keep it out of the reply
     // and clear it afterwards.
     expect(shipped).toMatch(/COPY_TO_CLIPBOARD[^)]{0,120}sensitive/);
+
+    // Platform: read from the capability object rather than the user agent,
+    // which the app forces to an iPhone string on every platform. Minified
+    // code puts the capability read and the field read in separate helpers,
+    // so the pairing is pinned by the two things only this contract brings
+    // into the document: the capability object, and a platform value the
+    // forced user agent can never produce.
+    expect(shipped).toContain('qrlWalletCapabilities');
+    expect(shipped).toMatch(/\.platform/);
+    expect(shipped).toContain('android');
   });
 
   it('takes its own tag back out of the DOM', () => {
