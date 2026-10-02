@@ -334,10 +334,10 @@ describe('embedded QRLWebView', () => {
     expect(webViewNodeMock.injectJavaScript).not.toHaveBeenCalled();
   });
 
-  it('does not route the document in remote mode', async () => {
+  it('does not route the document in dev mode', async () => {
     const ref = createRef<QRLWebViewRef>();
     await act(async () => {
-      screen = create(<QRLWebView ref={ref} webSource="remote" />, {
+      screen = create(<QRLWebView ref={ref} webSource="dev" />, {
         createNodeMock: () => webViewNodeMock,
       });
     });
@@ -412,9 +412,9 @@ describe('embedded QRLWebView', () => {
     expect(view.props.injectedJavaScriptBeforeContentLoaded).not.toMatch(/[0-9a-f]{64}/);
   });
 
-  it('takes a bridge message in remote mode without any token', async () => {
+  it('takes a bridge message in dev mode without any token', async () => {
     await act(async () => {
-      screen = create(<QRLWebView webSource="remote" />, {
+      screen = create(<QRLWebView webSource="dev" />, {
         createNodeMock: () => webViewNodeMock,
       });
     });
