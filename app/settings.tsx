@@ -15,8 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
 
 import WebViewService, { UserPreferences } from '../services/WebViewService';
 import BiometricService from '../services/BiometricService';

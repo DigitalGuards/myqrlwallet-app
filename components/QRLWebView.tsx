@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, BackHandler, Linking, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import NativeBridge, { BridgeMessage, NativeQrScanRequest } from '../services/NativeBridge';

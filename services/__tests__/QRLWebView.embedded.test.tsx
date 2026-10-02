@@ -116,8 +116,8 @@ describe('embedded QRLWebView', () => {
     jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => true);
     jest
       .spyOn(BackHandler, 'addEventListener')
-      .mockImplementation((_event, handler: () => boolean | null | undefined) => {
-        backHandlers.push(() => handler() === true);
+      .mockImplementation((_event, handler) => {
+        backHandlers.push(() => handler({ type: 'hardwareBackPress', timeStamp: Date.now() }) === true);
         return {
           remove: () => {
             backHandlers.length = 0;
@@ -314,8 +314,8 @@ describe('embedded QRLWebView', () => {
     jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => true);
     jest
       .spyOn(BackHandler, 'addEventListener')
-      .mockImplementation((_event, handler: () => boolean | null | undefined) => {
-        backHandlers.push(() => handler() === true);
+      .mockImplementation((_event, handler) => {
+        backHandlers.push(() => handler({ type: 'hardwareBackPress', timeStamp: Date.now() }) === true);
         return {
           remove: () => {
             backHandlers.length = 0;
