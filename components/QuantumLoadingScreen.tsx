@@ -315,7 +315,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: INK,
     justifyContent: 'center',
     alignItems: 'center',

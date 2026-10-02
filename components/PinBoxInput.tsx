@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.dot,
   },
   hiddenInput: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     opacity: 0,
     color: 'transparent',
   },

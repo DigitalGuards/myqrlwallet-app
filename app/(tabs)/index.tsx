@@ -26,8 +26,7 @@ import Logger from '../../services/Logger';
 import { createBackgroundLock } from '../../services/BackgroundLock';
 import EmbeddedRouteIntent from '../../services/EmbeddedRouteIntent';
 import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
-import { useIsFocused, useFocusEffect } from '@react-navigation/native';
-import { router, usePathname } from 'expo-router';
+import { router, useFocusEffect, useIsFocused, usePathname } from 'expo-router';
 
 // Time threshold for showing loading screen (5 minutes in ms)
 const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;

@@ -132,7 +132,7 @@ describe('embedded wallet request policy', () => {
     // silently reopen the hole this policy closes, on the platform that has
     // it.
     const patch = readFileSync(
-      resolve(projectRoot, 'patches/react-native-webview+13.15.0.patch'),
+      resolve(projectRoot, 'patches/react-native-webview+13.16.1.patch'),
       'utf8',
     );
     expect(patch).toContain('shouldInterceptRequest');

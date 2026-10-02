@@ -2,7 +2,7 @@ import type { Platform } from 'react-native';
 
 export interface WebViewLoadStartEvent {
   /**
-   * Android only, added by patches/react-native-webview+13.15.0.patch. True
+   * Android only, added by patches/react-native-webview+13.16.1.patch. True
    * when the event came from onPageStarted, which is the one callback that
    * means a document is being replaced.
    */

@@ -17,7 +17,7 @@ jest.mock('react-native-webview', () => ({ WebView: 'NativeWebView' }));
 // useFocusEffect had no coverage at all, so the back handler was never
 // exercised. Running the callback immediately is what the real hook does on a
 // focused screen.
-jest.mock('@react-navigation/native', () => ({
+jest.mock('expo-router', () => ({
   useFocusEffect: (callback: () => (() => void) | void) => {
     const { useEffect } = jest.requireActual('react') as typeof import('react');
     useEffect(() => callback(), [callback]);
@@ -116,8 +116,8 @@ describe('embedded QRLWebView', () => {
     jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => true);
     jest
       .spyOn(BackHandler, 'addEventListener')
-      .mockImplementation((_event, handler: () => boolean | null | undefined) => {
-        backHandlers.push(() => handler() === true);
+      .mockImplementation((_event, handler) => {
+        backHandlers.push(() => handler({ type: 'hardwareBackPress', timeStamp: Date.now() }) === true);
         return {
           remove: () => {
             backHandlers.length = 0;
@@ -314,8 +314,8 @@ describe('embedded QRLWebView', () => {
     jest.spyOn(BackHandler, 'exitApp').mockImplementation(() => true);
     jest
       .spyOn(BackHandler, 'addEventListener')
-      .mockImplementation((_event, handler: () => boolean | null | undefined) => {
-        backHandlers.push(() => handler() === true);
+      .mockImplementation((_event, handler) => {
+        backHandlers.push(() => handler({ type: 'hardwareBackPress', timeStamp: Date.now() }) === true);
         return {
           remove: () => {
             backHandlers.length = 0;

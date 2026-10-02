@@ -9,7 +9,6 @@
       "qrlconnect"
     ],
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chiefdg.myqrlwallet",
