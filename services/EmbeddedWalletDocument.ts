@@ -53,8 +53,16 @@ export const EMBEDDED_FLAG_SCRIPT = 'window.__QRL_EMBEDDED__ = true; true;';
 export const EMBEDDED_REBIND_SCRIPT =
   '(function(){try{if(typeof window.__qrlBindBridge==="function")window.__qrlBindBridge();}catch(e){}})();true;';
 
-/** Separator between the document token and the message the wallet sent. */
-export const BRIDGE_TOKEN_SEPARATOR = '\u0000';
+/**
+ * Separator between the document token and the message the wallet sent.
+ *
+ * Printable on purpose. iOS hands page messages to React Native as strings
+ * that end at the first NUL, so a NUL separator delivered only the token and
+ * every message was dropped (TestFlight build 36). The token is 64 hex
+ * characters, so a colon can never occur inside it and marks its end
+ * unambiguously.
+ */
+export const BRIDGE_TOKEN_SEPARATOR = ':';
 
 /** A fresh 256-bit document token, hex encoded. */
 export function createDocumentToken(): string {
