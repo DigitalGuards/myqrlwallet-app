@@ -1,8 +1,4 @@
-import {
-  REMOTE_WALLET_ACKNOWLEDGEMENT,
-  resolveWebSource,
-  resolveWebSourceMode,
-} from '../WebSource';
+import { resolveWebSource, resolveWebSourceMode } from '../WebSource';
 
 describe('web source selection', () => {
   it('defaults a release build to the wallet shipped in the bundle', () => {
@@ -19,7 +15,7 @@ describe('web source selection', () => {
 
   it('keeps a development run pointed at the dev server', () => {
     expect(resolveWebSource({ requested: undefined, isDevelopment: true })).toEqual({ mode: 'dev' });
-    for (const requested of ['embedded', 'remote', 'dev']) {
+    for (const requested of ['embedded', 'dev']) {
       expect(resolveWebSource({ requested, isDevelopment: true }).mode).toBe(requested);
     }
   });
@@ -33,32 +29,17 @@ describe('web source selection', () => {
     });
   });
 
-  it('requires a second explicit flag before a release build loads the wallet remotely', () => {
+  it('refuses the retired remote mode like any unknown value', () => {
+    // The hosted build no longer carries the native bridge, so a profile that
+    // still asks for the live site gets the bundled wallet instead.
     expect(resolveWebSource({ requested: 'remote', isDevelopment: false })).toEqual({
       mode: 'embedded',
-      refused: { requested: 'remote', reason: 'needs-acknowledgement' },
+      refused: { requested: 'remote', reason: 'unknown' },
     });
-    expect(
-      resolveWebSource({
-        requested: 'remote',
-        isDevelopment: false,
-        remoteAcknowledgement: 'yes',
-      }).mode,
-    ).toBe('embedded');
-    expect(
-      resolveWebSource({
-        requested: 'remote',
-        isDevelopment: false,
-        remoteAcknowledgement: REMOTE_WALLET_ACKNOWLEDGEMENT,
-      }),
-    ).toEqual({ mode: 'remote' });
-    expect(
-      resolveWebSource({
-        requested: '  Remote  ',
-        isDevelopment: false,
-        remoteAcknowledgement: ` ${REMOTE_WALLET_ACKNOWLEDGEMENT.toUpperCase()} `,
-      }),
-    ).toEqual({ mode: 'remote' });
+    expect(resolveWebSource({ requested: 'remote', isDevelopment: true })).toEqual({
+      mode: 'dev',
+      refused: { requested: 'remote', reason: 'unknown' },
+    });
   });
 
   it('falls back to the default rather than throwing on a typo, and says so', () => {
@@ -76,6 +57,5 @@ describe('web source selection', () => {
     expect(resolveWebSourceMode(undefined, false)).toBe('embedded');
     expect(resolveWebSourceMode('dev', true)).toBe('dev');
     expect(resolveWebSourceMode('remote', false)).toBe('embedded');
-    expect(resolveWebSourceMode('remote', false, REMOTE_WALLET_ACKNOWLEDGEMENT)).toBe('remote');
   });
 });
