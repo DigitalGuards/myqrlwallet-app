@@ -17,7 +17,7 @@
  * the wallet genuinely calls are left to the network.
  *
  * This module is the readable, tested statement of the rules. The Java side
- * of `patches/react-native-webview+13.15.0.patch` implements the same three
+ * of `patches/react-native-webview+13.16.1.patch` implements the same three
  * decisions; a test pins the allowlist in both so they cannot drift.
  */
 export type EmbeddedRequestDecision =

@@ -77,7 +77,7 @@ have imitated the wallet's own PIN prompt. The shipped document contains no
 `reload()` call, so nothing walked down that path, and a path that is
 fail-open only because nothing walks down it is still fail-open.
 
-`patches/react-native-webview+13.15.0.patch` closes it in the WebView client,
+`patches/react-native-webview+13.16.1.patch` closes it in the WebView client,
 where every request is visible:
 
 - the manager records the document string and base URL it was handed, so the
