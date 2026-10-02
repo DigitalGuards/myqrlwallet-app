@@ -97,7 +97,14 @@
         {
           "faceIDPermission": "Allow MyQRLWallet to use Face ID to secure your wallet."
         }
-      ]
+      ],
+      [
+        "expo-dev-client",
+        {
+          "addGeneratedScheme": false
+        }
+      ],
+      "./plugins/withBackgroundOnBack"
     ],
     "experiments": {
       "typedRoutes": true

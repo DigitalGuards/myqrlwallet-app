@@ -1,21 +1,46 @@
 {
   "cli": {
     "version": ">= 16.17.3",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "requireCommit": true
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "embedded-dev"
+      }
+    },
+    "development-embedded": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "embedded-dev",
+        "EXPO_PUBLIC_WEB_SOURCE": "embedded"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_WEB_SOURCE": "embedded"
+      }
+    },
+    "preview-embedded": {
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "embedded-dev",
+        "EXPO_PUBLIC_WEB_SOURCE": "embedded",
+        "RCT_USE_PREBUILT_RNCORE": "0",
+        "RCT_USE_RN_DEP": "0"
+      }
     },
     "production": {
       "autoIncrement": true,
       "env": {
         "RCT_USE_PREBUILT_RNCORE": "0",
-        "RCT_USE_RN_DEP": "0"
+        "RCT_USE_RN_DEP": "0",
+        "EXPO_PUBLIC_WEB_SOURCE": "embedded"
       }
     }
   },

@@ -30,6 +30,8 @@ import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
+import { resolveWebSource } from '../services/WebSource';
+import { EMBEDDED_WALLET_BUILD_INFO } from '../services/EmbeddedWalletDocument';
 
 // Visual tokens are kept local to this screen per user scope.
 // Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
@@ -144,6 +146,19 @@ export default function SettingsScreen() {
   const [deviceLoginAction, setDeviceLoginAction] = useState<SettingsSecurityAction | null>(null);
   const [dappConnectionCount, setDappConnectionCount] = useState(0);
   const appVersion = Constants.expoConfig?.version || '1.0.0';
+  // Which wallet the app is running and, when it ships one, which frontend
+  // commit it was built from. Makes a device report say what code was on it.
+  const webSourceMode = resolveWebSource({
+    requested: process.env.EXPO_PUBLIC_WEB_SOURCE,
+    isDevelopment: __DEV__,
+    remoteAcknowledgement: process.env.EXPO_PUBLIC_ALLOW_REMOTE_WALLET,
+  }).mode;
+  const walletBuildLabel =
+    webSourceMode === 'embedded'
+      ? `Wallet build ${EMBEDDED_WALLET_BUILD_INFO.frontendCommitShort} (bundled)`
+      : webSourceMode === 'dev'
+        ? 'Wallet build: development server'
+        : 'Wallet build: qrlwallet.com (live)';
   const mounted = useRef(true);
   const focused = useRef(true);
   const activeSecurityAction = useRef<SettingsSecurityAction | null>(null);
@@ -431,17 +446,21 @@ export default function SettingsScreen() {
     );
   };
 
-  const clearCache = async () => {
+  // Named for what it does. It removes two native AsyncStorage keys, the
+  // stored cookie blob and the last-session timestamp. It never touched a
+  // WebView cache, and in embedded mode there is no web cache to clear: the
+  // wallet is served from the app bundle.
+  const clearSessionData = async () => {
     Alert.alert(
-      'Clear Web Cache',
-      'This clears the saved web session data (cookies and cached state). Your wallet, seed, and PIN are not affected. Continue?',
+      'Reset Session Data',
+      'This clears the saved session timestamp and cookie data this app keeps. Your wallet, seed, PIN and address book are not affected. Continue?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear',
+          text: 'Reset',
           onPress: async () => {
             await WebViewService.clearSessionData();
-            Alert.alert('Web Cache Cleared', 'Saved web session data has been cleared.');
+            Alert.alert('Session Data Reset', 'The saved session data has been cleared.');
           },
         },
       ]
@@ -626,25 +645,26 @@ export default function SettingsScreen() {
           <Row
             icon="refresh"
             tint={C.gray}
-            title="Clear Web Cache"
-            subtitle="Clears saved web session data. Your wallet is not affected."
-            onPress={clearCache}
+            title="Reset Session Data"
+            subtitle="Clears the session data this app keeps. Your wallet is not affected."
+            onPress={clearSessionData}
           />
         </Section>
 
-        {/* Wallet danger zone */}
-        {hasWallet && (
-          <Section title="Wallet">
-            <Row
-              icon="trash"
-              tint={C.red}
-              title="Remove All Wallets"
-              subtitle="Permanently delete all wallets from this device"
-              onPress={removeWallet}
-              destructive
-            />
-          </Section>
-        )}
+        {/* Wallet danger zone. Shown even when native storage holds no wallet:
+            the wallet page can still hold wallets whose device credential is
+            gone (an older install, a restore without the keychain), and its
+            recovery steps send the user here. */}
+        <Section title="Wallet">
+          <Row
+            icon="trash"
+            tint={C.red}
+            title="Remove All Wallets"
+            subtitle="Permanently delete all wallets from this device"
+            onPress={removeWallet}
+            destructive
+          />
+        </Section>
 
         {/* About */}
         <View style={styles.aboutHeader}>
@@ -654,6 +674,9 @@ export default function SettingsScreen() {
             resizeMode="contain"
           />
           <Text style={styles.version}>Version {appVersion}</Text>
+          <Text style={styles.walletBuild} selectable>
+            {walletBuildLabel}
+          </Text>
           <Text style={styles.aboutParagraph}>
             The Quantum Resistant Ledger (QRL) is a blockchain designed to be secure against
             quantum computing attacks.
@@ -821,6 +844,11 @@ const styles = StyleSheet.create({
   version: {
     fontSize: 13,
     color: C.textSecondary,
+    marginBottom: 4,
+  },
+  walletBuild: {
+    fontSize: 11,
+    color: C.textTertiary,
     marginBottom: 12,
   },
   aboutParagraph: {

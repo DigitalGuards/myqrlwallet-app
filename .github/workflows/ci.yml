@@ -5,6 +5,20 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      allow_unreachable_pin:
+        description: >-
+          Let the reproduce job pass when the pinned frontend commit cannot be
+          fetched. Only for the window where the pin names a pull-request
+          branch whose commit a squash merge has orphaned.
+        type: boolean
+        default: false
+
+# The reproduce job runs another repository's build, so it runs third-party
+# lifecycle scripts. Give the token nothing to do.
+permissions:
+  contents: read
 
 jobs:
   lint-and-build:
@@ -16,16 +30,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Verify the bundled wallet document against its reviewed pin
+        run: npm run verify:embedded-web
 
       - name: Run lint
         run: npm run lint
@@ -42,3 +59,27 @@ jobs:
       - name: Expo doctor
         run: npx expo-doctor
         continue-on-error: true
+
+  reproduce-embedded-wallet:
+    # Proves the pinned digest corresponds to public frontend source, not just
+    # that the committed blob is unchanged. Slow, so it runs on its own.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20.x
+
+      - name: Rebuild the pinned wallet document and compare digests
+        # Fails closed. The pinned frontend commit is public, so it is
+        # fetchable by SHA and an unfetchable pin is a finding rather than a
+        # skip. The escape hatch exists only as an explicit manual input, for
+        # the window where the pin names a pull-request branch whose commit a
+        # squash merge has orphaned. It is never set on a push or a PR.
+        env:
+          ALLOW_UNREACHABLE_PIN: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_unreachable_pin && '1' || '0' }}
+        run: bash scripts/reproduce-embedded-web.sh

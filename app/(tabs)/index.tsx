@@ -24,6 +24,7 @@ import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge, { NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
 import { createBackgroundLock } from '../../services/BackgroundLock';
+import EmbeddedRouteIntent from '../../services/EmbeddedRouteIntent';
 import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
 import { router, usePathname } from 'expo-router';
@@ -50,6 +51,12 @@ export default function WalletScreen() {
   const [isDeviceAuthenticating, setIsDeviceAuthenticating] = useState(false);
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [authCheckNonce, setAuthCheckNonce] = useState(0);
+  const [webViewDocumentLoaded, setWebViewDocumentLoaded] = useState(false);
+  // Set when the WebView cannot show a document at all. A failure raised
+  // before the first load start leaves initialDocumentStarted false, so the
+  // authorization effect never runs and the lock overlay would sit on top of
+  // the only working way out, which is the WebView's own Retry.
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const isFocused = useIsFocused();
   const pathname = usePathname();
   const appState = useRef(AppState.currentState);
@@ -612,6 +619,7 @@ export default function WalletScreen() {
   // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
   const handleWebViewLoad = useCallback(() => {
     // WebView content loaded - web app will signal WEB_APP_READY when fully initialized
+    setWebViewDocumentLoaded(true);
   }, []);
 
   const handleDocumentLoadStart = useCallback(() => {
@@ -619,6 +627,7 @@ export default function WalletScreen() {
     // Start initial auth in that context without waiting for authorized-only
     // WEB_APP_READY delivery. Later loads still invalidate every old attempt.
     initialDocumentStarted.current = true;
+    setWebViewDocumentLoaded(false);
     manualRetryRequired.current =
       manualRetryRequired.current ||
       isAuthenticating.current ||
@@ -790,6 +799,23 @@ export default function WalletScreen() {
     }
   }, [isFocused, isAuthorized]);
 
+  // A qrlwallet.com link tapped outside the app cannot be loaded as a
+  // document any more, so app/_layout.tsx recorded the matching wallet route.
+  // Apply it only once the app is unlocked, and drop it while locked so a
+  // stale tap cannot steer the wallet later.
+  useEffect(() => {
+    if (!isAuthorized || !webViewDocumentLoaded) return;
+    const applyRoute = (route: string) => {
+      webViewRef.current?.navigateToEmbeddedRoute(route);
+    };
+    const pending = EmbeddedRouteIntent.consume();
+    if (pending) applyRoute(pending);
+    return EmbeddedRouteIntent.subscribe((route) => {
+      EmbeddedRouteIntent.clear();
+      applyRoute(route);
+    });
+  }, [isAuthorized, webViewDocumentLoaded]);
+
   // Log WebView visibility changes
   useEffect(() => {
     Logger.debug('WalletScreen', `WebView visibility changed: isAuthorized=${isAuthorized}, webViewRef=${webViewRef.current ? 'exists' : 'null'}`);
@@ -819,12 +845,16 @@ export default function WalletScreen() {
           ref={webViewRef}
           onLoad={handleWebViewLoad}
           onDocumentLoadStart={handleDocumentLoadStart}
+          onDocumentError={setDocumentError}
           skipLoadingScreen={skipLoadingScreen}
         />
       </RNView>
       {/* Opaque lock cover: hides wallet content during re-auth and blocks
           touches to the WebView underneath, while letting its JS keep running. */}
-      {!isAuthorized && (
+      {/* While the document itself is unusable there is no wallet content to
+          cover, and the WebView is showing the error and its Retry button, so
+          the overlay stands aside rather than sealing the app. */}
+      {!isAuthorized && documentError === null && (
         <RNView
           style={styles.lockOverlay}
           pointerEvents="auto"
