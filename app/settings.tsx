@@ -648,19 +648,20 @@ export default function SettingsScreen() {
           />
         </Section>
 
-        {/* Wallet danger zone */}
-        {hasWallet && (
-          <Section title="Wallet">
-            <Row
-              icon="trash"
-              tint={C.red}
-              title="Remove All Wallets"
-              subtitle="Permanently delete all wallets from this device"
-              onPress={removeWallet}
-              destructive
-            />
-          </Section>
-        )}
+        {/* Wallet danger zone. Shown even when native storage holds no wallet:
+            the wallet page can still hold wallets whose device credential is
+            gone (an older install, a restore without the keychain), and its
+            recovery steps send the user here. */}
+        <Section title="Wallet">
+          <Row
+            icon="trash"
+            tint={C.red}
+            title="Remove All Wallets"
+            subtitle="Permanently delete all wallets from this device"
+            onPress={removeWallet}
+            destructive
+          />
+        </Section>
 
         {/* About */}
         <View style={styles.aboutHeader}>
