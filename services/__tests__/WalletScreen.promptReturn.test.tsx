@@ -21,13 +21,11 @@ jest.mock('../../components/QRLWebView', () => 'QRLWebView');
 jest.mock('../../components/PinEntryModal', () => 'PinEntryModal');
 jest.mock('../../components/QRScannerModal', () => 'QRScannerModal');
 jest.mock('../../components/QuantumLoadingScreen', () => 'QuantumLoadingScreen');
-jest.mock('@react-navigation/native', () => ({
-  useIsFocused: () => mockFocused,
-  useFocusEffect: jest.fn(),
-}));
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), replace: jest.fn() },
   usePathname: () => '/',
+  useIsFocused: () => mockFocused,
+  useFocusEffect: jest.fn(),
 }));
 jest.mock('expo-local-authentication', () => ({
   SecurityLevel: { NONE: 0, SECRET: 1, BIOMETRIC_WEAK: 2, BIOMETRIC_STRONG: 3 },

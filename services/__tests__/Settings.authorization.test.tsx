@@ -15,7 +15,8 @@ const mockInvalidationListeners = new Set<() => void>();
 jest.mock('react-native-safe-area-context', () => ({ SafeAreaView: 'SafeAreaView' }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
 jest.mock('expo-constants', () => ({ expoConfig: { version: '1.3.1' } }));
-jest.mock('@react-navigation/native', () => ({
+jest.mock('expo-router', () => ({
+  router: { back: jest.fn(), push: jest.fn() },
   useNavigation: () => ({ setOptions: jest.fn() }),
   useFocusEffect: (callback: () => () => void) => {
     jest.requireActual<typeof React>('react').useEffect(() => {
@@ -24,7 +25,6 @@ jest.mock('@react-navigation/native', () => ({
     }, [callback]);
   },
 }));
-jest.mock('expo-router', () => ({ router: { back: jest.fn(), push: jest.fn() } }));
 jest.mock('../../components/ChangePinModal', () => ({ ChangePinModal: 'ChangePinModal' }));
 jest.mock('../../components/PinEntryModal', () => ({ PinEntryModal: 'PinEntryModal' }));
 jest.mock('expo-local-authentication', () => ({

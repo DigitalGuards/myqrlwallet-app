@@ -5,7 +5,9 @@ import QRLWebView from '../../components/QRLWebView';
 import NativeBridge from '../NativeBridge';
 
 jest.mock('react-native-webview', () => ({ WebView: 'NativeWebView' }));
-jest.mock('@react-navigation/native', () => ({ useFocusEffect: jest.fn() }));
+jest.mock('expo-router', () => ({
+  useFocusEffect: jest.fn(),
+}));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
