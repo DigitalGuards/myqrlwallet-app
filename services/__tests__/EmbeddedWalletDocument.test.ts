@@ -236,3 +236,14 @@ describe('embedded wallet document', () => {
     expect(html).not.toMatch(/["']\/assets\//);
   });
 });
+
+describe('bridge token separator', () => {
+  it('survives native string bridges and cannot occur inside the token', () => {
+    // iOS truncated bridge messages at a NUL separator, so every message the
+    // page sent reached native as the bare token and was dropped.
+    expect(BRIDGE_TOKEN_SEPARATOR).toHaveLength(1);
+    expect(BRIDGE_TOKEN_SEPARATOR.charCodeAt(0)).toBeGreaterThan(0x20);
+    expect(BRIDGE_TOKEN_SEPARATOR.charCodeAt(0)).toBeLessThan(0x7f);
+    expect(/[0-9a-f]/i.test(BRIDGE_TOKEN_SEPARATOR)).toBe(false);
+  });
+});
