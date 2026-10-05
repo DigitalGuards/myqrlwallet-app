@@ -15,7 +15,7 @@ describe('ChangePinOverlay', () => {
     backListener = undefined;
     remove.mockClear();
     jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_event, listener) => {
-      backListener = listener;
+      backListener = listener as unknown as () => boolean;
       return { remove };
     });
   });
@@ -37,7 +37,7 @@ describe('ChangePinOverlay', () => {
   it('draws in the screen tree without a native Modal', async () => {
     // A Fabric Modal presented right after the Face ID sheet can be refused by UIKit.
     await render(true);
-    expect(screen!.root.findAllByType(Modal)).toHaveLength(0);
+    expect(screen!.root.findAllByType(Modal as never)).toHaveLength(0);
     expect(screen!.root.findAllByProps({ accessibilityLabel: 'Current PIN' }).length).toBeGreaterThan(0);
   });
 
