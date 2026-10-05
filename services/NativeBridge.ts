@@ -30,7 +30,10 @@ const MAX_CONTACTS = 500;
 const MAX_CONTACTS_JSON_CHARS = 256 * 1024;
 const MAX_DAPP_NAME_CHARS = 128;
 const MAX_DAPP_URL_CHARS = 2048;
-const MAX_PENDING_SEED_WRITES = 4;
+// The wallet holds at most 10 accounts and a PIN change backs each up, then the
+// rollback wave repeats it, so twice that stays queued before a flooding page
+// is refused.
+const MAX_QUEUED_SEED_WRITES = 20;
 const DAPP_INTENT_TTL_MS = 120000;
 
 export interface NativeSecurityContext {
@@ -323,6 +326,7 @@ class NativeBridge {
   private authorizedSyncPromise: Promise<void> | null = null;
   private pendingDAppDisconnects = new Map<string, PendingDAppDisconnect>();
   private pendingSeedStoreRequestIds = new Set<string>();
+  private seedWriteTail: Promise<void> = Promise.resolve();
   private dappShowWebViewCallback: DAppShowWebViewCallback | null = null;
   private dappStoreWriteQueue: Promise<void> = Promise.resolve();
   private isWebAppReady: boolean = false;
@@ -1005,13 +1009,24 @@ class NativeBridge {
           Logger.warn('NativeBridge', 'Ignoring duplicate in-flight SEED_STORED request');
           return;
         }
-        if (this.pendingSeedStoreRequestIds.size >= MAX_PENDING_SEED_WRITES) {
+        if (this.pendingSeedStoreRequestIds.size >= MAX_QUEUED_SEED_WRITES) {
+          Logger.error('NativeBridge', 'SEED_STORED refused: the seed backup queue is full');
           this.sendSeedStoredResponse(requestId, false, revision, ciphertextHash, 'STORAGE_ERROR');
           return;
         }
         this.pendingSeedStoreRequestIds.add(requestId);
-        try {
+        // Writes run one at a time in arrival order. A queued write that outlives
+        // the authorization or wallet it arrived under is dropped.
+        const context = this.captureSecurityContext();
+        const write = this.seedWriteTail.then(async () => {
+          if (this.walletClearInProgress || !this.isSecurityContextCurrent(context)) {
+            throw new Error('Seed backup dropped: the wallet or authorization changed while queued');
+          }
           await this.handleSeedStored(address, encryptedSeed, blockchain, revision, ciphertextHash);
+        });
+        this.seedWriteTail = write.catch(() => undefined);
+        try {
+          await write;
           this.sendSeedStoredResponse(requestId, true, revision, ciphertextHash);
         } catch (error) {
           Logger.error('NativeBridge', 'Seed backup request failed:', error);
