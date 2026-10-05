@@ -35,6 +35,8 @@ const MAX_DAPP_URL_CHARS = 2048;
 // is refused.
 const MAX_QUEUED_SEED_WRITES = 20;
 const DAPP_INTENT_TTL_MS = 120000;
+// Shorter than the intent TTL so a stuck storage read cannot hold a pairing link until it expires.
+const AUTHORIZED_SYNC_TIMEOUT_MS = 30000;
 
 export interface NativeSecurityContext {
   walletGeneration: number;
@@ -444,16 +446,19 @@ class NativeBridge {
     }
 
     this.authorizedSyncDocumentGeneration = generation;
-    const operation = (async () => {
+    let abandoned = false;
+    const stillCurrent = () =>
+      !abandoned && this.nativeAuthorized && this.isSecurityContextCurrent(context);
+    const work = (async () => {
       const displayPrefs = await WebViewService.getUserPreferences();
-      if (!this.nativeAuthorized || !this.isSecurityContextCurrent(context)) return;
+      if (!stillCurrent()) return;
       this.sendDisplayPrefs({
         showTokensCard: displayPrefs.showTokensCard ?? true,
         showNftsCard: displayPrefs.showNftsCard ?? true,
       });
 
       const contactsJson = await WebViewService.getContactsBackup();
-      if (!this.nativeAuthorized || !this.isSecurityContextCurrent(context)) return;
+      if (!stillCurrent()) return;
       if (contactsJson) {
         const contacts: unknown = JSON.parse(contactsJson);
         if (
@@ -476,14 +481,21 @@ class NativeBridge {
         }
       }
 
-      if (
-        this.webAppReadyCallback &&
-        this.nativeAuthorized &&
-        this.isSecurityContextCurrent(context)
-      ) {
+      if (this.webAppReadyCallback && stillCurrent()) {
         await this.webAppReadyCallback();
       }
     })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        abandoned = true;
+        Logger.error('NativeBridge', 'Authorized document sync timed out');
+        reject(new Error('Authorized document sync timed out'));
+      }, AUTHORIZED_SYNC_TIMEOUT_MS);
+    });
+    const operation = Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+    // The losing branch must not surface as an unhandled rejection.
+    work.catch(() => undefined);
     const checked = operation.catch((error) => {
       if (this.authorizedSyncPromise === inFlight) {
         this.authorizedSyncDocumentGeneration = -1;
@@ -564,7 +576,10 @@ class NativeBridge {
     this.activeDocumentId = null;
     this.pendingDocumentChallenges.clear();
     this.documentGeneration += 1;
-    if (this.pendingDAppIntent?.documentId !== null) this.cancelPendingDAppIntent();
+    // iOS can kill the WebView content process while the user is in the dApp's
+    // browser. Keep the intent for the next authenticated document: it still
+    // waits for unlock and still expires on its own timer.
+    if (this.pendingDAppIntent) this.pendingDAppIntent.documentId = null;
     this.notifyAuthorizationInvalidated();
     this.cancelDocumentRequests('Web app document changed');
     this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
