@@ -26,6 +26,7 @@ interface PinChangeRequest {
 class BiometricService {
   // In-memory queue for PIN change (used during navigation from Settings to WebView tab)
   private pendingPinChange: PinChangeRequest | null = null;
+  private pinChangeDroppedByLock = false;
   // In-memory queue for Device Login setup (used during navigation from Settings to WebView tab)
   private pendingDeviceLoginPin: string | null = null;
   private securityOperationGeneration = 0;
@@ -96,8 +97,14 @@ class BiometricService {
     }
   }
 
-  clearPendingSecurityOperations(): void {
+  clearPendingSecurityOperations(reason?: 'lock'): void {
     this.securityOperationGeneration += 1;
+    if (reason === 'lock' && this.pendingPinChange) {
+      // The user queued a change that the lock discarded. Remember it so the
+      // wallet screen can say the PIN was not changed once it is unlocked.
+      this.pinChangeDroppedByLock = true;
+      Logger.error('BiometricService', 'Queued PIN change dropped by a wallet lock');
+    }
     this.pendingPinChange = null;
     this.pendingDeviceLoginPin = null;
   }
@@ -599,6 +606,15 @@ class BiometricService {
     this.pendingPinChange = null; // Clear immediately to prevent re-execution
 
     return this.changePin(oldPin, newPin);
+  }
+
+  /**
+   * True once after a lock discarded a queued PIN change. Reading it clears it.
+   */
+  consumePinChangeDroppedByLock(): boolean {
+    const dropped = this.pinChangeDroppedByLock;
+    this.pinChangeDroppedByLock = false;
+    return dropped;
   }
 
   /**

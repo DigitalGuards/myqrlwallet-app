@@ -2129,11 +2129,16 @@ class NativeBridge {
       };
       this.pendingPinChangeRequest = { requestId, expectedPin: newPin };
 
-      // Send change request to web
-      this.sendToWeb({
+      // Send change request to web. An unsent request would otherwise wait the
+      // full timeout, so report it at once.
+      const sent = this.sendToWeb({
         type: 'CHANGE_PIN',
         payload: { requestId, oldPin, newPin, acceptAlreadyTarget },
       });
+      if (sent === false) {
+        Logger.error('NativeBridge', 'CHANGE_PIN could not be delivered to the web document');
+        finish(false, 'Web app is unavailable');
+      }
     });
   }
 }

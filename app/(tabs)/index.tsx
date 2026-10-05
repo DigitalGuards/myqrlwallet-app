@@ -568,7 +568,7 @@ export default function WalletScreen() {
     }
     authAttemptGeneration.current += 1;
     NativeBridge.invalidateAuthorization();
-    BiometricService.clearPendingSecurityOperations();
+    BiometricService.clearPendingSecurityOperations('lock');
     hasRestoredSeeds.current = false;
     // Drop any PIN held between a successful biometric unlock and WEB_APP_READY.
     // A later authorized attempt must repopulate it.
@@ -732,6 +732,13 @@ export default function WalletScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!isAuthorized) return;
+
+      if (BiometricService.consumePinChangeDroppedByLock()) {
+        Alert.alert(
+          'PIN Not Changed',
+          'The app locked before your PIN change ran, so your PIN was not changed. Start the change again from Settings.',
+        );
+      }
 
       // Check for pending Device Login setup
       if (BiometricService.hasPendingDeviceLoginSetup() && !deviceLoginSetupTriggered.current) {

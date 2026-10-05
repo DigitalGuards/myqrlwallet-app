@@ -6,6 +6,7 @@ import SettingsScreen from '../../app/settings';
 import NativeBridge from '../NativeBridge';
 import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
+import Logger from '../Logger';
 
 let mockGeneration = 0;
 let mockWalletGeneration = 0;
@@ -383,6 +384,51 @@ describe('Settings session-bound security actions', () => {
       expect(modal('ChangePinOverlay').visible).toBe(false);
     }
   );
+
+  it('reports a failed Change PIN prompt instead of leaving Settings silent', async () => {
+    jest
+      .mocked(LocalAuthentication.authenticateAsync)
+      .mockResolvedValue({ success: false, error: 'lockout' });
+    await act(async () => {
+      await begin('change');
+    });
+    expect(modal('ChangePinOverlay').visible).toBe(false);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'PIN Not Changed',
+      'Authentication did not complete. Please try again.'
+    );
+    expect(Logger.error).toHaveBeenCalledWith('Settings', expect.stringContaining('Change PIN'));
+  });
+
+  it('stays quiet when the user cancels the Change PIN prompt', async () => {
+    jest
+      .mocked(LocalAuthentication.authenticateAsync)
+      .mockResolvedValue({ success: false, error: 'user_cancel' });
+    await act(async () => {
+      await begin('change');
+    });
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('tells the user when a stale Change PIN form is submitted', async () => {
+    await act(async () => {
+      await begin('change');
+    });
+    const stale = modal('ChangePinOverlay').onSubmit;
+    await act(async () => {
+      NativeBridge.invalidateAuthorization();
+    });
+    jest.mocked(Alert.alert).mockClear();
+    await act(async () => {
+      stale('old', 'new');
+    });
+    expect(BiometricService.queuePinChange).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'PIN Not Changed',
+      'Your session changed before the PIN could be updated. Please try again.'
+    );
+    expect(Logger.error).toHaveBeenCalledWith('Settings', expect.stringContaining('stale'));
+  });
 
   it('binds PIN-change modal submission to its original action, including after reauthorization', async () => {
     await act(async () => {

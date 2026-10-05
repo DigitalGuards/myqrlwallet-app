@@ -49,6 +49,7 @@ import NativeBridge, {
   NATIVE_PIN_COMMIT_ERROR,
 } from '../NativeBridge';
 import SeedStorageService from '../SeedStorageService';
+import Logger from '../Logger';
 
 const mockGetDeviceCredential =
   SeedStorageService.getDeviceCredential as jest.MockedFunction<
@@ -512,6 +513,28 @@ describe('NativeBridge device credential protocol', () => {
 
     await expect(change).resolves.toEqual({ success: true, error: undefined });
     expect(mockStorePin).toHaveBeenCalledWith('5678');
+    send.mockRestore();
+  });
+
+  it('fails a PIN change fast when the request cannot reach the page', async () => {
+    await handleBridge({ type: 'WEB_APP_READY' });
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => false);
+
+    await expect(NativeBridge.changePin('1234', '5678')).resolves.toEqual({
+      success: false,
+      error: 'Web app is unavailable',
+    });
+    expect(Logger.error).toHaveBeenCalledWith(
+      'NativeBridge',
+      expect.stringContaining('CHANGE_PIN'),
+    );
+    // The reservation is released so the next attempt is not refused.
+    send.mockImplementation(() => true);
+    const retry = NativeBridge.changePin('1234', '5678', 1);
+    await expect(retry).resolves.toEqual({
+      success: false,
+      error: NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
+    });
     send.mockRestore();
   });
 

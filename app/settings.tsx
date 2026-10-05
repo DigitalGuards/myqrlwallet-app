@@ -364,7 +364,21 @@ export default function SettingsScreen() {
       'Authenticate to change PIN',
       () => isSecurityActionBound(action),
     );
-    if (!authResult.success || !(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
+    if (!authResult.success) {
+      if (authResult.cancelled) return;
+      Logger.error('Settings', 'Change PIN authentication did not complete');
+      if (mounted.current && focused.current) {
+        Alert.alert('PIN Not Changed', 'Authentication did not complete. Please try again.');
+      }
+      return;
+    }
+    if (!(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) {
+      Logger.error('Settings', 'Change PIN stopped: the app did not return to the foreground in time');
+      if (mounted.current && focused.current) {
+        Alert.alert('PIN Not Changed', 'The app did not return to the foreground. Please try again.');
+      }
+      return;
+    }
     setChangePinAction(action);
   };
 
@@ -373,7 +387,14 @@ export default function SettingsScreen() {
     newPin: string,
     action: SettingsSecurityAction | null,
   ) => {
-    if (!isSecurityActionCurrent(action)) return;
+    if (!isSecurityActionCurrent(action)) {
+      Logger.error('Settings', 'Change PIN submit rejected: the authorized action is stale');
+      Alert.alert(
+        'PIN Not Changed',
+        'Your session changed before the PIN could be updated. Please try again.',
+      );
+      return;
+    }
     invalidateSecurityActions();
     BiometricService.queuePinChange(currentPin, newPin);
     router.back();

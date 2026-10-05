@@ -142,6 +142,20 @@ describe('Device Login setup through the wallet screen lifecycle', () => {
     expect(SeedStorageService.setBiometricEnabled).not.toHaveBeenCalled();
   });
 
+  it('tells the user when a lock dropped a queued PIN change', async () => {
+    await beginSetup();
+    BiometricService.queuePinChange('1234', '5678');
+    await transition('inactive');
+    await transition('background');
+    await transition('active');
+    await act(async () => {
+      resolveAuthentication({ success: true });
+    });
+
+    expect(BiometricService.hasPendingPinChange()).toBe(false);
+    expect(Alert.alert).toHaveBeenCalledWith('PIN Not Changed', expect.stringContaining('locked'));
+  });
+
   it('locks normally while PIN verification is pending before any OS prompt', async () => {
     let resolveVerification: (result: { success: boolean }) => void = () => undefined;
     jest.mocked(NativeBridge.verifyPin).mockImplementationOnce(
