@@ -42,6 +42,11 @@ const AUTHORIZED_SYNC_TIMEOUT_MS = 30000;
 const MAX_HELD_DAPP_CONNECTIONS = 16;
 const MAX_HELD_DAPP_PAYLOAD_CHARS = 8192;
 
+/** The page chooses message types, so only a fixed safe charset and length reach the diagnostics ring. */
+function safeLogType(type: string): string {
+  return type.replace(/[^A-Za-z0-9_]/g, '?').slice(0, 32);
+}
+
 export interface NativeSecurityContext {
   walletGeneration: number;
   documentGeneration: number;
@@ -996,7 +1001,7 @@ class NativeBridge {
         this.holdDAppEvent(type, payload);
         return;
       }
-      Logger.warn('NativeBridge', `Dropped ${type} while the native wallet lock is active`);
+      Logger.warn('NativeBridge', `Dropped ${safeLogType(type)} while the native wallet lock is active`);
       return;
     }
 
@@ -1585,7 +1590,7 @@ class NativeBridge {
       }
 
       default:
-        Logger.warn('NativeBridge', `Unknown message type: ${type}`);
+        Logger.warn('NativeBridge', `Unknown message type: ${safeLogType(type)}`);
     }
   }
 

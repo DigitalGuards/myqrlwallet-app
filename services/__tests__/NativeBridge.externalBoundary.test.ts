@@ -328,6 +328,18 @@ describe('NativeBridge hosted WebView boundaries', () => {
     },
   );
 
+  it('sanitizes a page-chosen message type before it reaches the logs', async () => {
+    NativeBridge.invalidateAuthorization();
+    await nativeHandle({
+      type: 'X\nerror [Fake] forged entry' as never,
+      payload: { documentId: DOCUMENT_ID },
+    });
+    const logged = mockWarn.mock.calls.map((call) => String(call[1])).join('|');
+    expect(logged).toContain('Dropped X?error??Fake??forged?entry');
+    expect(logged).not.toContain('\n');
+    NativeBridge.setNativeAuthorization(true);
+  });
+
   describe('dApp events received while the wallet is locked', () => {
     const connected = (name: string, channelId = CHANNEL_ID): BridgeMessage => ({
       type: 'DAPP_CONNECTED',
