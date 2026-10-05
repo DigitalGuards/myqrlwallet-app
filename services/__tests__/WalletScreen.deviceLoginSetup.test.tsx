@@ -156,6 +156,22 @@ describe('Device Login setup through the wallet screen lifecycle', () => {
     expect(Alert.alert).toHaveBeenCalledWith('PIN Not Changed', expect.stringContaining('locked'));
   });
 
+  it('keeps a pending dApp link when the app backgrounds again before unlock', async () => {
+    await beginSetup();
+    jest.mocked(NativeBridge.invalidateAuthorization).mockClear();
+    await transition('inactive');
+    await transition('background');
+    await transition('active');
+
+    expect(NativeBridge.invalidateAuthorization).toHaveBeenCalled();
+    for (const [options] of jest.mocked(NativeBridge.invalidateAuthorization).mock.calls) {
+      expect(options).toEqual({ preservePendingDAppIntent: true });
+    }
+    await act(async () => {
+      resolveAuthentication({ success: false, error: 'user_cancel' });
+    });
+  });
+
   it('locks normally while PIN verification is pending before any OS prompt', async () => {
     let resolveVerification: (result: { success: boolean }) => void = () => undefined;
     jest.mocked(NativeBridge.verifyPin).mockImplementationOnce(

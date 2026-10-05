@@ -567,7 +567,8 @@ export default function WalletScreen() {
       setAuthError('Login was interrupted. Try again or use your wallet PIN.');
     }
     authAttemptGeneration.current += 1;
-    NativeBridge.invalidateAuthorization();
+    // A pairing link waiting for unlock survives the lock and keeps its expiry.
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
     BiometricService.clearPendingSecurityOperations('lock');
     hasRestoredSeeds.current = false;
     // Drop any PIN held between a successful biometric unlock and WEB_APP_READY.
