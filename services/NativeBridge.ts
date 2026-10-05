@@ -164,6 +164,11 @@ const LOCKED_ALLOWED_MESSAGE_TYPES = new Set<WebToNativeMessageType>([
   'PIN_CHANGED',
   'WALLET_CLEARED',
   'DAPP_DISCONNECT_RESPONSE',
+  // Only marks a stored pairing disconnected. Dropping it while locked (the
+  // user switched to the dApp right after tapping Disconnect, or the 90 s
+  // peer-leave grace ran out in the background) left the dApp list showing
+  // a connection that was gone, with nothing to resend it.
+  'DAPP_DISCONNECTED',
 ]);
 
 /**
