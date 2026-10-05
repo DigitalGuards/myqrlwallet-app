@@ -63,7 +63,6 @@ const DEV_URL = process.env.EXPO_PUBLIC_DEV_URL || 'http://10.0.2.2:5173';
 const CONFIGURED_WEB_SOURCE_RESOLUTION = resolveWebSource({
   requested: process.env.EXPO_PUBLIC_WEB_SOURCE,
   isDevelopment: __DEV__,
-  remoteAcknowledgement: process.env.EXPO_PUBLIC_ALLOW_REMOTE_WALLET,
 });
 const CONFIGURED_WEB_SOURCE = CONFIGURED_WEB_SOURCE_RESOLUTION.mode;
 
@@ -152,7 +151,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     }
   }, [webSource]);
   const isEmbedded = mode === 'embedded';
-  const remoteUri = uri ?? (mode === 'dev' ? DEV_URL : 'https://qrlwallet.com');
+  // Development runs load a local frontend dev server; release builds always
+  // serve the embedded document.
+  const devUri = uri ?? DEV_URL;
 
   // The embedded document, read once from the app bundle, without the
   // bootstrap. The bootstrap carries a per-load token, so it is applied for
@@ -700,13 +701,6 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       }
     }
 
-    // Handle legacy PAGE_LOADED message
-    if (data === 'PAGE_LOADED') {
-      Logger.debug('QRLWebView', 'Legacy PAGE_LOADED message received');
-      setIsLoading(false);
-      return;
-    }
-
     let message: BridgeMessage;
     try {
       message = JSON.parse(data) as BridgeMessage;
@@ -833,7 +827,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // refs here and a new document is produced only when the epoch advances.
   const embeddedSource = useMemo(
     () => {
-      if (!isEmbedded) return { uri: remoteUri };
+      if (!isEmbedded) return { uri: devUri };
       if (embeddedRawHtml === null || !migrationResolved) return null;
       const owesMigration = migrationPendingRef.current === true;
       servedMigrationPending.current = owesMigration;
@@ -847,18 +841,14 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     // because the token and the migration flag are read from refs so that
     // changing either cannot rebuild the document under a live session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isEmbedded, remoteUri, embeddedRawHtml, migrationResolved, documentEpoch],
+    [isEmbedded, devUri, embeddedRawHtml, migrationResolved, documentEpoch],
   );
 
   // Embedded mode admits every origin here on purpose. This list is not a
   // security boundary: react-native-webview opens whatever falls outside it
   // with Linking.openURL before the component sees the request, so widening
   // it is what makes classifyEmbeddedNavigation the only gate.
-  const originWhitelist = isEmbedded
-    ? ['*']
-    : mode === 'dev'
-      ? ['http://*', 'https://*']
-      : ['https://qrlwallet.com'];
+  const originWhitelist = isEmbedded ? ['*'] : ['http://*', 'https://*'];
 
   // Runs at document end. Re-binds the bridge if the WebView installed
   // window.ReactNativeWebView after the document head script ran. Carries no
@@ -907,7 +897,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               ref={webViewRef}
               // Remounted on a new epoch so the shipped document is handed to
               // a fresh WebView after a content-process death.
-              key={isEmbedded ? `embedded-${documentEpoch}` : 'remote'}
+              key={isEmbedded ? `embedded-${documentEpoch}` : 'dev'}
               source={embeddedSource}
               injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}
               // Android defines injectedObjectJson() with a one-off evaluate

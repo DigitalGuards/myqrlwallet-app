@@ -151,14 +151,11 @@ export default function SettingsScreen() {
   const webSourceMode = resolveWebSource({
     requested: process.env.EXPO_PUBLIC_WEB_SOURCE,
     isDevelopment: __DEV__,
-    remoteAcknowledgement: process.env.EXPO_PUBLIC_ALLOW_REMOTE_WALLET,
   }).mode;
   const walletBuildLabel =
     webSourceMode === 'embedded'
       ? `Wallet build ${EMBEDDED_WALLET_BUILD_INFO.frontendCommitShort} (bundled)`
-      : webSourceMode === 'dev'
-        ? 'Wallet build: development server'
-        : 'Wallet build: qrlwallet.com (live)';
+      : 'Wallet build: development server';
   const mounted = useRef(true);
   const focused = useRef(true);
   const activeSecurityAction = useRef<SettingsSecurityAction | null>(null);

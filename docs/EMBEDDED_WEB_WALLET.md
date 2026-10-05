@@ -370,11 +370,9 @@ build goes out before that sequence is finished.
 `EXPO_PUBLIC_WEB_SOURCE` selects where the wallet comes from:
 
 - `embedded` (the default in a release build): the bundled document.
-- `remote`: `https://qrlwallet.com` live, the previous behaviour, kept as a
-  fallback for a release that has to ship without a usable document. A release
-  build also requires `EXPO_PUBLIC_ALLOW_REMOTE_WALLET` to be set to
-  `the-server-can-replace-wallet-code`, so choosing it is a decision visible in
-  a diff.
+- `remote` (loading `https://qrlwallet.com` live) is retired. The hosted build
+  no longer carries the native bridge and shows an update screen to app
+  versions that still load it, so the value is refused like any unknown one.
 - `dev`: the local frontend dev server at `EXPO_PUBLIC_DEV_URL`. This is the
   default when `__DEV__` is true, and a release build refuses it: an
   `EXPO_PUBLIC_` value is baked in at build time, so a stray one would

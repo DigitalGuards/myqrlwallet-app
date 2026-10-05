@@ -17,7 +17,7 @@ jest.mock('../NativeBridge', () => ({
   resetWebAppReady: jest.fn(),
 }));
 
-describe('remote QRLWebView lifecycle and media policy', () => {
+describe('URI-loaded (dev) QRLWebView lifecycle and media policy', () => {
   let screen: ReactTestRenderer;
   const runtime = globalThis as typeof globalThis & { __DEV__: boolean };
   const originalDev = __DEV__;
@@ -34,18 +34,18 @@ describe('remote QRLWebView lifecycle and media policy', () => {
     jest.useRealTimers();
   });
 
-  it('allows inline autoplay while preserving the exact production origin policy', async () => {
+  it('allows inline autoplay and loads only the local dev server in dev mode', async () => {
     await act(async () => {
-      screen = create(<QRLWebView webSource="remote" />);
+      screen = create(<QRLWebView webSource="dev" />);
     });
     const props = screen.root.findByType('NativeWebView' as never).props;
     expect(props.mediaPlaybackRequiresUserAction).toBe(false);
     expect(props.allowsInlineMediaPlayback).toBe(true);
-    expect(props.source).toEqual({ uri: 'https://qrlwallet.com' });
-    expect(props.originWhitelist).toEqual(['https://qrlwallet.com']);
-    expect(props.mixedContentMode).toBe('never');
-    expect(props.onShouldStartLoadWithRequest({ url: 'https://qrlwallet.com/transfer' })).toBe(true);
-    for (const url of ['http://qrlwallet.com', 'https://qrlwallet.com.attacker.invalid', 'file:///wallet']) {
+    // No mode loads https://qrlwallet.com any more: release builds serve the
+    // bundled document and development runs the local frontend server.
+    expect(props.source).toEqual({ uri: 'http://10.0.2.2:5173' });
+    expect(props.mixedContentMode).toBe('compatibility');
+    for (const url of ['https://qrlwallet.com.attacker.invalid', 'file:///wallet']) {
       expect(props.onShouldStartLoadWithRequest({ url })).toBe(false);
     }
   });
@@ -57,7 +57,7 @@ describe('remote QRLWebView lifecycle and media policy', () => {
       );
     });
     await act(async () => {
-      screen = create(<QRLWebView webSource="remote" onDocumentLoadStart={onDocumentLoadStart} />);
+      screen = create(<QRLWebView webSource="dev" onDocumentLoadStart={onDocumentLoadStart} />);
     });
     const nativeView = screen.root.findByType('NativeWebView' as never);
     await act(async () => nativeView.props.onLoadStart());
@@ -69,7 +69,7 @@ describe('remote QRLWebView lifecycle and media policy', () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const onDocumentLoadStart = jest.fn();
     await act(async () => {
-      screen = create(<QRLWebView webSource="remote" onDocumentLoadStart={onDocumentLoadStart} />);
+      screen = create(<QRLWebView webSource="dev" onDocumentLoadStart={onDocumentLoadStart} />);
     });
     const nativeView = screen.root.findByType('NativeWebView' as never);
     const event = (url: string, loading: boolean) => ({ nativeEvent: { url, loading } });
