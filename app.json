@@ -2,14 +2,13 @@
   "expo": {
     "name": "MyQRLWallet",
     "slug": "myqrlwallet",
-    "version": "1.4.2",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/images/myqrlwallet/applogo.png",
     "scheme": [
       "qrlconnect"
     ],
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chiefdg.myqrlwallet",

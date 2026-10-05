@@ -295,8 +295,8 @@ PIN rotation uses revision checks, storage read-back acknowledgements, and compe
 
 | Category | Technology |
 |----------|------------|
-| Framework | React Native + Expo SDK 54 |
-| Navigation | Expo Router v4 |
+| Framework | React Native + Expo SDK 57 |
+| Navigation | Expo Router |
 | WebView | react-native-webview |
 | Storage | @react-native-async-storage/async-storage |
 | Biometrics | expo-local-authentication |

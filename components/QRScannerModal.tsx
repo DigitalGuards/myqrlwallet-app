@@ -78,7 +78,7 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
     // Permission granted - show camera
     return (
       <CameraView
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
         facing="back"
         barcodeScannerSettings={{
           barcodeTypes: ['qr'],

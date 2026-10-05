@@ -33,7 +33,7 @@ describe('isSameDocumentHistoryUpdate', () => {
 
   it('keeps the Android patch emitting the tag this module reads', () => {
     const patch = readFileSync(
-      resolve(__dirname, '../../patches/react-native-webview+13.15.0.patch'),
+      resolve(__dirname, '../../patches/react-native-webview+13.16.1.patch'),
       'utf8',
     );
     // onPageStarted is the only callback that means a document is being

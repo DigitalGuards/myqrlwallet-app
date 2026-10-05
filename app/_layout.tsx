@@ -1,11 +1,10 @@
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
-import { View, InteractionManager, Platform, Settings } from 'react-native';
+import { View, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
@@ -99,21 +98,6 @@ export default function RootLayout() {
           DAppConnectionStore.load().catch((err) => {
             Logger.error('RootLayout', 'Failed to load dApp connections:', err);
           });
-          // Surface any fatal native exception recorded by the
-          // RCTTurboModule patch on a previous launch (iOS only; written to
-          // NSUserDefaults just before the process died).
-          if (Platform.OS === 'ios') {
-            try {
-              const record = Settings.get('MyQRLWalletLastFatalNSException');
-              if (record) {
-                Logger.error('RootLayout', 'Previous launch fatal native exception:', record);
-                // One-shot: clear it so healthy launches stop re-logging.
-                Settings.set({ MyQRLWalletLastFatalNSException: null });
-              }
-            } catch {
-              // Settings unavailable; nothing to surface.
-            }
-          }
         });
         // One-shot: mirror the legacy-install keychain PIN into the
         // AsyncStorage existence marker so hasPinStored() never needs to hit
@@ -216,7 +200,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={appTheme}>
       <View style={{ flex: 1, backgroundColor: APP_BACKGROUND }}>
-        <StatusBar style="light" backgroundColor={APP_BACKGROUND} />
+        <StatusBar style="light" />
         <Stack screenOptions={{
           headerShown: false,
           contentStyle: {
