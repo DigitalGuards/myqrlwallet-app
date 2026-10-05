@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Modal,
+  BackHandler,
   View,
   Text,
   TextInput,
@@ -27,7 +27,7 @@ const C = {
   red: '#E56161',
 };
 
-interface ChangePinModalProps {
+interface ChangePinOverlayProps {
   visible: boolean;
   onSubmit: (currentPin: string, newPin: string) => void;
   onCancel: () => void;
@@ -58,7 +58,10 @@ function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEdit
   );
 }
 
-export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmit, onCancel }) => {
+// Rendered inside the screen that owns it instead of a native Modal: a Fabric
+// Modal presented right after the Face ID sheet can be refused by UIKit
+// without any error, which left Change PIN with no dialog.
+export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onSubmit, onCancel }) => {
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -77,6 +80,15 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
       return () => clearTimeout(timerId);
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onCancel();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [visible, onCancel]);
 
   const isValidPin = (pin: string): boolean =>
     pin.length >= PIN_MIN_LENGTH && pin.length <= PIN_MAX_LENGTH && /^\d+$/.test(pin);
@@ -117,8 +129,10 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
     onSubmit(currentPin, newPin);
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <View style={styles.root}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
@@ -195,11 +209,16 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </Modal>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  root: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 1000,
+    elevation: 1000,
+  },
   overlay: {
     flex: 1,
     backgroundColor: C.overlay,
@@ -297,4 +316,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ChangePinModal;
+export default ChangePinOverlay;

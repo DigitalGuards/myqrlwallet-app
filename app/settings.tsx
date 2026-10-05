@@ -24,7 +24,7 @@ import ScreenSecurityService from '../services/ScreenSecurityService';
 import NativeBridge, { type NativeSecurityContext } from '../services/NativeBridge';
 import { createBackgroundLock } from '../services/BackgroundLock';
 import { waitForForegroundAuthorization } from '../services/ForegroundAuthorization';
-import { ChangePinModal } from '../components/ChangePinModal';
+import { ChangePinOverlay } from '../components/ChangePinOverlay';
 import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
@@ -704,7 +704,7 @@ export default function SettingsScreen() {
         <View style={styles.footer} />
       </ScrollView>
 
-      <ChangePinModal
+      <ChangePinOverlay
         visible={changePinAction !== null}
         onSubmit={(currentPin, newPin) => handleChangePinSubmit(currentPin, newPin, changePinAction)}
         onCancel={() => handleDeviceLoginPinCancel(changePinAction)}

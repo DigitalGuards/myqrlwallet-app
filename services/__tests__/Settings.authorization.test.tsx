@@ -25,7 +25,7 @@ jest.mock('expo-router', () => ({
     }, [callback]);
   },
 }));
-jest.mock('../../components/ChangePinModal', () => ({ ChangePinModal: 'ChangePinModal' }));
+jest.mock('../../components/ChangePinOverlay', () => ({ ChangePinOverlay: 'ChangePinOverlay' }));
 jest.mock('../../components/PinEntryModal', () => ({ PinEntryModal: 'PinEntryModal' }));
 jest.mock('expo-local-authentication', () => ({
   SecurityLevel: { NONE: 0 },
@@ -243,7 +243,7 @@ describe('Settings session-bound security actions', () => {
         resolvePrompt({ success: true });
       });
       expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
       expect(
         jest.mocked(Alert.alert).mock.calls.some(([title]) => title === 'Remove All Wallets')
       ).toBe(false);
@@ -252,7 +252,7 @@ describe('Settings session-bound security actions', () => {
         await operation;
       });
       if (kind === 'disable') expect(BiometricService.disableDeviceLogin).toHaveBeenCalledTimes(1);
-      if (kind === 'change') expect(modal('ChangePinModal').visible).toBe(true);
+      if (kind === 'change') expect(modal('ChangePinOverlay').visible).toBe(true);
       if (kind === 'remove') expect(button('Remove All Wallets', 'Remove All')).toBeDefined();
     }
   );
@@ -273,7 +273,7 @@ describe('Settings session-bound security actions', () => {
         await operation;
       });
       expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
       expect(
         jest.mocked(Alert.alert).mock.calls.some(([title]) => title === 'Remove All Wallets')
       ).toBe(false);
@@ -298,7 +298,7 @@ describe('Settings session-bound security actions', () => {
       });
       await transition('active');
       expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
       expect(
         jest.mocked(Alert.alert).mock.calls.some(([title]) => title === 'Remove All Wallets')
       ).toBe(false);
@@ -336,7 +336,7 @@ describe('Settings session-bound security actions', () => {
         expect(BiometricService.disableDeviceLogin).toHaveBeenCalledTimes(1);
         expect(Alert.alert).toHaveBeenCalledWith('Disabled', 'Device Login has been disabled.');
       }
-      if (kind === 'change') expect(modal('ChangePinModal').visible).toBe(true);
+      if (kind === 'change') expect(modal('ChangePinOverlay').visible).toBe(true);
       if (kind === 'remove') expect(button('Remove All Wallets', 'Remove All')).toBeDefined();
     }
   );
@@ -380,7 +380,7 @@ describe('Settings session-bound security actions', () => {
       await act(async () => {
         await begin('change');
       });
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
     }
   );
 
@@ -388,11 +388,11 @@ describe('Settings session-bound security actions', () => {
     await act(async () => {
       await begin('change');
     });
-    const stale = modal('ChangePinModal').onSubmit;
+    const stale = modal('ChangePinOverlay').onSubmit;
     await act(async () => {
       NativeBridge.invalidateAuthorization();
     });
-    expect(modal('ChangePinModal').visible).toBe(false);
+    expect(modal('ChangePinOverlay').visible).toBe(false);
     await act(async () => {
       await begin('change');
     });
@@ -401,7 +401,7 @@ describe('Settings session-bound security actions', () => {
     });
     expect(BiometricService.queuePinChange).not.toHaveBeenCalled();
     await act(async () => {
-      modal('ChangePinModal').onSubmit('fresh-old', 'fresh-new');
+      modal('ChangePinOverlay').onSubmit('fresh-old', 'fresh-new');
     });
     expect(BiometricService.queuePinChange).toHaveBeenCalledWith('fresh-old', 'fresh-new');
   });
