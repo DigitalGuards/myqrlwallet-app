@@ -318,6 +318,16 @@ describe('NativeBridge hosted WebView boundaries', () => {
     expect(mockDAppConnected).toHaveBeenCalledWith(expect.objectContaining({ connectedAccount }));
   });
 
+  it.each(['invalidateAuthorization', 'beginWalletClear'] as const)(
+    'sends APP_LOCKED to the page on %s',
+    (lock) => {
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+      NativeBridge[lock]();
+      expect(send).toHaveBeenCalledWith({ type: 'APP_LOCKED' });
+      send.mockRestore();
+    },
+  );
+
   describe('dApp events received while the wallet is locked', () => {
     const connected = (name: string, channelId = CHANNEL_ID): BridgeMessage => ({
       type: 'DAPP_CONNECTED',

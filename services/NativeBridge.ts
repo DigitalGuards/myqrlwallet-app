@@ -188,6 +188,7 @@ export type NativeToWebMessageType =
   | 'QR_CANCELLED' // User closed QR scanner without scanning
   | 'BIOMETRIC_SUCCESS'
   | 'APP_STATE'
+  | 'APP_LOCKED' // Native authorization dropped: the page clears any injected Device Login PIN
   | 'CLIPBOARD_SUCCESS'
   | 'SHARE_SUCCESS'
   | 'ERROR'
@@ -421,7 +422,17 @@ class NativeBridge {
     }
   }
 
+  /**
+   * Tell the page the wallet locked so it drops an injected Device Login PIN
+   * before anything else can run. Sent ahead of the invalidation; the page
+   * only relies on it when the capability object advertises appLockedSignal.
+   */
+  private sendAppLocked(): void {
+    if (this.isWebAppReady && this.activeDocumentId) this.sendToWeb({ type: 'APP_LOCKED' });
+  }
+
   invalidateAuthorization(options: { preservePendingDAppIntent?: boolean } = {}): void {
+    this.sendAppLocked();
     this.nativeAuthorized = false;
     this.authorizationGeneration += 1;
     this.authorizedSyncDocumentGeneration = -1;
@@ -718,6 +729,7 @@ class NativeBridge {
   /** Invalidate credential mutations before native wallet storage is wiped. */
   beginWalletClear(): void {
     if (this.walletClearInProgress) return;
+    this.sendAppLocked();
     this.walletClearInProgress = true;
     this.nativeAuthorized = false;
     this.walletMutationGeneration += 1;

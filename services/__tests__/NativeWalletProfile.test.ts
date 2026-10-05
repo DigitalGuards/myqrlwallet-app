@@ -25,7 +25,11 @@ describe('native Testnet v3 compatibility contract', () => {
     expect(Object.isFrozen(NATIVE_WALLET_CAPABILITIES)).toBe(true);
     expect(Object.isFrozen(NATIVE_WEBVIEW_INJECTED_OBJECT)).toBe(true);
     expect(JSON.parse(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT))).toEqual({
-      qrlWalletCapabilities: { ...NATIVE_WALLET_CAPABILITIES, platform: NATIVE_WALLET_PLATFORM },
+      qrlWalletCapabilities: {
+        ...NATIVE_WALLET_CAPABILITIES,
+        platform: NATIVE_WALLET_PLATFORM,
+        appLockedSignal: true,
+      },
     });
     const source = readFileSync(resolve(__dirname, '../../components/QRLWebView.tsx'), 'utf8');
     expect(source).toContain('injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}');
