@@ -14,6 +14,8 @@ import SeedStorageService from '../services/SeedStorageService';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
+import { embeddedHashRouteForWalletUrl } from '../services/EmbeddedDeepLink';
+import EmbeddedRouteIntent from '../services/EmbeddedRouteIntent';
 
 const APP_BACKGROUND = '#080C16';
 const APP_TEXT = '#F2F5F8';
@@ -151,6 +153,15 @@ export default function RootLayout() {
       const normalizedUrl = normalizeQrlConnectDeepLink(url);
       if (normalizedUrl) {
         NativeBridge.queueDAppURI(normalizedUrl);
+        return;
+      }
+      // Any other qrlwallet.com link. With the wallet served from the app
+      // bundle its paths cannot be loaded as documents, so a known path is
+      // turned into a route inside the running wallet and applied once the
+      // app is unlocked. Unknown paths are ignored.
+      const route = embeddedHashRouteForWalletUrl(url);
+      if (route) {
+        EmbeddedRouteIntent.queue(route);
       }
     };
 

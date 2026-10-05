@@ -17,7 +17,7 @@ jest.mock('../NativeBridge', () => ({
   resetWebAppReady: jest.fn(),
 }));
 
-describe('production QRLWebView lifecycle and media policy', () => {
+describe('remote QRLWebView lifecycle and media policy', () => {
   let screen: ReactTestRenderer;
   const runtime = globalThis as typeof globalThis & { __DEV__: boolean };
   const originalDev = __DEV__;
@@ -36,7 +36,7 @@ describe('production QRLWebView lifecycle and media policy', () => {
 
   it('allows inline autoplay while preserving the exact production origin policy', async () => {
     await act(async () => {
-      screen = create(<QRLWebView />);
+      screen = create(<QRLWebView webSource="remote" />);
     });
     const props = screen.root.findByType('NativeWebView' as never).props;
     expect(props.mediaPlaybackRequiresUserAction).toBe(false);
@@ -57,7 +57,7 @@ describe('production QRLWebView lifecycle and media policy', () => {
       );
     });
     await act(async () => {
-      screen = create(<QRLWebView onDocumentLoadStart={onDocumentLoadStart} />);
+      screen = create(<QRLWebView webSource="remote" onDocumentLoadStart={onDocumentLoadStart} />);
     });
     const nativeView = screen.root.findByType('NativeWebView' as never);
     await act(async () => nativeView.props.onLoadStart());
@@ -69,7 +69,7 @@ describe('production QRLWebView lifecycle and media policy', () => {
     jest.replaceProperty(Platform, 'OS', 'android');
     const onDocumentLoadStart = jest.fn();
     await act(async () => {
-      screen = create(<QRLWebView onDocumentLoadStart={onDocumentLoadStart} />);
+      screen = create(<QRLWebView webSource="remote" onDocumentLoadStart={onDocumentLoadStart} />);
     });
     const nativeView = screen.root.findByType('NativeWebView' as never);
     const event = (url: string, loading: boolean) => ({ nativeEvent: { url, loading } });

@@ -1,5 +1,5 @@
 import { RefObject } from 'react';
-import { Alert, Share, Platform, Linking } from 'react-native';
+import { Alert, BackHandler, Share, Platform, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
@@ -8,6 +8,8 @@ import SeedStorageService from './SeedStorageService';
 import DAppConnectionStore from './DAppConnectionStore';
 import WebViewService from './WebViewService';
 import Logger from './Logger';
+import { isWalletOwnHost } from './ExternalLinkPolicy';
+import { resolveDAppReturn } from './DAppReturnPolicy';
 import { isQrlAddress } from './QrlAddress';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
@@ -19,6 +21,8 @@ const REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/;
 const CHANNEL_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PIN_PATTERN = /^\d{4,6}$/;
 const MAX_CLIPBOARD_CHARS = 64 * 1024;
+/** How long copied seed material may sit on the clipboard. */
+const SENSITIVE_CLIPBOARD_TTL_MS = 60 * 1000;
 const MAX_SHARE_TEXT_CHARS = 64 * 1024;
 const MAX_SHARE_TITLE_CHARS = 256;
 const MAX_LOG_CHARS = 4096;
@@ -82,11 +86,14 @@ export function parseExternalHttpUrl(value: string): string | null {
   try {
     const parsed = new URL(value);
     const hostname = parsed.hostname.toLowerCase();
+    // Loopback is a development convenience. A release build opening a local
+    // service in the browser is never something the wallet needs.
     const isLoopback =
-      hostname === 'localhost' ||
-      hostname.endsWith('.localhost') ||
-      hostname === '127.0.0.1' ||
-      hostname === '[::1]';
+      __DEV__ &&
+      (hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]');
     if (
       (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) ||
       parsed.username !== '' ||
@@ -157,6 +164,11 @@ const LOCKED_ALLOWED_MESSAGE_TYPES = new Set<WebToNativeMessageType>([
   'PIN_CHANGED',
   'WALLET_CLEARED',
   'DAPP_DISCONNECT_RESPONSE',
+  // Only marks a stored pairing disconnected. Dropping it while locked (the
+  // user switched to the dApp right after tapping Disconnect, or the 90 s
+  // peer-leave grace ran out in the background) left the dApp list showing
+  // a connection that was gone, with nothing to resend it.
+  'DAPP_DISCONNECTED',
 ]);
 
 /**
@@ -185,7 +197,8 @@ export type NativeToWebMessageType =
   | 'DAPP_DISCONNECT' // Request web to disconnect a specific dApp session
   | 'SET_DISPLAY_PREFS' // Set Home card visibility (showTokensCard / showNftsCard)
   | 'RESTORE_CONTACTS' // Send the backed-up address book to the web wallet
-  | 'NAVIGATE'; // Ask the web wallet to navigate to an in-app route
+  | 'NAVIGATE' // Ask the web wallet to navigate to an in-app route
+  | 'NATIVE_BACK'; // Android hardware back: close a modal, go back, or answer at root
 
 export interface BridgeMessage {
   type: WebToNativeMessageType;
@@ -279,6 +292,7 @@ type DAppShowWebViewCallback = () => void;
  */
 class NativeBridge {
   private webViewRef: RefObject<WebView | null> | null = null;
+  private sensitiveClipboardTimer: ReturnType<typeof setTimeout> | null = null;
   private qrScanCallback: QRScanCallback | null = null;
   private pendingQrScan: NativeQrScanRequest | null = null;
   private pendingDAppIntent: PendingDAppIntent | null = null;
@@ -872,7 +886,9 @@ class NativeBridge {
           });
           return;
         }
-        await this.handleCopyToClipboard(text);
+        // The page marks seed material so native can keep it off the
+        // clipboard's long-term memory and out of the reply.
+        await this.handleCopyToClipboard(text, payload?.sensitive === true);
         break;
       }
 
@@ -1395,24 +1411,32 @@ class NativeBridge {
         break;
 
       case 'DAPP_RETURN': {
-        // Peer redirect: after the wallet resolves a restricted request, bounce
-        // the user back to the originating dApp so a same-device deep-link flow
-        // does not strand them in the wallet. The user just tapped Approve, so
-        // this is a user-initiated navigation.
+        // The user came from a browser tab, so the wallet gets out of the way
+        // rather than opening a URL. Opening one made a new tab every time,
+        // and that tab loses the connect SDK's cross-tab lock to the original
+        // and goes silently DISCONNECTED, so the user was left looking at a
+        // dead page after every approval. See services/DAppReturnPolicy.ts.
         const redirectUrl = typeof payload?.redirectUrl === 'string' ? payload.redirectUrl : '';
-        // The redirect URL is attacker controlled. Keep the same credential-free
-        // HTTP(S) boundary as OPEN_URL and never log the raw bearer/query data.
-        const safeRedirectUrl = parseExternalHttpUrl(redirectUrl);
-        if (safeRedirectUrl !== null) {
-          Logger.debug('NativeBridge', 'Opening validated dApp return URL');
-          try {
-            await Linking.openURL(safeRedirectUrl);
-          } catch {
-            Logger.warn('NativeBridge', 'Failed to open validated return URL');
-          }
-        } else {
-          Logger.warn('NativeBridge', 'Ignoring unsafe dApp return URL');
+        // Still parsed and normalized, and the wallet's own hosts are still
+        // refused, so a URL this app would not have opened cannot move it
+        // around either.
+        const parsedRedirect = parseExternalHttpUrl(redirectUrl);
+        const outcome = resolveDAppReturn({
+          platform: Platform.OS,
+          redirectUrl: parsedRedirect,
+          reason: typeof payload?.reason === 'string' ? payload.reason : undefined,
+        });
+
+        if (outcome.action === 'background-app') {
+          Logger.debug('NativeBridge', 'Returning to the dApp by backgrounding the wallet');
+          // Reaches invokeDefaultOnBackPressed, which the withBackgroundOnBack
+          // config plugin makes moveTaskToBack on every API level, so Android
+          // brings the task the user came from back to the front.
+          BackHandler.exitApp();
+          break;
         }
+
+        Logger.debug('NativeBridge', `Not returning to the dApp (${outcome.reason})`);
         break;
       }
 
@@ -1452,7 +1476,7 @@ class NativeBridge {
   /**
    * Handle copy to clipboard request
    */
-  private async handleCopyToClipboard(text: string) {
+  private async handleCopyToClipboard(text: string, sensitive = false) {
     if (!text) {
       this.sendToWeb({
         type: 'ERROR',
@@ -1463,6 +1487,15 @@ class NativeBridge {
 
     try {
       await Clipboard.setStringAsync(text);
+      if (sensitive) {
+        // Seed material. Keyboard apps with clipboard history, clipboard
+        // managers and the Android clipboard preview all retain whatever is
+        // on it, so it does not stay there, and it is not echoed back into
+        // the page either.
+        this.scheduleSensitiveClipboardClear(text);
+        this.sendToWeb({ type: 'CLIPBOARD_SUCCESS' });
+        return;
+      }
       this.sendToWeb({
         type: 'CLIPBOARD_SUCCESS',
         payload: { text },
@@ -1474,6 +1507,29 @@ class NativeBridge {
         payload: { message: 'Failed to copy to clipboard' },
       });
     }
+  }
+
+  /**
+   * Remove copied seed material from the clipboard after a short window.
+   *
+   * Only if it is still there: overwriting whatever the user copied since
+   * would be worse than leaving it. expo-clipboard exposes neither Android's
+   * sensitive-content flag nor an iOS expiry date, so this is the part that
+   * can be done without a native module.
+   */
+  private scheduleSensitiveClipboardClear(text: string) {
+    if (this.sensitiveClipboardTimer) clearTimeout(this.sensitiveClipboardTimer);
+    this.sensitiveClipboardTimer = setTimeout(() => {
+      this.sensitiveClipboardTimer = null;
+      void (async () => {
+        try {
+          const current = await Clipboard.getStringAsync();
+          if (current === text) await Clipboard.setStringAsync('');
+        } catch (error) {
+          Logger.warn('NativeBridge', 'Could not clear the clipboard:', error);
+        }
+      })();
+    }, SENSITIVE_CLIPBOARD_TTL_MS);
   }
 
   /**
@@ -1571,7 +1627,14 @@ class NativeBridge {
    * Handle open URL request - opens in device's default browser
    */
   private async handleOpenUrl(url: string) {
-    const safeUrl = parseExternalHttpUrl(url);
+    // The embedded wallet intercepts every external link and sends it here,
+    // so this is the second half of the single external-open boundary. The
+    // scheme rules are unchanged (https, plus http on loopback); what is added
+    // is that the app never sends the user to the site it serves the wallet
+    // from, which would show the live page the embedded build exists to stop
+    // depending on.
+    const parsedUrl = parseExternalHttpUrl(url);
+    const safeUrl = parsedUrl !== null && !isWalletOwnHost(parsedUrl) ? parsedUrl : null;
     if (safeUrl === null) {
       Logger.warn('NativeBridge', 'Rejected unsafe external URL');
       this.sendToWeb({

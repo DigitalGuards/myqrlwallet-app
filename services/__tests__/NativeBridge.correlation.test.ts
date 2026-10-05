@@ -237,6 +237,15 @@ describe('NativeBridge correlation and generation boundaries', () => {
     expect(mockGetDeviceCredential).not.toHaveBeenCalled();
   });
 
+  it('records a dApp disconnect while the native lock is active', async () => {
+    NativeBridge.invalidateAuthorization();
+    await handleBridge({
+      type: 'DAPP_DISCONNECTED',
+      payload: { channelId: CHANNEL_ID, explicit: true },
+    });
+    expect(mockOnDisconnected).toHaveBeenCalledWith(CHANNEL_ID, true);
+  });
+
   it('authenticates only the document that echoes its exact post-reset challenge', async () => {
     let randomByte = 2;
     mockRandomBytes.mockImplementation(() => new Uint8Array(16).fill(randomByte++));

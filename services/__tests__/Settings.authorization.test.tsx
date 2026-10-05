@@ -155,6 +155,28 @@ describe('Settings session-bound security actions', () => {
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
   });
 
+  it('offers removal when native storage holds no wallet', async () => {
+    // The wallet page can hold wallets whose device credential is gone, and
+    // its recovery steps point here.
+    jest.mocked(SeedStorageService.hasWallet).mockResolvedValue(false);
+    jest.mocked(SeedStorageService.requiresWalletRemovalAuthentication).mockResolvedValue(false);
+    await act(async () => screen?.unmount());
+    await act(async () => {
+      screen = create(<SettingsScreen />);
+    });
+    await act(async () => {
+      await begin('remove');
+    });
+    await act(async () => {
+      button('Remove All Wallets', 'Remove All')();
+    });
+    await act(async () => {
+      await button('Delete All Wallets?', 'Yes, Delete All')();
+    });
+    expect(NativeBridge.clearWalletDurably).toHaveBeenCalledWith(20000, expect.any(Function));
+    jest.mocked(SeedStorageService.hasWallet).mockResolvedValue(true);
+  });
+
   it('preserves the existing explicit recovery removal policy without a device prompt', async () => {
     jest.mocked(SeedStorageService.requiresWalletRemovalAuthentication).mockResolvedValue(false);
     await act(async () => {
