@@ -388,7 +388,7 @@ describe('Settings session-bound security actions', () => {
     }
   );
 
-  it('reports a failed Change PIN prompt instead of leaving Settings silent', async () => {
+  it('reports a failed Change PIN prompt', async () => {
     jest
       .mocked(LocalAuthentication.authenticateAsync)
       .mockResolvedValue({ success: false, error: 'lockout' });
