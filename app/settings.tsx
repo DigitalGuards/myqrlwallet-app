@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as Clipboard from 'expo-clipboard';
 import { router, useFocusEffect, useNavigation } from 'expo-router';
 
 import WebViewService, { UserPreferences } from '../services/WebViewService';
@@ -28,6 +29,7 @@ import { ChangePinOverlay } from '../components/ChangePinOverlay';
 import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
+import Diagnostics from '../services/Diagnostics';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
 import { resolveWebSource } from '../services/WebSource';
 import { EMBEDDED_WALLET_BUILD_INFO } from '../services/EmbeddedWalletDocument';
@@ -484,6 +486,35 @@ export default function SettingsScreen() {
     );
   };
 
+  // User-initiated only. The ring holds recent warnings, errors and lifecycle
+  // events with PINs, seeds, keys, pairing links and payloads already redacted.
+  const copyDiagnostics = () => {
+    Alert.alert(
+      'Copy Diagnostics',
+      'Copies a short log of recent app events to the clipboard so you can paste it into a support message. It never contains your PIN, seed phrase, keys, pairing links or wallet data. Nothing is sent anywhere.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Copy',
+          onPress: async () => {
+            try {
+              await Clipboard.setStringAsync(
+                Diagnostics.export([
+                  `app: ${appVersion} (${Platform.OS} ${String(Platform.Version)})`,
+                  walletBuildLabel,
+                ]),
+              );
+              Alert.alert('Copied', 'Diagnostics copied to the clipboard.');
+            } catch (error) {
+              Logger.error('Settings', 'Failed to copy diagnostics:', error);
+              Alert.alert('Error', 'Could not copy diagnostics. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const openLink = (url: string) => {
     Linking.openURL(url).catch((err) => Logger.error('Settings', 'Failed to open link:', err));
   };
@@ -665,6 +696,13 @@ export default function SettingsScreen() {
             title="Reset Session Data"
             subtitle="Clears the session data this app keeps. Your wallet is not affected."
             onPress={clearSessionData}
+          />
+          <Row
+            icon="document-text"
+            tint={C.gray}
+            title="Copy Diagnostics"
+            subtitle="Copy recent app events to share with support. Contains no PIN, seed or keys."
+            onPress={copyDiagnostics}
           />
         </Section>
 

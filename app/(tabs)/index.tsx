@@ -23,6 +23,7 @@ import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge, { NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
+import Diagnostics from '../../services/Diagnostics';
 import { createBackgroundLock } from '../../services/BackgroundLock';
 import EmbeddedRouteIntent from '../../services/EmbeddedRouteIntent';
 import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
@@ -556,6 +557,7 @@ export default function WalletScreen() {
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
+    Diagnostics.event('WalletScreen', 'app backgrounded, re-auth required');
     manualRetryRequired.current =
       manualRetryRequired.current ||
       isAuthenticating.current ||

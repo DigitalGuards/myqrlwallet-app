@@ -8,6 +8,7 @@ import SeedStorageService from './SeedStorageService';
 import DAppConnectionStore from './DAppConnectionStore';
 import WebViewService from './WebViewService';
 import Logger from './Logger';
+import Diagnostics from './Diagnostics';
 import { isWalletOwnHost } from './ExternalLinkPolicy';
 import { resolveDAppReturn } from './DAppReturnPolicy';
 import { isQrlAddress } from './QrlAddress';
@@ -424,6 +425,7 @@ class NativeBridge {
     this.nativeAuthorized = false;
     this.authorizationGeneration += 1;
     this.authorizedSyncDocumentGeneration = -1;
+    Diagnostics.event('NativeBridge', 'authorization invalidated');
     if (!options.preservePendingDAppIntent) this.cancelPendingDAppIntent();
     this.cancelPendingPinVerification('App authorization changed');
     this.notifyAuthorizationInvalidated();
@@ -431,6 +433,9 @@ class NativeBridge {
 
   setNativeAuthorization(authorized: boolean): void {
     if (!authorized && this.nativeAuthorized) this.invalidateAuthorization();
+    if (authorized && !this.nativeAuthorized && !this.walletClearInProgress) {
+      Diagnostics.event('NativeBridge', 'wallet unlocked');
+    }
     this.nativeAuthorized = authorized && !this.walletClearInProgress;
     if (!this.nativeAuthorized) this.authorizedSyncDocumentGeneration = -1;
     if (this.nativeAuthorized && this.isWebAppReady) {
@@ -647,6 +652,7 @@ class NativeBridge {
    */
   resetWebAppReady() {
     Logger.debug('NativeBridge', 'Resetting web app ready state');
+    Diagnostics.event('NativeBridge', 'web document reset');
     this.isWebAppReady = false;
     this.nativeAuthorized = false;
     this.authorizedSyncDocumentGeneration = -1;
@@ -770,6 +776,7 @@ class NativeBridge {
       }, DAPP_INTENT_TTL_MS),
     };
     this.pendingDAppIntent = intent;
+    Diagnostics.event('NativeBridge', 'dApp link queued');
     this.flushPendingDAppIntent();
     return true;
   }
@@ -795,8 +802,12 @@ class NativeBridge {
     if (!this.nativeAuthorized || this.authorizedSyncDocumentGeneration !== this.documentGeneration || this.authorizedSyncPromise !== null) return;
     // Consume before forwarding so a synchronous callback cannot duplicate it.
     this.pendingDAppIntent = null;
-    if (this.sendDAppURI(intent.uri)) clearTimeout(intent.timer);
-    else this.pendingDAppIntent = intent;
+    if (this.sendDAppURI(intent.uri)) {
+      clearTimeout(intent.timer);
+      Diagnostics.event('NativeBridge', 'dApp link delivered to the wallet page');
+    } else {
+      this.pendingDAppIntent = intent;
+    }
   }
 
   /**
@@ -1316,6 +1327,7 @@ class NativeBridge {
 
         // Resolve ready waiters only after the exact document challenge echo.
         Logger.debug('NativeBridge', 'Web document challenge completed');
+        Diagnostics.event('NativeBridge', 'web document authenticated');
         this.isWebAppReady = true;
         this.flushPendingDAppIntent();
         this.flushWebAppReadyResolvers('resolve');

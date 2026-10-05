@@ -7,6 +7,8 @@ import NativeBridge from '../NativeBridge';
 import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
 import Logger from '../Logger';
+import Diagnostics from '../Diagnostics';
+import * as Clipboard from 'expo-clipboard';
 
 let mockGeneration = 0;
 let mockWalletGeneration = 0;
@@ -15,6 +17,7 @@ const mockInvalidationListeners = new Set<() => void>();
 
 jest.mock('react-native-safe-area-context', () => ({ SafeAreaView: 'SafeAreaView' }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => undefined) }));
 jest.mock('expo-constants', () => ({ expoConfig: { version: '1.3.1' } }));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), push: jest.fn() },
@@ -428,6 +431,24 @@ describe('Settings session-bound security actions', () => {
       'Your session changed before the PIN could be updated. Please try again.'
     );
     expect(Logger.error).toHaveBeenCalledWith('Settings', expect.stringContaining('stale'));
+  });
+
+  it('copies diagnostics only after the user confirms', async () => {
+    Diagnostics.clear();
+    Diagnostics.event('Test', 'wallet locked');
+    Diagnostics.record('error', 'Test', 'failed pin=1234');
+    await act(async () => {
+      row('Copy Diagnostics').props.onPress();
+    });
+    expect(Clipboard.setStringAsync).not.toHaveBeenCalled();
+    await act(async () => {
+      await button('Copy Diagnostics', 'Copy')();
+    });
+    const copied = jest.mocked(Clipboard.setStringAsync).mock.calls[0][0];
+    expect(copied).toContain('app: 1.3.1');
+    expect(copied).toContain('wallet locked');
+    expect(copied).not.toContain('1234');
+    expect(Alert.alert).toHaveBeenCalledWith('Copied', 'Diagnostics copied to the clipboard.');
   });
 
   it('binds PIN-change modal submission to its original action, including after reauthorization', async () => {
