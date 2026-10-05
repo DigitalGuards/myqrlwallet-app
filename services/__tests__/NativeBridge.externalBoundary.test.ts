@@ -318,6 +318,78 @@ describe('NativeBridge hosted WebView boundaries', () => {
     expect(mockDAppConnected).toHaveBeenCalledWith(expect.objectContaining({ connectedAccount }));
   });
 
+  describe('dApp events received while the wallet is locked', () => {
+    const connected = (name: string, channelId = CHANNEL_ID): BridgeMessage => ({
+      type: 'DAPP_CONNECTED',
+      payload: { channelId, name, url: 'https://example.com', connectedAccount: QIP55_ADDRESS },
+    });
+    const settle = async () => {
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+    };
+
+    it('holds DAPP_SHOW_WEBVIEW and DAPP_CONNECTED while locked and applies them after unlock', async () => {
+      const show = jest.fn();
+      NativeBridge.onDAppShowWebView(show);
+      NativeBridge.invalidateAuthorization();
+
+      await handleBridge(connected('first'));
+      await handleBridge(connected('latest'));
+      await handleBridge({ type: 'DAPP_SHOW_WEBVIEW' });
+      expect(show).not.toHaveBeenCalled();
+      expect(mockDAppConnected).not.toHaveBeenCalled();
+
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(show).toHaveBeenCalledTimes(1);
+      expect(mockDAppConnected).toHaveBeenCalledTimes(1);
+      expect(mockDAppConnected).toHaveBeenCalledWith(expect.objectContaining({ name: 'latest' }));
+      NativeBridge.onDAppShowWebView(jest.fn());
+    });
+
+    it('keeps one held record per channel and refuses a flood of channels', async () => {
+      NativeBridge.invalidateAuthorization();
+      for (let i = 0; i < 40; i++) {
+        const channelId = `${i.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`;
+        await handleBridge(connected(`dapp-${i}`, channelId));
+      }
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(mockDAppConnected.mock.calls.length).toBeGreaterThan(0);
+      expect(mockDAppConnected.mock.calls.length).toBeLessThanOrEqual(16);
+    });
+
+    it('drops held events when the document is replaced or the wallet is cleared', async () => {
+      const show = jest.fn();
+      NativeBridge.onDAppShowWebView(show);
+      NativeBridge.invalidateAuthorization();
+      await handleBridge({ type: 'DAPP_SHOW_WEBVIEW' });
+      await handleBridge(connected('stale'));
+      NativeBridge.resetWebAppReady();
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+      await authenticateNextDocument('ad'.repeat(16), send);
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(show).not.toHaveBeenCalled();
+      expect(mockDAppConnected).not.toHaveBeenCalled();
+      send.mockRestore();
+      NativeBridge.onDAppShowWebView(jest.fn());
+    });
+
+    it('lets a held DAPP_SHOW_WEBVIEW expire', async () => {
+      jest.useFakeTimers();
+      const show = jest.fn();
+      NativeBridge.onDAppShowWebView(show);
+      NativeBridge.invalidateAuthorization();
+      await handleBridge({ type: 'DAPP_SHOW_WEBVIEW' });
+      jest.advanceTimersByTime(121000);
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(show).not.toHaveBeenCalled();
+      NativeBridge.onDAppShowWebView(jest.fn());
+      jest.useRealTimers();
+    });
+  });
+
   it('copies the exact Q+128 address without display shortening', async () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
 
