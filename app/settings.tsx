@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as Clipboard from 'expo-clipboard';
 import { router, useFocusEffect, useNavigation } from 'expo-router';
 
 import WebViewService, { UserPreferences } from '../services/WebViewService';
@@ -24,10 +25,11 @@ import ScreenSecurityService from '../services/ScreenSecurityService';
 import NativeBridge, { type NativeSecurityContext } from '../services/NativeBridge';
 import { createBackgroundLock } from '../services/BackgroundLock';
 import { waitForForegroundAuthorization } from '../services/ForegroundAuthorization';
-import { ChangePinModal } from '../components/ChangePinModal';
+import { ChangePinOverlay } from '../components/ChangePinOverlay';
 import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
+import Diagnostics from '../services/Diagnostics';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
 import { resolveWebSource } from '../services/WebSource';
 import { EMBEDDED_WALLET_BUILD_INFO } from '../services/EmbeddedWalletDocument';
@@ -364,7 +366,21 @@ export default function SettingsScreen() {
       'Authenticate to change PIN',
       () => isSecurityActionBound(action),
     );
-    if (!authResult.success || !(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
+    if (!authResult.success) {
+      if (authResult.cancelled) return;
+      Logger.error('Settings', 'Change PIN authentication did not complete');
+      if (mounted.current && focused.current) {
+        Alert.alert('PIN Not Changed', 'Authentication did not complete. Please try again.');
+      }
+      return;
+    }
+    if (!(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) {
+      Logger.error('Settings', 'Change PIN stopped: the app did not return to the foreground in time');
+      if (mounted.current && focused.current) {
+        Alert.alert('PIN Not Changed', 'The app did not return to the foreground. Please try again.');
+      }
+      return;
+    }
     setChangePinAction(action);
   };
 
@@ -373,7 +389,16 @@ export default function SettingsScreen() {
     newPin: string,
     action: SettingsSecurityAction | null,
   ) => {
-    if (!isSecurityActionCurrent(action)) return;
+    if (!isSecurityActionCurrent(action)) {
+      Logger.error('Settings', 'Change PIN submit rejected: the authorized action is stale');
+      if (mounted.current && focused.current) {
+        Alert.alert(
+          'PIN Not Changed',
+          'Your session changed before the PIN could be updated. Please try again.',
+        );
+      }
+      return;
+    }
     invalidateSecurityActions();
     BiometricService.queuePinChange(currentPin, newPin);
     router.back();
@@ -457,6 +482,35 @@ export default function SettingsScreen() {
           onPress: async () => {
             await WebViewService.clearSessionData();
             Alert.alert('Session Data Reset', 'The saved session data has been cleared.');
+          },
+        },
+      ]
+    );
+  };
+
+  // User-initiated only. The ring holds recent warnings, errors and lifecycle
+  // events with PINs, seeds, keys, pairing links and payloads already redacted.
+  const copyDiagnostics = () => {
+    Alert.alert(
+      'Copy Diagnostics',
+      'Copies a short log of recent app events to the clipboard so you can paste it into a support message. It never contains your PIN, seed phrase, keys, pairing links or wallet data. Nothing is sent anywhere.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Copy',
+          onPress: async () => {
+            try {
+              await Clipboard.setStringAsync(
+                Diagnostics.export([
+                  `app: ${appVersion} (${Platform.OS} ${String(Platform.Version)})`,
+                  walletBuildLabel,
+                ]),
+              );
+              Alert.alert('Copied', 'Diagnostics copied to the clipboard.');
+            } catch (error) {
+              Logger.error('Settings', 'Failed to copy diagnostics:', error);
+              Alert.alert('Error', 'Could not copy diagnostics. Please try again.');
+            }
           },
         },
       ]
@@ -645,6 +699,13 @@ export default function SettingsScreen() {
             subtitle="Clears the session data this app keeps. Your wallet is not affected."
             onPress={clearSessionData}
           />
+          <Row
+            icon="document-text"
+            tint={C.gray}
+            title="Copy Diagnostics"
+            subtitle="Copy recent app events to share with support. Contains no PIN, seed or keys."
+            onPress={copyDiagnostics}
+          />
         </Section>
 
         {/* Wallet danger zone. Shown even when native storage holds no wallet:
@@ -704,7 +765,7 @@ export default function SettingsScreen() {
         <View style={styles.footer} />
       </ScrollView>
 
-      <ChangePinModal
+      <ChangePinOverlay
         visible={changePinAction !== null}
         onSubmit={(currentPin, newPin) => handleChangePinSubmit(currentPin, newPin, changePinAction)}
         onCancel={() => handleDeviceLoginPinCancel(changePinAction)}

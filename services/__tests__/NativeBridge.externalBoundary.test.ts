@@ -69,6 +69,9 @@ const mockNotificationAsync = Haptics.notificationAsync as jest.MockedFunction<
 const mockDAppConnected = DAppConnectionStore.onConnected as jest.MockedFunction<
   typeof DAppConnectionStore.onConnected
 >;
+const mockGetUserPreferences = WebViewService.getUserPreferences as jest.MockedFunction<
+  typeof WebViewService.getUserPreferences
+>;
 const mockWarn = Logger.warn as jest.MockedFunction<typeof Logger.warn>;
 const mockError = Logger.error as jest.MockedFunction<typeof Logger.error>;
 const mockSaveContacts = WebViewService.saveContactsBackupStrict as jest.MockedFunction<
@@ -315,6 +318,130 @@ describe('NativeBridge hosted WebView boundaries', () => {
     expect(mockDAppConnected).toHaveBeenCalledWith(expect.objectContaining({ connectedAccount }));
   });
 
+  it.each(['invalidateAuthorization', 'beginWalletClear'] as const)(
+    'sends APP_LOCKED to the page on %s',
+    (lock) => {
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+      NativeBridge[lock]();
+      expect(send).toHaveBeenCalledWith({ type: 'APP_LOCKED' });
+      send.mockRestore();
+    },
+  );
+
+  it('sanitizes a page-chosen message type before it reaches the logs', async () => {
+    NativeBridge.invalidateAuthorization();
+    await nativeHandle({
+      type: 'X\nerror [Fake] forged entry' as never,
+      payload: { documentId: DOCUMENT_ID },
+    });
+    const logged = mockWarn.mock.calls.map((call) => String(call[1])).join('|');
+    expect(logged).toContain('Dropped X?error??Fake??forged?entry');
+    expect(logged).not.toContain('\n');
+    NativeBridge.setNativeAuthorization(true);
+  });
+
+  describe('dApp events received while the wallet is locked', () => {
+    const connected = (name: string, channelId = CHANNEL_ID): BridgeMessage => ({
+      type: 'DAPP_CONNECTED',
+      payload: { channelId, name, url: 'https://example.com', connectedAccount: QIP55_ADDRESS },
+    });
+    const settle = async () => {
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+    };
+
+    it('holds DAPP_SHOW_WEBVIEW and DAPP_CONNECTED while locked and applies them after unlock', async () => {
+      const show = jest.fn();
+      NativeBridge.onDAppShowWebView(show);
+      NativeBridge.invalidateAuthorization();
+
+      await handleBridge(connected('first'));
+      await handleBridge(connected('latest'));
+      await handleBridge({ type: 'DAPP_SHOW_WEBVIEW' });
+      expect(show).not.toHaveBeenCalled();
+      expect(mockDAppConnected).not.toHaveBeenCalled();
+
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(show).toHaveBeenCalledTimes(1);
+      expect(mockDAppConnected).toHaveBeenCalledTimes(1);
+      expect(mockDAppConnected).toHaveBeenCalledWith(expect.objectContaining({ name: 'latest' }));
+      NativeBridge.onDAppShowWebView(jest.fn());
+    });
+
+    it('does not resurrect a session whose disconnect arrived while locked', async () => {
+      const order: string[] = [];
+      mockDAppConnected.mockImplementation(async () => {
+        order.push('connected');
+      });
+      (DAppConnectionStore.onDisconnected as jest.Mock).mockImplementation(async () => {
+        order.push('disconnected');
+      });
+      NativeBridge.invalidateAuthorization();
+      await handleBridge(connected('ghost'));
+      await handleBridge({
+        type: 'DAPP_DISCONNECTED',
+        payload: { channelId: CHANNEL_ID, explicit: true },
+      });
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(order).toEqual(['disconnected']);
+    });
+
+    it('lets a held DAPP_CONNECTED expire', async () => {
+      jest.useFakeTimers();
+      NativeBridge.invalidateAuthorization();
+      await handleBridge(connected('stale'));
+      jest.advanceTimersByTime(121000);
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(mockDAppConnected).not.toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
+    it('keeps one held record per channel and refuses a flood of channels', async () => {
+      NativeBridge.invalidateAuthorization();
+      for (let i = 0; i < 40; i++) {
+        const channelId = `${i.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111`;
+        await handleBridge(connected(`dapp-${i}`, channelId));
+      }
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(mockDAppConnected.mock.calls.length).toBeGreaterThan(0);
+      expect(mockDAppConnected.mock.calls.length).toBeLessThanOrEqual(16);
+    });
+
+    it('drops held events when the document is replaced or the wallet is cleared', async () => {
+      const show = jest.fn();
+      NativeBridge.onDAppShowWebView(show);
+      NativeBridge.invalidateAuthorization();
+      await handleBridge({ type: 'DAPP_SHOW_WEBVIEW' });
+      await handleBridge(connected('stale'));
+      NativeBridge.resetWebAppReady();
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+      await authenticateNextDocument('ad'.repeat(16), send);
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(show).not.toHaveBeenCalled();
+      expect(mockDAppConnected).not.toHaveBeenCalled();
+      send.mockRestore();
+      NativeBridge.onDAppShowWebView(jest.fn());
+    });
+
+    it('lets a held DAPP_SHOW_WEBVIEW expire', async () => {
+      jest.useFakeTimers();
+      const show = jest.fn();
+      NativeBridge.onDAppShowWebView(show);
+      NativeBridge.invalidateAuthorization();
+      await handleBridge({ type: 'DAPP_SHOW_WEBVIEW' });
+      jest.advanceTimersByTime(121000);
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(show).not.toHaveBeenCalled();
+      NativeBridge.onDAppShowWebView(jest.fn());
+      jest.useRealTimers();
+    });
+  });
+
   it('copies the exact Q+128 address without display shortening', async () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
 
@@ -395,18 +522,73 @@ describe('NativeBridge hosted WebView boundaries', () => {
     send.mockRestore();
   });
 
-  it.each(['lock', 'document', 'wipe', 'expiry'])('cancels a bound pending dApp intent on %s', change => {
+  it.each(['lock', 'wipe', 'expiry'])('cancels a bound pending dApp intent on %s', change => {
     jest.useFakeTimers();
     NativeBridge.invalidateAuthorization();
     NativeBridge.queueDAppURI('qrlconnect://?q=pending-fixture');
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     if (change === 'lock') NativeBridge.invalidateAuthorization();
-    if (change === 'document') NativeBridge.resetWebAppReady();
     if (change === 'wipe') { NativeBridge.beginWalletClear(); NativeBridge.endWalletClear(); }
     if (change === 'expiry') jest.advanceTimersByTime(120000);
     NativeBridge.setNativeAuthorization(true);
     expect(send.mock.calls.filter(([message]) => message.type === 'DAPP_URI')).toHaveLength(0);
     NativeBridge.cancelPendingDAppIntent();
+    send.mockRestore();
+    jest.useRealTimers();
+  });
+
+  async function authenticateNextDocument(documentId: string, send: jest.SpyInstance): Promise<void> {
+    await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId } });
+    const challenge = send.mock.calls.find(([message]) => message.type === 'WEB_DOCUMENT_CHALLENGE')?.[0];
+    await nativeHandle({ type: 'WEB_DOCUMENT_READY', payload: challenge?.payload });
+  }
+  const sentUris = (send: jest.SpyInstance) =>
+    send.mock.calls.filter(([message]) => message.type === 'DAPP_URI').map(([message]) => message.payload.uri);
+
+  it('keeps a pending dApp intent across a document reset and delivers it to the next document after unlock', async () => {
+    // iOS can kill the WebView content process while the user is in the dApp's browser.
+    NativeBridge.invalidateAuthorization();
+    expect(NativeBridge.queueDAppURI('qrlconnect://?q=reset-fixture')).toBe(true);
+    NativeBridge.resetWebAppReady();
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    await authenticateNextDocument('ab'.repeat(16), send);
+    expect(sentUris(send)).toEqual([]);
+    NativeBridge.setNativeAuthorization(true);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(sentUris(send)).toEqual(['qrlconnect://?q=reset-fixture']);
+    send.mockRestore();
+  });
+
+  it('keeps the 120 s expiry after a document reset', async () => {
+    jest.useFakeTimers();
+    NativeBridge.invalidateAuthorization();
+    NativeBridge.queueDAppURI('qrlconnect://?q=ttl-fixture');
+    NativeBridge.resetWebAppReady();
+    jest.advanceTimersByTime(120000);
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    jest.useRealTimers();
+    await authenticateNextDocument('ac'.repeat(16), send);
+    NativeBridge.setNativeAuthorization(true);
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(sentUris(send)).toEqual([]);
+    send.mockRestore();
+  });
+
+  it('abandons a stuck authorized sync so a later attempt can deliver the intent', async () => {
+    jest.useFakeTimers();
+    NativeBridge.invalidateAuthorization();
+    mockGetUserPreferences.mockImplementationOnce(() => new Promise(() => undefined));
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    NativeBridge.queueDAppURI('qrlconnect://?q=stuck-fixture');
+    NativeBridge.setNativeAuthorization(true);
+    await jest.advanceTimersByTimeAsync(20000);
+    expect(sentUris(send)).toEqual([]);
+    await jest.advanceTimersByTimeAsync(11000);
+    expect(mockError).toHaveBeenCalledWith('NativeBridge', expect.stringContaining('timed out'));
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
+    NativeBridge.setNativeAuthorization(true);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(sentUris(send)).toEqual(['qrlconnect://?q=stuck-fixture']);
     send.mockRestore();
     jest.useRealTimers();
   });

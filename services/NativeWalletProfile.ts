@@ -24,6 +24,9 @@ export const NATIVE_WEBVIEW_INJECTED_OBJECT = Object.freeze({
   qrlWalletCapabilities: Object.freeze({
     ...NATIVE_WALLET_CAPABILITIES,
     platform: NATIVE_WALLET_PLATFORM,
+    // This build sends APP_LOCKED on every lock, so the page may keep an injected
+    // Device Login PIN across inactive/active transitions.
+    appLockedSignal: true,
   }),
 });
 

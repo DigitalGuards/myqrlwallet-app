@@ -49,6 +49,7 @@ import NativeBridge, {
   NATIVE_PIN_COMMIT_ERROR,
 } from '../NativeBridge';
 import SeedStorageService from '../SeedStorageService';
+import Logger from '../Logger';
 
 const mockGetDeviceCredential =
   SeedStorageService.getDeviceCredential as jest.MockedFunction<
@@ -418,6 +419,109 @@ describe('NativeBridge device credential protocol', () => {
     send.mockRestore();
   });
 
+  describe('seed backup queue', () => {
+    const idFor = (index: number) => index.toString(16).padStart(32, '0');
+    const seedMessage = (index: number): BridgeMessage => ({
+      type: 'SEED_STORED',
+      payload: {
+        requestId: idFor(index),
+        address: ADDRESS,
+        encryptedSeed: `ciphertext-${index}`,
+        blockchain: 'TEST_NET_V3',
+        revision: index,
+        ciphertextHash: CIPHERTEXT_HASH,
+      },
+    });
+    const flush = async () => {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    };
+
+    it('serializes five or more concurrent backups in arrival order', async () => {
+      const started: string[] = [];
+      const release: Array<() => void> = [];
+      mockBackupSeed.mockImplementation(
+        (_address, encryptedSeed) =>
+          new Promise((resolve) => {
+            started.push(encryptedSeed);
+            release.push(() => resolve({} as never));
+          }),
+      );
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+
+      const handled = [1, 2, 3, 4, 5, 6].map((index) => handleBridge(seedMessage(index)));
+      await flush();
+      expect(started).toEqual(['ciphertext-1']);
+      for (let step = 0; step < 6; step += 1) {
+        release[step]();
+        await flush();
+      }
+      await Promise.all(handled);
+
+      expect(started).toEqual([1, 2, 3, 4, 5, 6].map((index) => `ciphertext-${index}`));
+      const responses = send.mock.calls
+        .map(([message]) => message as { type: string; payload: Record<string, unknown> })
+        .filter((message) => message.type === 'SEED_STORED_RESPONSE');
+      expect(responses.map((message) => message.payload.requestId)).toEqual(
+        [1, 2, 3, 4, 5, 6].map(idFor),
+      );
+      expect(responses.every((message) => message.payload.success === true)).toBe(true);
+      send.mockRestore();
+    });
+
+    it('refuses backups beyond the queue bound and logs the refusal', async () => {
+      const release: Array<() => void> = [];
+      mockBackupSeed.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release.push(() => resolve({} as never));
+          }),
+      );
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+
+      const handled = Array.from({ length: 21 }, (_, offset) => handleBridge(seedMessage(offset + 1)));
+      await flush();
+      expect(send).toHaveBeenCalledWith({
+        type: 'SEED_STORED_RESPONSE',
+        payload: {
+          requestId: idFor(21),
+          success: false,
+          revision: 21,
+          ciphertextHash: CIPHERTEXT_HASH,
+          error: 'STORAGE_ERROR',
+        },
+      });
+      expect(Logger.error).toHaveBeenCalledWith('NativeBridge', expect.stringContaining('queue is full'));
+      for (let step = 0; step < 20; step += 1) {
+        release[step]();
+        await flush();
+      }
+      await Promise.all(handled);
+      send.mockRestore();
+    });
+
+    it('drops a queued backup once the authorization it arrived under is gone', async () => {
+      const release: Array<() => void> = [];
+      mockBackupSeed.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release.push(() => resolve({} as never));
+          }),
+      );
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
+
+      const first = handleBridge(seedMessage(1));
+      const second = handleBridge(seedMessage(2));
+      await flush();
+      NativeBridge.invalidateAuthorization();
+      release[0]();
+      await Promise.all([first, second]);
+
+      expect(mockBackupSeed).toHaveBeenCalledTimes(1);
+      NativeBridge.setNativeAuthorization(true);
+      send.mockRestore();
+    });
+  });
+
   it.each([`q${'12'.repeat(64)}`, `Q${'12'.repeat(20)}`])(
     'rejects a non-Q+128 seed address before native persistence',
     async (address) => {
@@ -512,6 +616,28 @@ describe('NativeBridge device credential protocol', () => {
 
     await expect(change).resolves.toEqual({ success: true, error: undefined });
     expect(mockStorePin).toHaveBeenCalledWith('5678');
+    send.mockRestore();
+  });
+
+  it('fails a PIN change fast when the request cannot reach the page', async () => {
+    await handleBridge({ type: 'WEB_APP_READY' });
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => false);
+
+    await expect(NativeBridge.changePin('1234', '5678')).resolves.toEqual({
+      success: false,
+      error: 'Web app is unavailable',
+    });
+    expect(Logger.error).toHaveBeenCalledWith(
+      'NativeBridge',
+      expect.stringContaining('CHANGE_PIN'),
+    );
+    // The reservation is released so the next attempt is not refused.
+    send.mockImplementation(() => true);
+    const retry = NativeBridge.changePin('1234', '5678', 1);
+    await expect(retry).resolves.toEqual({
+      success: false,
+      error: NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
+    });
     send.mockRestore();
   });
 

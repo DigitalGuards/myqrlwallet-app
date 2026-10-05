@@ -8,6 +8,7 @@ import SeedStorageService from './SeedStorageService';
 import DAppConnectionStore from './DAppConnectionStore';
 import WebViewService from './WebViewService';
 import Logger from './Logger';
+import Diagnostics from './Diagnostics';
 import { isWalletOwnHost } from './ExternalLinkPolicy';
 import { resolveDAppReturn } from './DAppReturnPolicy';
 import { isQrlAddress } from './QrlAddress';
@@ -30,8 +31,21 @@ const MAX_CONTACTS = 500;
 const MAX_CONTACTS_JSON_CHARS = 256 * 1024;
 const MAX_DAPP_NAME_CHARS = 128;
 const MAX_DAPP_URL_CHARS = 2048;
-const MAX_PENDING_SEED_WRITES = 4;
+// The wallet holds at most 10 accounts and a PIN change backs each up, then the
+// rollback wave repeats it, so twice that stays queued before a flooding page
+// is refused.
+const MAX_QUEUED_SEED_WRITES = 20;
 const DAPP_INTENT_TTL_MS = 120000;
+// Shorter than the intent TTL so a stuck storage read cannot hold a pairing link until it expires.
+const AUTHORIZED_SYNC_TIMEOUT_MS = 30000;
+// dApp events the page sends while the wallet is locked wait for unlock.
+const MAX_HELD_DAPP_CONNECTIONS = 16;
+const MAX_HELD_DAPP_PAYLOAD_CHARS = 8192;
+
+/** The page chooses message types, so only a fixed safe charset and length reach the diagnostics ring. */
+function safeLogType(type: string): string {
+  return type.replace(/[^A-Za-z0-9_]/g, '?').slice(0, 32);
+}
 
 export interface NativeSecurityContext {
   walletGeneration: number;
@@ -179,6 +193,7 @@ export type NativeToWebMessageType =
   | 'QR_CANCELLED' // User closed QR scanner without scanning
   | 'BIOMETRIC_SUCCESS'
   | 'APP_STATE'
+  | 'APP_LOCKED' // Native authorization dropped: the page clears any injected Device Login PIN
   | 'CLIPBOARD_SUCCESS'
   | 'SHARE_SUCCESS'
   | 'ERROR'
@@ -323,6 +338,11 @@ class NativeBridge {
   private authorizedSyncPromise: Promise<void> | null = null;
   private pendingDAppDisconnects = new Map<string, PendingDAppDisconnect>();
   private pendingSeedStoreRequestIds = new Set<string>();
+  private seedWriteTail: Promise<void> = Promise.resolve();
+  // Latest DAPP_CONNECTED per channel and one DAPP_SHOW_WEBVIEW, held while locked.
+  private heldDAppConnections = new Map<string, { payload: Record<string, unknown>; at: number }>();
+  private heldDAppShowWebViewAt: number | null = null;
+  private heldDAppEventsGeneration = -1;
   private dappShowWebViewCallback: DAppShowWebViewCallback | null = null;
   private dappStoreWriteQueue: Promise<void> = Promise.resolve();
   private isWebAppReady: boolean = false;
@@ -407,10 +427,21 @@ class NativeBridge {
     }
   }
 
+  /**
+   * Tell the page the wallet locked so it drops an injected Device Login PIN
+   * before anything else can run. Sent ahead of the invalidation; the page
+   * only relies on it when the capability object advertises appLockedSignal.
+   */
+  private sendAppLocked(): void {
+    if (this.isWebAppReady && this.activeDocumentId) this.sendToWeb({ type: 'APP_LOCKED' });
+  }
+
   invalidateAuthorization(options: { preservePendingDAppIntent?: boolean } = {}): void {
+    this.sendAppLocked();
     this.nativeAuthorized = false;
     this.authorizationGeneration += 1;
     this.authorizedSyncDocumentGeneration = -1;
+    Diagnostics.event('NativeBridge', 'authorization invalidated');
     if (!options.preservePendingDAppIntent) this.cancelPendingDAppIntent();
     this.cancelPendingPinVerification('App authorization changed');
     this.notifyAuthorizationInvalidated();
@@ -418,6 +449,9 @@ class NativeBridge {
 
   setNativeAuthorization(authorized: boolean): void {
     if (!authorized && this.nativeAuthorized) this.invalidateAuthorization();
+    if (authorized && !this.nativeAuthorized && !this.walletClearInProgress) {
+      Diagnostics.event('NativeBridge', 'wallet unlocked');
+    }
     this.nativeAuthorized = authorized && !this.walletClearInProgress;
     if (!this.nativeAuthorized) this.authorizedSyncDocumentGeneration = -1;
     if (this.nativeAuthorized && this.isWebAppReady) {
@@ -436,20 +470,24 @@ class NativeBridge {
     }
     if (this.authorizedSyncDocumentGeneration === generation) {
       this.flushPendingDAppIntent();
+      this.flushHeldDAppEvents();
       return;
     }
 
     this.authorizedSyncDocumentGeneration = generation;
-    const operation = (async () => {
+    let abandoned = false;
+    const stillCurrent = () =>
+      !abandoned && this.nativeAuthorized && this.isSecurityContextCurrent(context);
+    const work = (async () => {
       const displayPrefs = await WebViewService.getUserPreferences();
-      if (!this.nativeAuthorized || !this.isSecurityContextCurrent(context)) return;
+      if (!stillCurrent()) return;
       this.sendDisplayPrefs({
         showTokensCard: displayPrefs.showTokensCard ?? true,
         showNftsCard: displayPrefs.showNftsCard ?? true,
       });
 
       const contactsJson = await WebViewService.getContactsBackup();
-      if (!this.nativeAuthorized || !this.isSecurityContextCurrent(context)) return;
+      if (!stillCurrent()) return;
       if (contactsJson) {
         const contacts: unknown = JSON.parse(contactsJson);
         if (
@@ -472,14 +510,21 @@ class NativeBridge {
         }
       }
 
-      if (
-        this.webAppReadyCallback &&
-        this.nativeAuthorized &&
-        this.isSecurityContextCurrent(context)
-      ) {
+      if (this.webAppReadyCallback && stillCurrent()) {
         await this.webAppReadyCallback();
       }
     })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        abandoned = true;
+        Logger.error('NativeBridge', 'Authorized document sync timed out');
+        reject(new Error('Authorized document sync timed out'));
+      }, AUTHORIZED_SYNC_TIMEOUT_MS);
+    });
+    const operation = Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+    // The losing branch must not surface as an unhandled rejection.
+    work.catch(() => undefined);
     const checked = operation.catch((error) => {
       if (this.authorizedSyncPromise === inFlight) {
         this.authorizedSyncDocumentGeneration = -1;
@@ -489,11 +534,83 @@ class NativeBridge {
     const inFlight = checked.finally(() => {
       if (this.authorizedSyncPromise === inFlight) {
         this.authorizedSyncPromise = null;
-        if (this.isSecurityContextCurrent(context)) this.flushPendingDAppIntent();
+        if (this.isSecurityContextCurrent(context)) {
+          this.flushPendingDAppIntent();
+          this.flushHeldDAppEvents();
+        }
       }
     });
     this.authorizedSyncPromise = inFlight;
     return inFlight;
+  }
+
+  /**
+   * Keep a dApp event that arrived while locked. Nothing about it takes effect
+   * until the wallet is authorized again: it is replayed through handle(),
+   * which repeats every check.
+   */
+  private holdDAppEvent(
+    type: 'DAPP_SHOW_WEBVIEW' | 'DAPP_CONNECTED',
+    payload: Record<string, unknown> | undefined,
+  ): void {
+    if (this.walletClearInProgress) return;
+    if (this.heldDAppEventsGeneration !== this.documentGeneration) this.clearHeldDAppEvents();
+    this.heldDAppEventsGeneration = this.documentGeneration;
+    if (type === 'DAPP_SHOW_WEBVIEW') {
+      this.heldDAppShowWebViewAt = Date.now();
+      Logger.debug('NativeBridge', 'Holding DAPP_SHOW_WEBVIEW until unlock');
+      return;
+    }
+    const channelId = payload?.channelId;
+    if (
+      typeof channelId !== 'string' ||
+      !CHANNEL_ID_PATTERN.test(channelId) ||
+      JSON.stringify(payload).length > MAX_HELD_DAPP_PAYLOAD_CHARS
+    ) {
+      Logger.warn('NativeBridge', 'Dropped DAPP_CONNECTED with an invalid payload while locked');
+      return;
+    }
+    if (
+      !this.heldDAppConnections.has(channelId) &&
+      this.heldDAppConnections.size >= MAX_HELD_DAPP_CONNECTIONS
+    ) {
+      Logger.error('NativeBridge', 'Dropped DAPP_CONNECTED while locked: too many held channels');
+      return;
+    }
+    this.heldDAppConnections.set(channelId, { payload: { ...payload }, at: Date.now() });
+  }
+
+  private clearHeldDAppEvents(): void {
+    this.heldDAppConnections.clear();
+    this.heldDAppShowWebViewAt = null;
+  }
+
+  private flushHeldDAppEvents(): void {
+    if (
+      this.heldDAppEventsGeneration !== this.documentGeneration ||
+      this.walletClearInProgress ||
+      !this.nativeAuthorized ||
+      !this.activeDocumentId
+    ) {
+      return;
+    }
+    const documentId = this.activeDocumentId;
+    const now = Date.now();
+    const connections = [...this.heldDAppConnections.values()]
+      .filter((held) => now - held.at < DAPP_INTENT_TTL_MS)
+      .map((held) => held.payload);
+    const showAt = this.heldDAppShowWebViewAt;
+    this.clearHeldDAppEvents();
+    for (const payload of connections) {
+      this.handle({ type: 'DAPP_CONNECTED', payload: { ...payload, documentId } }).catch((error) => {
+        Logger.error('NativeBridge', 'Held DAPP_CONNECTED failed:', error);
+      });
+    }
+    if (showAt !== null && Date.now() - showAt < DAPP_INTENT_TTL_MS) {
+      this.handle({ type: 'DAPP_SHOW_WEBVIEW', payload: { documentId } }).catch((error) => {
+        Logger.error('NativeBridge', 'Held DAPP_SHOW_WEBVIEW failed:', error);
+      });
+    }
   }
 
   private cancelPendingPinVerification(error: string): void {
@@ -554,13 +671,18 @@ class NativeBridge {
    */
   resetWebAppReady() {
     Logger.debug('NativeBridge', 'Resetting web app ready state');
+    Diagnostics.event('NativeBridge', 'web document reset');
     this.isWebAppReady = false;
     this.nativeAuthorized = false;
     this.authorizedSyncDocumentGeneration = -1;
     this.activeDocumentId = null;
     this.pendingDocumentChallenges.clear();
     this.documentGeneration += 1;
-    if (this.pendingDAppIntent?.documentId !== null) this.cancelPendingDAppIntent();
+    this.clearHeldDAppEvents();
+    // iOS can kill the WebView content process while the user is in the dApp's
+    // browser. Keep the intent for the next authenticated document: it still
+    // waits for unlock and still expires on its own timer.
+    if (this.pendingDAppIntent) this.pendingDAppIntent.documentId = null;
     this.notifyAuthorizationInvalidated();
     this.cancelDocumentRequests('Web app document changed');
     this.flushWebAppReadyResolvers('reject', 'Web app ready state was reset');
@@ -615,11 +737,13 @@ class NativeBridge {
   /** Invalidate credential mutations before native wallet storage is wiped. */
   beginWalletClear(): void {
     if (this.walletClearInProgress) return;
+    this.sendAppLocked();
     this.walletClearInProgress = true;
     this.nativeAuthorized = false;
     this.walletMutationGeneration += 1;
     this.authorizationGeneration += 1;
     this.cancelPendingDAppIntent();
+    this.clearHeldDAppEvents();
     this.notifyAuthorizationInvalidated();
     if (this.walletClearStartedCallback) this.walletClearStartedCallback();
     this.cancelDocumentRequests('Wallet clear is in progress', 'Wallet clear is in progress');
@@ -672,6 +796,7 @@ class NativeBridge {
       }, DAPP_INTENT_TTL_MS),
     };
     this.pendingDAppIntent = intent;
+    Diagnostics.event('NativeBridge', 'dApp link queued');
     this.flushPendingDAppIntent();
     return true;
   }
@@ -697,8 +822,12 @@ class NativeBridge {
     if (!this.nativeAuthorized || this.authorizedSyncDocumentGeneration !== this.documentGeneration || this.authorizedSyncPromise !== null) return;
     // Consume before forwarding so a synchronous callback cannot duplicate it.
     this.pendingDAppIntent = null;
-    if (this.sendDAppURI(intent.uri)) clearTimeout(intent.timer);
-    else this.pendingDAppIntent = intent;
+    if (this.sendDAppURI(intent.uri)) {
+      clearTimeout(intent.timer);
+      Diagnostics.event('NativeBridge', 'dApp link delivered to the wallet page');
+    } else {
+      this.pendingDAppIntent = intent;
+    }
   }
 
   /**
@@ -714,6 +843,7 @@ class NativeBridge {
     if (!this.nativeAuthorized) {
       return { success: false, error: 'Unlock the wallet app first' };
     }
+    this.heldDAppConnections.delete(channelId);
     const context = this.captureSecurityContext();
     try {
       await this.waitForWebAppReady(timeoutMs);
@@ -867,7 +997,11 @@ class NativeBridge {
       !LOCKED_ALLOWED_MESSAGE_TYPES.has(type) &&
       !lockedPinVerification
     ) {
-      Logger.warn('NativeBridge', `Dropped ${type} while the native wallet lock is active`);
+      if (type === 'DAPP_SHOW_WEBVIEW' || type === 'DAPP_CONNECTED') {
+        this.holdDAppEvent(type, payload);
+        return;
+      }
+      Logger.warn('NativeBridge', `Dropped ${safeLogType(type)} while the native wallet lock is active`);
       return;
     }
 
@@ -1005,13 +1139,24 @@ class NativeBridge {
           Logger.warn('NativeBridge', 'Ignoring duplicate in-flight SEED_STORED request');
           return;
         }
-        if (this.pendingSeedStoreRequestIds.size >= MAX_PENDING_SEED_WRITES) {
+        if (this.pendingSeedStoreRequestIds.size >= MAX_QUEUED_SEED_WRITES) {
+          Logger.error('NativeBridge', 'SEED_STORED refused: the seed backup queue is full');
           this.sendSeedStoredResponse(requestId, false, revision, ciphertextHash, 'STORAGE_ERROR');
           return;
         }
         this.pendingSeedStoreRequestIds.add(requestId);
-        try {
+        // Writes run one at a time in arrival order. A queued write that outlives
+        // the authorization or wallet it arrived under is dropped.
+        const context = this.captureSecurityContext();
+        const write = this.seedWriteTail.then(async () => {
+          if (this.walletClearInProgress || !this.isSecurityContextCurrent(context)) {
+            throw new Error('Seed backup dropped: the wallet or authorization changed while queued');
+          }
           await this.handleSeedStored(address, encryptedSeed, blockchain, revision, ciphertextHash);
+        });
+        this.seedWriteTail = write.catch(() => undefined);
+        try {
+          await write;
           this.sendSeedStoredResponse(requestId, true, revision, ciphertextHash);
         } catch (error) {
           Logger.error('NativeBridge', 'Seed backup request failed:', error);
@@ -1203,6 +1348,7 @@ class NativeBridge {
 
         // Resolve ready waiters only after the exact document challenge echo.
         Logger.debug('NativeBridge', 'Web document challenge completed');
+        Diagnostics.event('NativeBridge', 'web document authenticated');
         this.isWebAppReady = true;
         this.flushPendingDAppIntent();
         this.flushWebAppReadyResolvers('resolve');
@@ -1360,6 +1506,9 @@ class NativeBridge {
           Logger.debug('NativeBridge', 'Deferring uncorrelated disconnect during explicit request');
           return;
         }
+        // A connect held while locked is older than this disconnect. Replaying it
+        // after unlock would mark the session active again.
+        this.heldDAppConnections.delete(disconnectChannelId);
         Logger.debug(
           'NativeBridge',
           `dApp disconnected: ${disconnectChannelId} (explicit: ${explicit})`
@@ -1441,7 +1590,7 @@ class NativeBridge {
       }
 
       default:
-        Logger.warn('NativeBridge', `Unknown message type: ${type}`);
+        Logger.warn('NativeBridge', `Unknown message type: ${safeLogType(type)}`);
     }
   }
 
@@ -2129,11 +2278,16 @@ class NativeBridge {
       };
       this.pendingPinChangeRequest = { requestId, expectedPin: newPin };
 
-      // Send change request to web
-      this.sendToWeb({
+      // Send change request to web. An unsent request would otherwise wait the
+      // full timeout, so report it at once.
+      const sent = this.sendToWeb({
         type: 'CHANGE_PIN',
         payload: { requestId, oldPin, newPin, acceptAlreadyTarget },
       });
+      if (sent === false) {
+        Logger.error('NativeBridge', 'CHANGE_PIN could not be delivered to the web document');
+        finish(false, 'Web app is unavailable');
+      }
     });
   }
 }

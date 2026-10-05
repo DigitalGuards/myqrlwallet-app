@@ -25,7 +25,11 @@ describe('native Testnet v3 compatibility contract', () => {
     expect(Object.isFrozen(NATIVE_WALLET_CAPABILITIES)).toBe(true);
     expect(Object.isFrozen(NATIVE_WEBVIEW_INJECTED_OBJECT)).toBe(true);
     expect(JSON.parse(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT))).toEqual({
-      qrlWalletCapabilities: { ...NATIVE_WALLET_CAPABILITIES, platform: NATIVE_WALLET_PLATFORM },
+      qrlWalletCapabilities: {
+        ...NATIVE_WALLET_CAPABILITIES,
+        platform: NATIVE_WALLET_PLATFORM,
+        appLockedSignal: true,
+      },
     });
     const source = readFileSync(resolve(__dirname, '../../components/QRLWebView.tsx'), 'utf8');
     expect(source).toContain('injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}');
@@ -63,6 +67,21 @@ describe('native Testnet v3 compatibility contract', () => {
     run(bare);
     const created = bare.ReactNativeWebView as { injectedObjectJson: () => string };
     expect(created.injectedObjectJson()).toBe(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT));
+  });
+
+  it('advertises appLockedSignal on both the iOS object and the Android script', () => {
+    // iOS reads injectedJavaScriptObject, Android reads the injected script. Both
+    // carry the same object, and the page trusts APP_LOCKED only when it sees the flag.
+    const win: Record<string, unknown> = {};
+    new Function('window', NATIVE_WEBVIEW_CAPABILITY_SCRIPT)(win);
+    const bridge = win.ReactNativeWebView as { injectedObjectJson: () => string };
+    const fromScript = JSON.parse(bridge.injectedObjectJson()) as {
+      qrlWalletCapabilities: { appLockedSignal?: boolean };
+    };
+    expect(fromScript.qrlWalletCapabilities.appLockedSignal).toBe(true);
+    expect(NATIVE_WEBVIEW_INJECTED_OBJECT.qrlWalletCapabilities.appLockedSignal).toBe(true);
+    const source = readFileSync(resolve(__dirname, '../../components/QRLWebView.tsx'), 'utf8');
+    expect(source).toContain('injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}');
   });
 
   it('tells the page which platform it is on, because the user agent cannot', () => {

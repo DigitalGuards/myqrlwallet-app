@@ -23,6 +23,7 @@ import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
 import NativeBridge, { NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
+import Diagnostics from '../../services/Diagnostics';
 import { createBackgroundLock } from '../../services/BackgroundLock';
 import EmbeddedRouteIntent from '../../services/EmbeddedRouteIntent';
 import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
@@ -556,6 +557,7 @@ export default function WalletScreen() {
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
+    Diagnostics.event('WalletScreen', 'app backgrounded, re-auth required');
     manualRetryRequired.current =
       manualRetryRequired.current ||
       isAuthenticating.current ||
@@ -567,8 +569,9 @@ export default function WalletScreen() {
       setAuthError('Login was interrupted. Try again or use your wallet PIN.');
     }
     authAttemptGeneration.current += 1;
-    NativeBridge.invalidateAuthorization();
-    BiometricService.clearPendingSecurityOperations();
+    // A pairing link waiting for unlock survives the lock and keeps its expiry.
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
+    BiometricService.clearPendingSecurityOperations('lock');
     hasRestoredSeeds.current = false;
     // Drop any PIN held between a successful biometric unlock and WEB_APP_READY.
     // A later authorized attempt must repopulate it.
@@ -732,6 +735,13 @@ export default function WalletScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!isAuthorized) return;
+
+      if (BiometricService.consumePinChangeDroppedByLock()) {
+        Alert.alert(
+          'PIN Not Changed',
+          'The app locked before your PIN change ran, so your PIN was not changed. Start the change again from Settings.',
+        );
+      }
 
       // Check for pending Device Login setup
       if (BiometricService.hasPendingDeviceLoginSetup() && !deviceLoginSetupTriggered.current) {

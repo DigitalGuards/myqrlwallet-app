@@ -6,6 +6,9 @@ import SettingsScreen from '../../app/settings';
 import NativeBridge from '../NativeBridge';
 import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
+import Logger from '../Logger';
+import Diagnostics from '../Diagnostics';
+import * as Clipboard from 'expo-clipboard';
 
 let mockGeneration = 0;
 let mockWalletGeneration = 0;
@@ -14,6 +17,7 @@ const mockInvalidationListeners = new Set<() => void>();
 
 jest.mock('react-native-safe-area-context', () => ({ SafeAreaView: 'SafeAreaView' }));
 jest.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }));
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => undefined) }));
 jest.mock('expo-constants', () => ({ expoConfig: { version: '1.3.1' } }));
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), push: jest.fn() },
@@ -25,7 +29,7 @@ jest.mock('expo-router', () => ({
     }, [callback]);
   },
 }));
-jest.mock('../../components/ChangePinModal', () => ({ ChangePinModal: 'ChangePinModal' }));
+jest.mock('../../components/ChangePinOverlay', () => ({ ChangePinOverlay: 'ChangePinOverlay' }));
 jest.mock('../../components/PinEntryModal', () => ({ PinEntryModal: 'PinEntryModal' }));
 jest.mock('expo-local-authentication', () => ({
   SecurityLevel: { NONE: 0 },
@@ -243,7 +247,7 @@ describe('Settings session-bound security actions', () => {
         resolvePrompt({ success: true });
       });
       expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
       expect(
         jest.mocked(Alert.alert).mock.calls.some(([title]) => title === 'Remove All Wallets')
       ).toBe(false);
@@ -252,7 +256,7 @@ describe('Settings session-bound security actions', () => {
         await operation;
       });
       if (kind === 'disable') expect(BiometricService.disableDeviceLogin).toHaveBeenCalledTimes(1);
-      if (kind === 'change') expect(modal('ChangePinModal').visible).toBe(true);
+      if (kind === 'change') expect(modal('ChangePinOverlay').visible).toBe(true);
       if (kind === 'remove') expect(button('Remove All Wallets', 'Remove All')).toBeDefined();
     }
   );
@@ -273,7 +277,7 @@ describe('Settings session-bound security actions', () => {
         await operation;
       });
       expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
       expect(
         jest.mocked(Alert.alert).mock.calls.some(([title]) => title === 'Remove All Wallets')
       ).toBe(false);
@@ -298,7 +302,7 @@ describe('Settings session-bound security actions', () => {
       });
       await transition('active');
       expect(BiometricService.disableDeviceLogin).not.toHaveBeenCalled();
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
       expect(
         jest.mocked(Alert.alert).mock.calls.some(([title]) => title === 'Remove All Wallets')
       ).toBe(false);
@@ -336,7 +340,7 @@ describe('Settings session-bound security actions', () => {
         expect(BiometricService.disableDeviceLogin).toHaveBeenCalledTimes(1);
         expect(Alert.alert).toHaveBeenCalledWith('Disabled', 'Device Login has been disabled.');
       }
-      if (kind === 'change') expect(modal('ChangePinModal').visible).toBe(true);
+      if (kind === 'change') expect(modal('ChangePinOverlay').visible).toBe(true);
       if (kind === 'remove') expect(button('Remove All Wallets', 'Remove All')).toBeDefined();
     }
   );
@@ -380,19 +384,82 @@ describe('Settings session-bound security actions', () => {
       await act(async () => {
         await begin('change');
       });
-      expect(modal('ChangePinModal').visible).toBe(false);
+      expect(modal('ChangePinOverlay').visible).toBe(false);
     }
   );
+
+  it('reports a failed Change PIN prompt', async () => {
+    jest
+      .mocked(LocalAuthentication.authenticateAsync)
+      .mockResolvedValue({ success: false, error: 'lockout' });
+    await act(async () => {
+      await begin('change');
+    });
+    expect(modal('ChangePinOverlay').visible).toBe(false);
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'PIN Not Changed',
+      'Authentication did not complete. Please try again.'
+    );
+    expect(Logger.error).toHaveBeenCalledWith('Settings', expect.stringContaining('Change PIN'));
+  });
+
+  it('stays quiet when the user cancels the Change PIN prompt', async () => {
+    jest
+      .mocked(LocalAuthentication.authenticateAsync)
+      .mockResolvedValue({ success: false, error: 'user_cancel' });
+    await act(async () => {
+      await begin('change');
+    });
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('tells the user when a stale Change PIN form is submitted', async () => {
+    await act(async () => {
+      await begin('change');
+    });
+    const stale = modal('ChangePinOverlay').onSubmit;
+    await act(async () => {
+      NativeBridge.invalidateAuthorization();
+    });
+    jest.mocked(Alert.alert).mockClear();
+    await act(async () => {
+      stale('old', 'new');
+    });
+    expect(BiometricService.queuePinChange).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'PIN Not Changed',
+      'Your session changed before the PIN could be updated. Please try again.'
+    );
+    expect(Logger.error).toHaveBeenCalledWith('Settings', expect.stringContaining('stale'));
+  });
+
+  it('copies diagnostics only after the user confirms', async () => {
+    Diagnostics.clear();
+    Diagnostics.event('Test', 'wallet locked');
+    Diagnostics.record('error', 'Test', 'failed pin=1234');
+    await act(async () => {
+      row('Copy Diagnostics').props.onPress();
+    });
+    expect(Clipboard.setStringAsync).not.toHaveBeenCalled();
+    await act(async () => {
+      await button('Copy Diagnostics', 'Copy')();
+    });
+    const copied = jest.mocked(Clipboard.setStringAsync).mock.calls[0][0];
+    expect(copied).toContain('app: 1.3.1');
+    expect(copied).toContain('wallet locked');
+    expect(copied).not.toContain('1234');
+    expect(Alert.alert).toHaveBeenCalledWith('Copied', 'Diagnostics copied to the clipboard.');
+  });
 
   it('binds PIN-change modal submission to its original action, including after reauthorization', async () => {
     await act(async () => {
       await begin('change');
     });
-    const stale = modal('ChangePinModal').onSubmit;
+    const stale = modal('ChangePinOverlay').onSubmit;
     await act(async () => {
       NativeBridge.invalidateAuthorization();
     });
-    expect(modal('ChangePinModal').visible).toBe(false);
+    expect(modal('ChangePinOverlay').visible).toBe(false);
     await act(async () => {
       await begin('change');
     });
@@ -401,7 +468,7 @@ describe('Settings session-bound security actions', () => {
     });
     expect(BiometricService.queuePinChange).not.toHaveBeenCalled();
     await act(async () => {
-      modal('ChangePinModal').onSubmit('fresh-old', 'fresh-new');
+      modal('ChangePinOverlay').onSubmit('fresh-old', 'fresh-new');
     });
     expect(BiometricService.queuePinChange).toHaveBeenCalledWith('fresh-old', 'fresh-new');
   });
