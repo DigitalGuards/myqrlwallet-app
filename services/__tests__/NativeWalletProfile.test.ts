@@ -69,6 +69,21 @@ describe('native Testnet v3 compatibility contract', () => {
     expect(created.injectedObjectJson()).toBe(JSON.stringify(NATIVE_WEBVIEW_INJECTED_OBJECT));
   });
 
+  it('advertises appLockedSignal on both the iOS object and the Android script', () => {
+    // iOS reads injectedJavaScriptObject, Android reads the injected script. Both
+    // carry the same object, and the page trusts APP_LOCKED only when it sees the flag.
+    const win: Record<string, unknown> = {};
+    new Function('window', NATIVE_WEBVIEW_CAPABILITY_SCRIPT)(win);
+    const bridge = win.ReactNativeWebView as { injectedObjectJson: () => string };
+    const fromScript = JSON.parse(bridge.injectedObjectJson()) as {
+      qrlWalletCapabilities: { appLockedSignal?: boolean };
+    };
+    expect(fromScript.qrlWalletCapabilities.appLockedSignal).toBe(true);
+    expect(NATIVE_WEBVIEW_INJECTED_OBJECT.qrlWalletCapabilities.appLockedSignal).toBe(true);
+    const source = readFileSync(resolve(__dirname, '../../components/QRLWebView.tsx'), 'utf8');
+    expect(source).toContain('injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}');
+  });
+
   it('tells the page which platform it is on, because the user agent cannot', () => {
     // The WebView is given a fixed iPhone user agent on every platform, so a
     // page asking "am I on iOS" from the user agent got yes on Android.
