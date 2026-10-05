@@ -391,10 +391,12 @@ export default function SettingsScreen() {
   ) => {
     if (!isSecurityActionCurrent(action)) {
       Logger.error('Settings', 'Change PIN submit rejected: the authorized action is stale');
-      Alert.alert(
-        'PIN Not Changed',
-        'Your session changed before the PIN could be updated. Please try again.',
-      );
+      if (mounted.current && focused.current) {
+        Alert.alert(
+          'PIN Not Changed',
+          'Your session changed before the PIN could be updated. Please try again.',
+        );
+      }
       return;
     }
     invalidateSecurityActions();

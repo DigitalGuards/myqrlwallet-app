@@ -335,7 +335,7 @@ class NativeBridge {
   private pendingSeedStoreRequestIds = new Set<string>();
   private seedWriteTail: Promise<void> = Promise.resolve();
   // Latest DAPP_CONNECTED per channel and one DAPP_SHOW_WEBVIEW, held while locked.
-  private heldDAppConnections = new Map<string, Record<string, unknown>>();
+  private heldDAppConnections = new Map<string, { payload: Record<string, unknown>; at: number }>();
   private heldDAppShowWebViewAt: number | null = null;
   private heldDAppEventsGeneration = -1;
   private dappShowWebViewCallback: DAppShowWebViewCallback | null = null;
@@ -572,7 +572,7 @@ class NativeBridge {
       Logger.error('NativeBridge', 'Dropped DAPP_CONNECTED while locked: too many held channels');
       return;
     }
-    this.heldDAppConnections.set(channelId, { ...payload });
+    this.heldDAppConnections.set(channelId, { payload: { ...payload }, at: Date.now() });
   }
 
   private clearHeldDAppEvents(): void {
@@ -590,7 +590,10 @@ class NativeBridge {
       return;
     }
     const documentId = this.activeDocumentId;
-    const connections = [...this.heldDAppConnections.values()];
+    const now = Date.now();
+    const connections = [...this.heldDAppConnections.values()]
+      .filter((held) => now - held.at < DAPP_INTENT_TTL_MS)
+      .map((held) => held.payload);
     const showAt = this.heldDAppShowWebViewAt;
     this.clearHeldDAppEvents();
     for (const payload of connections) {
@@ -835,6 +838,7 @@ class NativeBridge {
     if (!this.nativeAuthorized) {
       return { success: false, error: 'Unlock the wallet app first' };
     }
+    this.heldDAppConnections.delete(channelId);
     const context = this.captureSecurityContext();
     try {
       await this.waitForWebAppReady(timeoutMs);
@@ -1497,6 +1501,9 @@ class NativeBridge {
           Logger.debug('NativeBridge', 'Deferring uncorrelated disconnect during explicit request');
           return;
         }
+        // A connect held while locked is older than this disconnect. Replaying it
+        // after unlock would mark the session active again.
+        this.heldDAppConnections.delete(disconnectChannelId);
         Logger.debug(
           'NativeBridge',
           `dApp disconnected: ${disconnectChannelId} (explicit: ${explicit})`

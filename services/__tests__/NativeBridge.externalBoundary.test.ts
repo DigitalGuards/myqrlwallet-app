@@ -356,6 +356,36 @@ describe('NativeBridge hosted WebView boundaries', () => {
       NativeBridge.onDAppShowWebView(jest.fn());
     });
 
+    it('does not resurrect a session whose disconnect arrived while locked', async () => {
+      const order: string[] = [];
+      mockDAppConnected.mockImplementation(async () => {
+        order.push('connected');
+      });
+      (DAppConnectionStore.onDisconnected as jest.Mock).mockImplementation(async () => {
+        order.push('disconnected');
+      });
+      NativeBridge.invalidateAuthorization();
+      await handleBridge(connected('ghost'));
+      await handleBridge({
+        type: 'DAPP_DISCONNECTED',
+        payload: { channelId: CHANNEL_ID, explicit: true },
+      });
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(order).toEqual(['disconnected']);
+    });
+
+    it('lets a held DAPP_CONNECTED expire', async () => {
+      jest.useFakeTimers();
+      NativeBridge.invalidateAuthorization();
+      await handleBridge(connected('stale'));
+      jest.advanceTimersByTime(121000);
+      NativeBridge.setNativeAuthorization(true);
+      await settle();
+      expect(mockDAppConnected).not.toHaveBeenCalled();
+      jest.useRealTimers();
+    });
+
     it('keeps one held record per channel and refuses a flood of channels', async () => {
       NativeBridge.invalidateAuthorization();
       for (let i = 0; i < 40; i++) {

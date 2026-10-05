@@ -58,9 +58,9 @@ function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEdit
   );
 }
 
-// Rendered inside the screen that owns it instead of a native Modal: a Fabric
-// Modal presented right after the Face ID sheet can be refused by UIKit
-// without any error, which left Change PIN with no dialog.
+// Rendered inside the screen that owns it. A Fabric Modal presented right after
+// the Face ID sheet can be refused by UIKit without any error, which left
+// Change PIN with no dialog.
 export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onSubmit, onCancel }) => {
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
