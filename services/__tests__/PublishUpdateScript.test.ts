@@ -43,7 +43,7 @@ function makeRepo(opts: { failGate?: string } = {}) {
     `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "eas-cli/\${FAKE_EAS_VERSION-24.11.0} linux-x64 node-v22"; exit 0; fi\n` +
       `if [ "$1" = "build:list" ]; then echo "eas $*" >> "${calls}"; if [ -n "$FAKE_BUILDS" ]; then echo "$FAKE_BUILDS"; else echo '[{"id":"b1"}]'; fi; exit 0; fi\n` +
       `echo "eas $* env=$EXPO_PUBLIC_WEB_SOURCE/\${APP_VARIANT-unset}/$EAS_UPDATE_SKIP_ENVIRONMENT_CHECK/$EXPO_NO_DOTENV" >> "${calls}"\n` +
-      `if [ -n "$FAKE_EAS_OUT" ]; then echo "$FAKE_EAS_OUT"; else echo '[{"platform":"android","runtimeVersion":"rv-android","group":"group-android"},{"platform":"ios","runtimeVersion":"rv-ios","group":"group-ios"}]'; fi\n`,
+      `if [ -n "$FAKE_EAS_OUT" ]; then echo "$FAKE_EAS_OUT"; else echo '[{"id":"u-android","createdAt":"2026-10-07T10:00:00.000Z","group":"group-android","branch":"production","message":"m","runtimeVersion":"rv-android","platform":"android","manifestPermalink":"https://example.invalid/android","isRollBackToEmbedded":false,"gitCommitHash":"abc"},{"id":"u-ios","createdAt":"2026-10-07T10:00:00.000Z","group":"group-ios","branch":"production","message":"m","runtimeVersion":"rv-ios","platform":"ios","manifestPermalink":"https://example.invalid/ios","isRollBackToEmbedded":false,"gitCommitHash":"abc"}]'; fi\n`,
   );
   const realNpm = execFileSync('which', ['npm'], { encoding: 'utf8' }).trim();
   writeFileSync(
@@ -189,5 +189,16 @@ describe('scripts/publish-update.sh', () => {
     expect(twice.stderr).toContain('ios appears twice');
     const none = run(ctx, ['--channel', 'preview', '--message', 'm'], { FAKE_EAS_OUT: '[]' });
     expect(none.status).not.toBe(0);
+  });
+
+  it('fails when an update is a rollback to the embedded bundle', () => {
+    const ctx = makeRepo();
+    const rollback = JSON.stringify([
+      { platform: 'android', runtimeVersion: 'rv-android', group: 'g1', isRollBackToEmbedded: true },
+      { platform: 'ios', runtimeVersion: 'rv-ios', group: 'g2', isRollBackToEmbedded: false },
+    ]);
+    const result = run(ctx, ['--channel', 'preview', '--message', 'm'], { FAKE_EAS_OUT: rollback });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('rollback to the embedded bundle');
   });
 });

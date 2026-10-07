@@ -136,6 +136,7 @@ PLATFORMS="$PLATFORMS" node -e '
   for (const u of list) {
     console.log(`published update: ${u.platform} runtime ${u.runtimeVersion} group ${u.group}`);
     if (seen.has(u.platform)) { console.error(`error: ${u.platform} appears twice`); bad = true; }
+    if (u.isRollBackToEmbedded) { console.error(`error: ${u.platform} update is a rollback to the embedded bundle`); bad = true; }
     seen.add(u.platform);
   }
   for (const p of process.env.PLATFORMS.split(" ")) {

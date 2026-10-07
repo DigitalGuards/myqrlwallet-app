@@ -74,6 +74,8 @@ apply them on the launch after that.
 
 The script asks gpg-agent to drop its cached passphrase on exit. Setting `default-cache-ttl 0` in the owner's `gpg-agent.conf` makes the "every publish needs the owner" property hold per publish.
 
+Publishing needs eas-cli at the pinned version, installed once with `npm install -g eas-cli@24.11.0`.
+
 The encrypted key path defaults to
 `$HOME/.config/myqrlwallet-update-signing/private-key.pem.gpg`. Set
 `UPDATE_SIGNING_KEY_GPG` to use another file.
