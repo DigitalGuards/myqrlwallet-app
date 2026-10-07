@@ -7,6 +7,9 @@
 # asks for its passphrase. See docs/OTA_UPDATES.md for the trust model.
 set -euo pipefail
 
+EAS_CLI_VERSION="24.11.0"
+PLATFORMS="android ios"
+
 usage() {
   echo "usage: $0 --channel <preview|production> --message <text> [--dry-run]" >&2
   exit 2
@@ -70,13 +73,28 @@ export EAS_UPDATE_SKIP_ENVIRONMENT_CHECK=1
 export EXPO_NO_DOTENV=1
 unset APP_VARIANT
 
-# Pin the eas-cli major version so nothing is fetched from npm while the key is on disk.
-command -v eas > /dev/null || fail "eas-cli is not installed (npm install -g eas-cli@21)"
-eas_version="$(eas --version | sed -n 's|^eas-cli/\([0-9]*\)\..*|\1|p')"
-[ "$eas_version" = "21" ] || fail "eas-cli 21.x is required (found major '${eas_version:-unknown}')"
+# Pin the exact eas-cli version so nothing is fetched from npm while the key is on disk.
+command -v eas > /dev/null || fail "eas-cli is not installed (npm install -g eas-cli@$EAS_CLI_VERSION)"
+eas_version="$(eas --version | sed -n 's|^eas-cli/\([0-9][0-9.]*\).*|\1|p')"
+[ "$eas_version" = "$EAS_CLI_VERSION" ] ||
+  fail "eas-cli $EAS_CLI_VERSION is required (found '${eas_version:-unknown}')"
+
+# An update only reaches apps whose runtime version matches. Refuse to publish
+# to a channel unless a finished build on it runs the same runtime version, per
+# platform, so a successful publish cannot reach nobody.
+for platform in $PLATFORMS; do
+  runtime="$(npx --no-install expo-updates runtimeversion:resolve --platform "$platform" |
+    node -e 'let d="";process.stdin.on("data",(c)=>(d+=c)).on("end",()=>{const v=JSON.parse(d).runtimeVersion;if(!v)process.exit(1);console.log(v)})')" ||
+    fail "could not resolve the $platform runtime version"
+  builds="$(eas build:list --platform "$platform" --channel "$channel" --runtime-version "$runtime" \
+    --status finished --limit 1 --json --non-interactive)" || fail "could not list $platform builds"
+  [ "$(printf '%s' "$builds" | node -e 'let d="";process.stdin.on("data",(c)=>(d+=c)).on("end",()=>console.log(JSON.parse(d).length))')" -gt 0 ] ||
+    fail "no finished $platform build on channel $channel has runtime version $runtime; an update would reach no installed app"
+  echo "runtime ok: $platform $runtime"
+done
 
 keyfile="${UPDATE_SIGNING_KEY_GPG:-$HOME/.config/myqrlwallet-update-signing/private-key.pem.gpg}"
-eas_args=(update --channel "$channel" --message "$message" --clear-cache --non-interactive)
+eas_args=(update --channel "$channel" --message "$message" --clear-cache --platform all --non-interactive)
 
 if [ "$dry_run" -eq 1 ]; then
   echo "dry run: checks passed, nothing decrypted or published"
@@ -106,15 +124,20 @@ gpg --decrypt "$keyfile" > "$tmpkey"
 [ -s "$tmpkey" ] || fail "decrypting the signing key failed"
 
 eas "${eas_args[@]}" --json --private-key-path "$tmpkey" > "$out"
-groups="$(node -e '
+# The fingerprint runtime version differs per platform, so one update exists per platform.
+PLATFORMS="$PLATFORMS" node -e '
   const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const list = Array.isArray(r) ? r : [r];
-  const groups = [...new Set(list.map((u) => u.group).filter(Boolean))];
-  if (groups.length === 0) process.exit(1);
-  console.log(groups.join(" "));
-' "$out")" || fail "update published but the group id could not be read from the eas output"
-# The fingerprint runtime version differs per platform, so a publish for all
-# platforms yields one group per platform.
-for group in $groups; do
-  echo "published update group: $group"
-done
+  if (list.length === 0) { console.error("error: eas reported no updates"); process.exit(1); }
+  const seen = new Set();
+  let bad = false;
+  for (const u of list) {
+    console.log(`published update: ${u.platform} runtime ${u.runtimeVersion} group ${u.group}`);
+    if (seen.has(u.platform)) { console.error(`error: ${u.platform} appears twice`); bad = true; }
+    seen.add(u.platform);
+  }
+  for (const p of process.env.PLATFORMS.split(" ")) {
+    if (!seen.has(p)) { console.error(`error: no update reported for ${p}`); bad = true; }
+  }
+  process.exit(bad ? 1 : 0);
+' "$out"

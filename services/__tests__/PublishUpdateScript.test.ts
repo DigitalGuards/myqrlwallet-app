@@ -40,15 +40,21 @@ function makeRepo(opts: { failGate?: string } = {}) {
   );
   writeFileSync(
     join(bin, 'eas'),
-    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "eas-cli/\${FAKE_EAS_VERSION-21}.4.0 linux-x64 node-v22"; exit 0; fi\n` +
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "eas-cli/\${FAKE_EAS_VERSION-24.11.0} linux-x64 node-v22"; exit 0; fi\n` +
+      `if [ "$1" = "build:list" ]; then echo "eas $*" >> "${calls}"; if [ -n "$FAKE_BUILDS" ]; then echo "$FAKE_BUILDS"; else echo '[{"id":"b1"}]'; fi; exit 0; fi\n` +
       `echo "eas $* env=$EXPO_PUBLIC_WEB_SOURCE/\${APP_VARIANT-unset}/$EAS_UPDATE_SKIP_ENVIRONMENT_CHECK/$EXPO_NO_DOTENV" >> "${calls}"\n` +
-      `if [ -n "$FAKE_EAS_OUT" ]; then echo "$FAKE_EAS_OUT"; else echo '[{"group":"group-android"},{"group":"group-ios"}]'; fi\n`,
+      `if [ -n "$FAKE_EAS_OUT" ]; then echo "$FAKE_EAS_OUT"; else echo '[{"platform":"android","runtimeVersion":"rv-android","group":"group-android"},{"platform":"ios","runtimeVersion":"rv-ios","group":"group-ios"}]'; fi\n`,
   );
   const realNpm = execFileSync('which', ['npm'], { encoding: 'utf8' }).trim();
   writeFileSync(
     join(bin, 'npm'),
     `#!/bin/sh\nif [ "$1" = "ci" ]; then echo "npm ci" >> "${calls}"; exit 0; fi\nexec "${realNpm}" "$@"\n`,
   );
+  writeFileSync(
+    join(bin, 'npx'),
+    `#!/bin/sh\necho '{"runtimeVersion":"rv-'"$5"'"}'\n`,
+  );
+  chmodSync(join(bin, 'npx'), 0o755);
   chmodSync(join(bin, 'eas'), 0o755);
   chmodSync(join(bin, 'npm'), 0o755);
   chmodSync(join(bin, 'gpg'), 0o755);
@@ -91,7 +97,7 @@ describe('scripts/publish-update.sh', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--channel production');
     expect(result.stdout).toContain('--private-key-path');
-    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas /);
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas update/);
   });
 
   it('refuses a dirty tree', () => {
@@ -124,20 +130,21 @@ describe('scripts/publish-update.sh', () => {
     const ctx = makeRepo({ failGate: 'typecheck' });
     const result = run(ctx, ['--channel', 'preview', '--message', 'm']);
     expect(result.status).not.toBe(0);
-    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas /);
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas update/);
   });
 
   it('publishes with the production bundle environment and reports the group id', () => {
     const ctx = makeRepo();
     const result = run(ctx, ['--channel', 'production', '--message', 'fix']);
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('published update group: group-android');
-    expect(result.stdout).toContain('published update group: group-ios');
+    expect(result.stdout).toContain('published update: android runtime rv-android group group-android');
+    expect(result.stdout).toContain('published update: ios runtime rv-ios group group-ios');
     expect(result.stdout + result.stderr).not.toContain('FAKE-KEY');
     const calls = readFileSync(ctx.calls, 'utf8');
     expect(calls).toContain('gpg --decrypt');
-    expect(calls).toMatch(/eas update --channel production --message fix --clear-cache --non-interactive/);
+    expect(calls).toMatch(/eas update --channel production --message fix --clear-cache --platform all --non-interactive/);
     expect(calls).not.toContain('--environment');
+    expect(calls).toContain('build:list --platform ios --channel production --runtime-version rv-ios --status finished');
     expect(calls.indexOf('npm ci')).toBeGreaterThanOrEqual(0);
     const keyPath = /--private-key-path (\S+)/.exec(calls)?.[1];
     expect(keyPath).toMatch(/^\//);
@@ -147,9 +154,34 @@ describe('scripts/publish-update.sh', () => {
 
   it('refuses an eas-cli of another major version', () => {
     const ctx = makeRepo();
-    const result = run(ctx, ['--channel', 'preview', '--message', 'm'], { FAKE_EAS_VERSION: '20' });
+    const result = run(ctx, ['--channel', 'preview', '--message', 'm'], { FAKE_EAS_VERSION: '21.4.0' });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('eas-cli 21.x');
+    expect(result.stderr).toContain('eas-cli 24.11.0 is required');
     expect(loggedCalls(ctx.calls)).not.toContain('gpg');
+  });
+
+  it('refuses to publish when no finished build on the channel has the runtime version', () => {
+    const ctx = makeRepo();
+    const result = run(ctx, ['--channel', 'production', '--message', 'm'], { FAKE_BUILDS: '[]' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('would reach no installed app');
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas update/);
+  });
+
+  it('fails when a platform is missing or repeated in the eas output', () => {
+    const ctx = makeRepo();
+    const missing = run(ctx, ['--channel', 'preview', '--message', 'm'], {
+      FAKE_EAS_OUT: '[{"platform":"ios","runtimeVersion":"rv-ios","group":"g1"}]',
+    });
+    expect(missing.status).not.toBe(0);
+    expect(missing.stderr).toContain('no update reported for android');
+    const twice = run(ctx, ['--channel', 'preview', '--message', 'm'], {
+      FAKE_EAS_OUT:
+        '[{"platform":"ios","group":"g1"},{"platform":"ios","group":"g2"},{"platform":"android","group":"g3"}]',
+    });
+    expect(twice.status).not.toBe(0);
+    expect(twice.stderr).toContain('ios appears twice');
+    const none = run(ctx, ['--channel', 'preview', '--message', 'm'], { FAKE_EAS_OUT: '[]' });
+    expect(none.status).not.toBe(0);
   });
 });

@@ -66,7 +66,7 @@ apply them on the launch after that.
    `lint`, `typecheck`, `test:ci` and `verify:embedded-web`, builds the bundle
    with the environment of the production EAS build
    (`EXPO_PUBLIC_WEB_SOURCE=embedded`, no `APP_VARIANT`), decrypts the key, runs
-   `eas update` and prints one update group id per platform. The script passes no EAS environment to `eas update`, because eas-cli would merge that environment's server-side variables over the script's own and could shape the bundle that gets signed. EAS environments stay empty, and the publish script does not read them. Dotenv files are ignored, `npm ci` runs first so `node_modules` matches the lockfile, and eas-cli major version 21 is required. `--dry-run` runs every check and
+   `eas update` and prints one update group id per platform. The script passes no EAS environment to `eas update`, because eas-cli would merge that environment's server-side variables over the script's own and could shape the bundle that gets signed. The publish script never reads EAS environments: the bundle environment is exactly what the script sets. Dotenv files are ignored, `npm ci` runs first so `node_modules` matches the lockfile, and eas-cli is pinned to one exact version in the script, and the script refuses to publish unless a finished build on the channel runs the same runtime version for each platform. `--dry-run` runs every check and
    prints the command without decrypting or publishing.
 6. Confirm on a device: Settings, Copy Diagnostics shows the update id, channel,
    runtime version and creation time, and whether the embedded bundle is
