@@ -57,6 +57,11 @@ function makeRepo(opts: { failGate?: string } = {}) {
   chmodSync(join(bin, 'npx'), 0o755);
   chmodSync(join(bin, 'eas'), 0o755);
   chmodSync(join(bin, 'npm'), 0o755);
+  writeFileSync(
+    join(bin, 'gpg-connect-agent'),
+    `#!/bin/sh\necho "gpg-connect-agent $*" >> "${calls}"\n`,
+  );
+  chmodSync(join(bin, 'gpg-connect-agent'), 0o755);
   chmodSync(join(bin, 'gpg'), 0o755);
   return { repo, bin, calls };
 }
@@ -97,7 +102,7 @@ describe('scripts/publish-update.sh', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--channel production');
     expect(result.stdout).toContain('--private-key-path');
-    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas update/);
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg --decrypt|eas update/);
   });
 
   it('refuses a dirty tree', () => {
@@ -130,7 +135,7 @@ describe('scripts/publish-update.sh', () => {
     const ctx = makeRepo({ failGate: 'typecheck' });
     const result = run(ctx, ['--channel', 'preview', '--message', 'm']);
     expect(result.status).not.toBe(0);
-    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas update/);
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg --decrypt|eas update/);
   });
 
   it('publishes with the production bundle environment and reports the group id', () => {
@@ -142,6 +147,7 @@ describe('scripts/publish-update.sh', () => {
     expect(result.stdout + result.stderr).not.toContain('FAKE-KEY');
     const calls = readFileSync(ctx.calls, 'utf8');
     expect(calls).toContain('gpg --decrypt');
+    expect(calls).toContain('gpg-connect-agent reloadagent');
     expect(calls).toMatch(/eas update --channel production --message fix --clear-cache --platform all --non-interactive/);
     expect(calls).not.toContain('--environment');
     expect(calls).toContain('build:list --platform ios --channel production --runtime-version rv-ios --status finished');
@@ -157,7 +163,7 @@ describe('scripts/publish-update.sh', () => {
     const result = run(ctx, ['--channel', 'preview', '--message', 'm'], { FAKE_EAS_VERSION: '21.4.0' });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('eas-cli 24.11.0 is required');
-    expect(loggedCalls(ctx.calls)).not.toContain('gpg');
+    expect(loggedCalls(ctx.calls)).not.toContain('gpg --decrypt');
   });
 
   it('refuses to publish when no finished build on the channel has the runtime version', () => {
@@ -165,7 +171,7 @@ describe('scripts/publish-update.sh', () => {
     const result = run(ctx, ['--channel', 'production', '--message', 'm'], { FAKE_BUILDS: '[]' });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('would reach no installed app');
-    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas update/);
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg --decrypt|eas update/);
   });
 
   it('fails when a platform is missing or repeated in the eas output', () => {

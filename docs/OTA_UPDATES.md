@@ -72,6 +72,8 @@ apply them on the launch after that.
    runtime version and creation time, and whether the embedded bundle is
    running.
 
+The script asks gpg-agent to drop its cached passphrase on exit. Setting `default-cache-ttl 0` in the owner's `gpg-agent.conf` makes the "every publish needs the owner" property hold per publish.
+
 The encrypted key path defaults to
 `$HOME/.config/myqrlwallet-update-signing/private-key.pem.gpg`. Set
 `UPDATE_SIGNING_KEY_GPG` to use another file.

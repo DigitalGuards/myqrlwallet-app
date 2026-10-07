@@ -114,6 +114,8 @@ out=""
 cleanup() {
   [ -z "$tmpkey" ] || shred -u "$tmpkey" 2> /dev/null || rm -f "$tmpkey"
   [ -z "$out" ] || rm -f "$out"
+  # Drop the cached key passphrase so a later decrypt prompts the owner again.
+  gpg-connect-agent reloadagent /bye > /dev/null 2>&1 || true
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
