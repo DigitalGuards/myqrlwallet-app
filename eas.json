@@ -10,7 +10,8 @@
       "distribution": "internal",
       "env": {
         "APP_VARIANT": "embedded-dev"
-      }
+      },
+      "channel": "development"
     },
     "development-embedded": {
       "developmentClient": true,
@@ -18,13 +19,15 @@
       "env": {
         "APP_VARIANT": "embedded-dev",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
-      }
+      },
+      "channel": "preview"
     },
     "preview-embedded": {
       "distribution": "internal",
@@ -33,7 +36,8 @@
         "EXPO_PUBLIC_WEB_SOURCE": "embedded",
         "RCT_USE_PREBUILT_RNCORE": "0",
         "RCT_USE_RN_DEP": "0"
-      }
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
@@ -41,7 +45,8 @@
         "RCT_USE_PREBUILT_RNCORE": "0",
         "RCT_USE_RN_DEP": "0",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
-      }
+      },
+      "channel": "production"
     }
   },
   "submit": {
