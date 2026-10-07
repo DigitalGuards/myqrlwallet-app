@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { X509Certificate } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -39,6 +40,13 @@ describe('signed over-the-air updates configuration', () => {
     expect(tracked.trim()).toBe('certs/certificate.pem');
     expect(read('certs/certificate.pem')).toMatch(/^-----BEGIN CERTIFICATE-----/);
     expect(read('certs/certificate.pem')).not.toMatch(/PRIVATE KEY/);
+  });
+
+  it('pins the signing certificate fingerprint so a swap shows up in review', () => {
+    const certificate = new X509Certificate(read('certs/certificate.pem'));
+    expect(certificate.fingerprint256).toBe(
+      '42:29:C1:42:F5:C0:37:27:2D:0A:CA:7D:2E:2C:A2:55:6F:EA:A2:78:A3:E1:F5:63:C1:C8:B5:AD:D3:73:8C:51',
+    );
   });
 
   it('applies updates on the next cold start and pins them to the native build', () => {
