@@ -458,3 +458,7 @@ holds the pending pairing intent through the lock and flushes it once the
 wallet is authorized again. The real fix is native, stopping the spurious
 transition at the activity, which is not something to change without a device
 to test it on.
+
+## Over-the-air updates
+
+A re-pinned wallet document can reach installed builds as a signed update when the native fingerprint is unchanged. See [OTA_UPDATES.md](./OTA_UPDATES.md) for the trust model and the publish procedure.
