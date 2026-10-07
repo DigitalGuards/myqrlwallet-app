@@ -61,7 +61,7 @@ apply them on the launch after that.
    `lint`, `typecheck`, `test:ci` and `verify:embedded-web`, builds the bundle
    with the environment of the production EAS build
    (`EXPO_PUBLIC_WEB_SOURCE=embedded`, no `APP_VARIANT`), decrypts the key, runs
-   `eas update` and prints the update group id. `--dry-run` runs every check and
+   `eas update` against the EAS environment named like the channel (`production` or `preview`) and prints the update group id. Any variable later defined in an EAS environment is injected into the updates published for it, so review that list before publishing. `--dry-run` runs every check and
    prints the command without decrypting or publishing.
 6. Confirm on a device: Settings, Copy Diagnostics shows the update id, channel,
    runtime version and creation time, and whether the embedded bundle is

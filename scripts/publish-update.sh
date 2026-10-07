@@ -60,7 +60,7 @@ export EXPO_PUBLIC_WEB_SOURCE=embedded
 unset APP_VARIANT
 
 keyfile="${UPDATE_SIGNING_KEY_GPG:-$HOME/.config/myqrlwallet-update-signing/private-key.pem.gpg}"
-eas_args=(eas-cli update --channel "$channel" --message "$message" --non-interactive)
+eas_args=(eas-cli update --channel "$channel" --environment "$channel" --message "$message" --non-interactive)
 
 if [ "$dry_run" -eq 1 ]; then
   echo "dry run: checks passed, nothing decrypted or published"
@@ -88,11 +88,16 @@ gpg --decrypt "$keyfile" > "$tmpkey"
 [ -s "$tmpkey" ] || fail "decrypting the signing key failed"
 
 npx "${eas_args[@]}" --json --private-key-path "$tmpkey" > "$out"
-group="$(node -e '
+groups="$(node -e '
   const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const list = Array.isArray(r) ? r : [r];
-  const group = list.map((u) => u.group).find(Boolean);
-  if (!group) process.exit(1);
-  console.log(group);
+  const groups = [...new Set(list.map((u) => u.group).filter(Boolean))];
+  if (groups.length === 0) process.exit(1);
+  console.log(groups.join(" "));
 ' "$out")" || fail "update published but the group id could not be read from the eas output"
-echo "published update group: $group"
+for group in $groups; do
+  echo "published update group: $group"
+done
+# shellcheck disable=SC2086
+set -- $groups
+[ $# -eq 1 ] || fail "more than one update group was published, which means more than one runtime version"

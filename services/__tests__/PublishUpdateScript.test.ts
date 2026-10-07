@@ -41,7 +41,7 @@ function makeRepo(opts: { failGate?: string } = {}) {
   writeFileSync(
     join(bin, 'npx'),
     `#!/bin/sh\necho "npx $* env=$EXPO_PUBLIC_WEB_SOURCE/\${APP_VARIANT-unset}" >> "${calls}"\n` +
-      `echo '[{"group":"group-123"}]'\n`,
+      `echo "\${FAKE_EAS_OUT:-[{\\"group\\":\\"group-123\\"},{\\"group\\":\\"group-123\\"}]}"\n`,
   );
   chmodSync(join(bin, 'gpg'), 0o755);
   chmodSync(join(bin, 'npx'), 0o755);
@@ -124,10 +124,21 @@ describe('scripts/publish-update.sh', () => {
     expect(result.stdout + result.stderr).not.toContain('FAKE-KEY');
     const calls = readFileSync(ctx.calls, 'utf8');
     expect(calls).toContain('gpg --decrypt');
-    expect(calls).toMatch(/npx eas-cli update --channel production --message fix --non-interactive/);
+    expect(calls).toMatch(/npx eas-cli update --channel production --environment production --message fix --non-interactive/);
     const keyPath = /--private-key-path (\S+)/.exec(calls)?.[1];
     expect(keyPath).toMatch(/^\//);
     expect(existsSync(keyPath as string)).toBe(false);
     expect(calls).toContain('env=embedded/unset');
+  });
+
+  it('fails when more than one update group was published', () => {
+    const ctx = makeRepo();
+    const result = run(ctx, ['--channel', 'preview', '--message', 'm'], {
+      FAKE_EAS_OUT: '[{"group":"g1"},{"group":"g2"}]',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toContain('g1');
+    expect(result.stdout).toContain('g2');
+    expect(result.stderr).toContain('more than one');
   });
 });
