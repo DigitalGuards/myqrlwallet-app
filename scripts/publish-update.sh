@@ -47,6 +47,10 @@ fi
 git fetch --quiet origin || fail "could not fetch origin"
 [ -n "$(git branch -r --contains HEAD)" ] || fail "HEAD is not pushed to origin"
 
+# The bundle is built from node_modules, so install exactly what the lockfile pins.
+echo "install: npm ci"
+npm ci --silent
+
 # Gates stop the publish on any failure (set -e).
 for gate in lint typecheck test:ci verify:embedded-web; do
   echo "gate: npm run $gate"
@@ -56,15 +60,27 @@ done
 # The update bundle uses the environment the production EAS build uses for the
 # JS bundle (eas.json build.production.env, JS-visible values only). APP_VARIANT
 # stays unset so the production identifiers apply.
+#
+# No EAS environment is passed: eas-cli would merge that environment's server
+# side variables over these and could shape the bundle that gets signed. The
+# environment prompt of eas-cli for SDK 55 and newer is skipped explicitly, and
+# dotenv files are ignored so only the committed tree and these exports count.
 export EXPO_PUBLIC_WEB_SOURCE=embedded
+export EAS_UPDATE_SKIP_ENVIRONMENT_CHECK=1
+export EXPO_NO_DOTENV=1
 unset APP_VARIANT
 
+# Pin the eas-cli major version so nothing is fetched from npm while the key is on disk.
+command -v eas > /dev/null || fail "eas-cli is not installed (npm install -g eas-cli@21)"
+eas_version="$(eas --version | sed -n 's|^eas-cli/\([0-9]*\)\..*|\1|p')"
+[ "$eas_version" = "21" ] || fail "eas-cli 21.x is required (found major '${eas_version:-unknown}')"
+
 keyfile="${UPDATE_SIGNING_KEY_GPG:-$HOME/.config/myqrlwallet-update-signing/private-key.pem.gpg}"
-eas_args=(eas-cli update --channel "$channel" --environment "$channel" --message "$message" --non-interactive)
+eas_args=(update --channel "$channel" --message "$message" --clear-cache --non-interactive)
 
 if [ "$dry_run" -eq 1 ]; then
   echo "dry run: checks passed, nothing decrypted or published"
-  printf 'would run: npx'
+  printf 'would run: eas'
   printf ' %q' "${eas_args[@]}" --json --private-key-path '<temporary key file>'
   printf '\n'
   exit 0
@@ -75,19 +91,21 @@ fi
 tmpdir=/dev/shm
 [ -d "$tmpdir" ] && [ -w "$tmpdir" ] || tmpdir="${TMPDIR:-/tmp}"
 umask 077
-tmpkey="$(mktemp "$tmpdir/ota-signing-key.XXXXXX")"
-out="$(mktemp "$tmpdir/ota-publish-out.XXXXXX")"
+tmpkey=""
+out=""
 cleanup() {
-  shred -u "$tmpkey" 2> /dev/null || rm -f "$tmpkey"
-  rm -f "$out"
+  [ -z "$tmpkey" ] || shred -u "$tmpkey" 2> /dev/null || rm -f "$tmpkey"
+  [ -z "$out" ] || rm -f "$out"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
+tmpkey="$(mktemp "$tmpdir/ota-signing-key.XXXXXX")"
+out="$(mktemp "$tmpdir/ota-publish-out.XXXXXX")"
 
 gpg --decrypt "$keyfile" > "$tmpkey"
 [ -s "$tmpkey" ] || fail "decrypting the signing key failed"
 
-npx "${eas_args[@]}" --json --private-key-path "$tmpkey" > "$out"
+eas "${eas_args[@]}" --json --private-key-path "$tmpkey" > "$out"
 groups="$(node -e '
   const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const list = Array.isArray(r) ? r : [r];
@@ -95,9 +113,8 @@ groups="$(node -e '
   if (groups.length === 0) process.exit(1);
   console.log(groups.join(" "));
 ' "$out")" || fail "update published but the group id could not be read from the eas output"
+# The fingerprint runtime version differs per platform, so a publish for all
+# platforms yields one group per platform.
 for group in $groups; do
   echo "published update group: $group"
 done
-# shellcheck disable=SC2086
-set -- $groups
-[ $# -eq 1 ] || fail "more than one update group was published, which means more than one runtime version"

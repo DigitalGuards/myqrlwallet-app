@@ -19,9 +19,14 @@ publishes and recovers.
   in memory-backed storage while the publish command runs and is shredded on
   every exit path.
 - `runtimeVersion` uses the `fingerprint` policy. The fingerprint covers the
-  native layer, so an update reaches only the exact native build it was
-  created for. A change to a native dependency, a native config value or the
-  embedded wallet document produces a new fingerprint and needs a store build.
+  native layer (expo config, `eas.json`, patches, plugins and native package
+  versions), so an update reaches only the exact native build it was created
+  for. A change to a native dependency or native config value produces a new
+  fingerprint and needs a store build. The embedded wallet document is a bundled
+  asset and ships inside the update, so a re-pinned wallet reaches installed
+  builds over the air. `verify:embedded-web` in the publish script is the gate
+  that protects the pin. The fingerprint is computed per platform, so a publish
+  for all platforms creates one update group per platform.
 - Updates download in the background and apply on the next cold start
   (`fallbackToCacheTimeout: 0`). A running session never switches bundle.
 - The `embedded-dev` variant disables updates entirely. It is a separate app
@@ -61,7 +66,7 @@ apply them on the launch after that.
    `lint`, `typecheck`, `test:ci` and `verify:embedded-web`, builds the bundle
    with the environment of the production EAS build
    (`EXPO_PUBLIC_WEB_SOURCE=embedded`, no `APP_VARIANT`), decrypts the key, runs
-   `eas update` against the EAS environment named like the channel (`production` or `preview`) and prints the update group id. Any variable later defined in an EAS environment is injected into the updates published for it, so review that list before publishing. `--dry-run` runs every check and
+   `eas update` and prints one update group id per platform. The script passes no EAS environment to `eas update`, because eas-cli would merge that environment's server-side variables over the script's own and could shape the bundle that gets signed. EAS environments stay empty, and the publish script does not read them. Dotenv files are ignored, `npm ci` runs first so `node_modules` matches the lockfile, and eas-cli major version 21 is required. `--dry-run` runs every check and
    prints the command without decrypting or publishing.
 6. Confirm on a device: Settings, Copy Diagnostics shows the update id, channel,
    runtime version and creation time, and whether the embedded bundle is
@@ -94,3 +99,9 @@ If the signing key or its passphrase may be exposed:
 
 A compromised Expo account alone cannot ship code to devices, because every
 manifest must carry the owner's signature. It can stop updates from arriving.
+
+Two limits come with the protocol. Keep every production update on one EAS
+branch, because the manifest filter header that selects the branch is unsigned.
+A fresh install whose embedded build predates a withdrawn signed update can
+still be served that update, so ship a store build after a security-relevant
+update.

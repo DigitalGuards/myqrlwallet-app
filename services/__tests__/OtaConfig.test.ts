@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -30,6 +31,12 @@ describe('signed over-the-air updates configuration', () => {
     expect(updates.url).toBe(`https://u.expo.dev/${appJson.expo.extra.eas.projectId}`);
     expect(updates.codeSigningCertificate).toBe('./certs/certificate.pem');
     expect(updates.codeSigningMetadata).toEqual({ keyid: 'main', alg: 'rsa-v1_5-sha256' });
+    // Ignored files do not reach EAS builds or fresh clones, so the certificate must be tracked.
+    const tracked = execFileSync('git', ['ls-files', 'certs/certificate.pem'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    });
+    expect(tracked.trim()).toBe('certs/certificate.pem');
     expect(read('certs/certificate.pem')).toMatch(/^-----BEGIN CERTIFICATE-----/);
     expect(read('certs/certificate.pem')).not.toMatch(/PRIVATE KEY/);
   });
@@ -76,5 +83,6 @@ describe('signed over-the-air updates configuration', () => {
   it('keeps the production bundle environment aligned with the publish script', () => {
     expect(easJson.build.production?.env?.EXPO_PUBLIC_WEB_SOURCE).toBe('embedded');
     expect(easJson.build.production?.env?.APP_VARIANT).toBeUndefined();
+    expect(read('scripts/publish-update.sh')).toContain('export EXPO_PUBLIC_WEB_SOURCE=embedded');
   });
 });

@@ -39,12 +39,19 @@ function makeRepo(opts: { failGate?: string } = {}) {
     `#!/bin/sh\necho "gpg $*" >> "${calls}"\necho FAKE-KEY\n`,
   );
   writeFileSync(
-    join(bin, 'npx'),
-    `#!/bin/sh\necho "npx $* env=$EXPO_PUBLIC_WEB_SOURCE/\${APP_VARIANT-unset}" >> "${calls}"\n` +
-      `if [ -n "$FAKE_EAS_OUT" ]; then echo "$FAKE_EAS_OUT"; else echo '[{"group":"group-123"},{"group":"group-123"}]'; fi\n`,
+    join(bin, 'eas'),
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "eas-cli/\${FAKE_EAS_VERSION-21}.4.0 linux-x64 node-v22"; exit 0; fi\n` +
+      `echo "eas $* env=$EXPO_PUBLIC_WEB_SOURCE/\${APP_VARIANT-unset}/$EAS_UPDATE_SKIP_ENVIRONMENT_CHECK/$EXPO_NO_DOTENV" >> "${calls}"\n` +
+      `if [ -n "$FAKE_EAS_OUT" ]; then echo "$FAKE_EAS_OUT"; else echo '[{"group":"group-android"},{"group":"group-ios"}]'; fi\n`,
   );
+  const realNpm = execFileSync('which', ['npm'], { encoding: 'utf8' }).trim();
+  writeFileSync(
+    join(bin, 'npm'),
+    `#!/bin/sh\nif [ "$1" = "ci" ]; then echo "npm ci" >> "${calls}"; exit 0; fi\nexec "${realNpm}" "$@"\n`,
+  );
+  chmodSync(join(bin, 'eas'), 0o755);
+  chmodSync(join(bin, 'npm'), 0o755);
   chmodSync(join(bin, 'gpg'), 0o755);
-  chmodSync(join(bin, 'npx'), 0o755);
   return { repo, bin, calls };
 }
 
@@ -64,6 +71,10 @@ function run(ctx: { repo: string; bin: string }, args: string[], env: Record<str
   });
 }
 
+function loggedCalls(file: string): string {
+  return existsSync(file) ? readFileSync(file, 'utf8') : '';
+}
+
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 describe('scripts/publish-update.sh', () => {
@@ -80,7 +91,7 @@ describe('scripts/publish-update.sh', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('--channel production');
     expect(result.stdout).toContain('--private-key-path');
-    expect(() => readFileSync(ctx.calls, 'utf8')).toThrow();
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas /);
   });
 
   it('refuses a dirty tree', () => {
@@ -113,32 +124,32 @@ describe('scripts/publish-update.sh', () => {
     const ctx = makeRepo({ failGate: 'typecheck' });
     const result = run(ctx, ['--channel', 'preview', '--message', 'm']);
     expect(result.status).not.toBe(0);
-    expect(() => readFileSync(ctx.calls, 'utf8')).toThrow();
+    expect(loggedCalls(ctx.calls)).not.toMatch(/gpg|eas /);
   });
 
   it('publishes with the production bundle environment and reports the group id', () => {
     const ctx = makeRepo();
     const result = run(ctx, ['--channel', 'production', '--message', 'fix']);
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('group-123');
+    expect(result.stdout).toContain('published update group: group-android');
+    expect(result.stdout).toContain('published update group: group-ios');
     expect(result.stdout + result.stderr).not.toContain('FAKE-KEY');
     const calls = readFileSync(ctx.calls, 'utf8');
     expect(calls).toContain('gpg --decrypt');
-    expect(calls).toMatch(/npx eas-cli update --channel production --environment production --message fix --non-interactive/);
+    expect(calls).toMatch(/eas update --channel production --message fix --clear-cache --non-interactive/);
+    expect(calls).not.toContain('--environment');
+    expect(calls.indexOf('npm ci')).toBeGreaterThanOrEqual(0);
     const keyPath = /--private-key-path (\S+)/.exec(calls)?.[1];
     expect(keyPath).toMatch(/^\//);
     expect(existsSync(keyPath as string)).toBe(false);
-    expect(calls).toContain('env=embedded/unset');
+    expect(calls).toContain('env=embedded/unset/1/1');
   });
 
-  it('fails when more than one update group was published', () => {
+  it('refuses an eas-cli of another major version', () => {
     const ctx = makeRepo();
-    const result = run(ctx, ['--channel', 'preview', '--message', 'm'], {
-      FAKE_EAS_OUT: '[{"group":"g1"},{"group":"g2"}]',
-    });
+    const result = run(ctx, ['--channel', 'preview', '--message', 'm'], { FAKE_EAS_VERSION: '20' });
     expect(result.status).not.toBe(0);
-    expect(result.stdout).toContain('g1');
-    expect(result.stdout).toContain('g2');
-    expect(result.stderr).toContain('more than one');
+    expect(result.stderr).toContain('eas-cli 21.x');
+    expect(loggedCalls(ctx.calls)).not.toContain('gpg');
   });
 });
