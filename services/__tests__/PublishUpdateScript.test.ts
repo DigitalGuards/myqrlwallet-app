@@ -41,7 +41,7 @@ function makeRepo(opts: { failGate?: string } = {}) {
   writeFileSync(
     join(bin, 'npx'),
     `#!/bin/sh\necho "npx $* env=$EXPO_PUBLIC_WEB_SOURCE/\${APP_VARIANT-unset}" >> "${calls}"\n` +
-      `echo "\${FAKE_EAS_OUT:-[{\\"group\\":\\"group-123\\"},{\\"group\\":\\"group-123\\"}]}"\n`,
+      `if [ -n "$FAKE_EAS_OUT" ]; then echo "$FAKE_EAS_OUT"; else echo '[{"group":"group-123"},{"group":"group-123"}]'; fi\n`,
   );
   chmodSync(join(bin, 'gpg'), 0o755);
   chmodSync(join(bin, 'npx'), 0o755);
