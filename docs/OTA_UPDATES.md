@@ -84,7 +84,12 @@ The encrypted key path defaults to
 
 The certificate is part of the native build, so a new certificate needs a new
 store build. Ship the build containing the new certificate first and wait until
-it is the version most users run, then sign updates with the new key. Devices on
+it is the version most users run, then sign updates with the new key. The
+certificate bytes are outside the runtime fingerprint (only its path is part of
+the app configuration), so the rotation build must also change the fingerprint,
+for example by shipping it with a native change or a new certificate path.
+Otherwise it keeps the old runtime version, and updates signed with the new key
+also reach devices that still hold the old certificate, which reject them. Devices on
 the old build keep trusting only the old key. Losing the key stops over-the-air
 updates and nothing else: store releases continue and every installed build
 keeps working.
