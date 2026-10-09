@@ -47,7 +47,7 @@ export interface DAppReturnContext {
   platform: string;
   /** Already parsed and normalized, or null when it did not pass. */
   redirectUrl: string | null;
-  reason?: string;
+  reason?: string | undefined;
 }
 
 export function resolveDAppReturn(context: DAppReturnContext): DAppReturnOutcome {

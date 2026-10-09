@@ -82,14 +82,14 @@ describe('embedded wallet document', () => {
     const executable: { attributes: string; digest: string }[] = [];
     const pattern = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
     for (let match = pattern.exec(shipped); match !== null; match = pattern.exec(shipped)) {
-      const attributes = match[1];
+      const attributes = match[1]!;
       const type = /type\s*=\s*"([^"]*)"/.exec(attributes)?.[1] ?? '';
       const isExecutable =
         type === '' || type === 'module' || type === 'text/javascript' || type === 'module ';
       if (!isExecutable) continue;
       executable.push({
         attributes,
-        digest: createHash('sha256').update(match[2], 'utf8').digest('base64'),
+        digest: createHash('sha256').update(match[2]!, 'utf8').digest('base64'),
       });
     }
 

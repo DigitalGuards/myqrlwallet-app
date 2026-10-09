@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isArray, isRecord } from './guards';
 import Logger from './Logger';
 import { isQrlAddress } from './QrlAddress';
 
@@ -36,28 +37,52 @@ class DAppConnectionStore {
     };
   }
 
-  private isStoredRecord(value: unknown): value is DAppConnectionRecord {
-    if (!value || typeof value !== 'object') return false;
-    const record = value as Partial<DAppConnectionRecord>;
-    return (
-      typeof record.channelId === 'string' &&
-      CHANNEL_ID_PATTERN.test(record.channelId) &&
-      typeof record.name === 'string' &&
-      record.name.length > 0 &&
-      record.name.length <= MAX_NAME_LENGTH &&
-      typeof record.url === 'string' &&
-      record.url.length <= MAX_URL_LENGTH &&
-      typeof record.connectedAccount === 'string' &&
-      isQrlAddress(record.connectedAccount) &&
-      typeof record.connectedAt === 'number' &&
-      Number.isSafeInteger(record.connectedAt) &&
-      record.connectedAt >= 0 &&
-      (record.disconnectedAt === null ||
-        (typeof record.disconnectedAt === 'number' &&
-          Number.isSafeInteger(record.disconnectedAt) &&
-          record.disconnectedAt >= 0)) &&
-      typeof record.explicitlyDisconnected === 'boolean'
-    );
+  private parseStoredRecord(value: unknown): DAppConnectionRecord | null {
+    if (!isRecord(value)) return null;
+    const {
+      channelId,
+      name,
+      url,
+      connectedAccount,
+      connectedAt,
+      disconnectedAt,
+      explicitlyDisconnected,
+    } = value;
+    if (
+      typeof channelId !== 'string' ||
+      !CHANNEL_ID_PATTERN.test(channelId) ||
+      typeof name !== 'string' ||
+      name.length === 0 ||
+      name.length > MAX_NAME_LENGTH ||
+      typeof url !== 'string' ||
+      url.length > MAX_URL_LENGTH ||
+      typeof connectedAccount !== 'string' ||
+      !isQrlAddress(connectedAccount) ||
+      typeof connectedAt !== 'number' ||
+      !Number.isSafeInteger(connectedAt) ||
+      connectedAt < 0 ||
+      typeof explicitlyDisconnected !== 'boolean'
+    ) {
+      return null;
+    }
+    if (disconnectedAt !== null) {
+      if (
+        typeof disconnectedAt !== 'number' ||
+        !Number.isSafeInteger(disconnectedAt) ||
+        disconnectedAt < 0
+      ) {
+        return null;
+      }
+    }
+    return {
+      channelId,
+      name,
+      url,
+      connectedAccount,
+      connectedAt,
+      disconnectedAt,
+      explicitlyDisconnected,
+    };
   }
 
   private trimRecords(): void {
@@ -70,7 +95,7 @@ class DAppConnectionStore {
     const run = this.writeChain
       .catch(() => undefined)
       .then(task)
-      .catch((err) => {
+      .catch((err: unknown) => {
         Logger.error('DAppConnectionStore', 'Write operation failed:', err);
         throw err;
       });
@@ -99,10 +124,11 @@ class DAppConnectionStore {
             this.records = [];
             await AsyncStorage.removeItem(STORAGE_KEY);
           }
-          if (Array.isArray(parsed)) {
-            this.records = parsed
-              .filter((r) => this.isStoredRecord(r))
-              .map((r) => this.sanitizeRecord(r));
+          if (isArray(parsed)) {
+            this.records = parsed.flatMap((r) => {
+              const record = this.parseStoredRecord(r);
+              return record ? [this.sanitizeRecord(record)] : [];
+            });
           } else if (parsed !== undefined) {
             this.records = [];
           }
@@ -113,7 +139,7 @@ class DAppConnectionStore {
       // Clean up expired on load
       await this.cleanExpired();
     })();
-    const inFlight = load.catch((err) => {
+    const inFlight = load.catch((err: unknown) => {
       Logger.error('DAppConnectionStore', 'Failed to load:', err);
       this.records = [];
       this.loaded = false;

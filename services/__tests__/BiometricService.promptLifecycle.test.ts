@@ -28,11 +28,11 @@ describe('actual OS authentication prompt lifetime', () => {
       const first = BiometricService.authenticate();
       const second = BiometricService.authenticate();
       expect(BiometricService.isAuthenticationPromptActive()).toBe(true);
-      resolvers[0]({ success: false, error: 'user_cancel' });
+      resolvers[0]!({ success: false, error: 'user_cancel' });
       await first;
       expect(BiometricService.isAuthenticationPromptActive()).toBe(true);
       expect(settled).not.toHaveBeenCalled();
-      resolvers[1]({ success: true });
+      resolvers[1]!({ success: true });
       await second;
       expect(BiometricService.isAuthenticationPromptActive()).toBe(false);
       expect(settled).toHaveBeenCalledTimes(1);

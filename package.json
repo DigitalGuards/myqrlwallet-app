@@ -14,7 +14,7 @@
     "verify:embedded-web": "node scripts/verify-embedded-web.js",
     "eas-build-post-install": "node scripts/verify-embedded-web.js",
     "build": "expo export --platform all",
-    "lint": "expo lint",
+    "lint": "expo lint && eslint .",
     "postinstall": "patch-package"
   },
   "jest": {

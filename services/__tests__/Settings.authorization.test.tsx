@@ -109,7 +109,7 @@ describe('Settings session-bound security actions', () => {
   });
 
   function row(title: string) {
-    return screen!.root.findAll((node) => node.props.title === title)[0];
+    return screen!.root.findAll((node) => node.props.title === title)[0]!;
   }
   function modal(name: string) {
     return screen!.root.findByType(name as never).props;
@@ -444,7 +444,7 @@ describe('Settings session-bound security actions', () => {
     await act(async () => {
       await button('Copy Diagnostics', 'Copy')();
     });
-    const copied = jest.mocked(Clipboard.setStringAsync).mock.calls[0][0];
+    const copied = jest.mocked(Clipboard.setStringAsync).mock.calls[0]![0]!;
     expect(copied).toContain('app: 1.3.1');
     expect(copied).toContain('wallet locked');
     expect(copied).not.toContain('1234');

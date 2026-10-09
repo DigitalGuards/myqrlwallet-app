@@ -1,11 +1,13 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, BackHandler, Linking, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import NativeBridge, { BridgeMessage, NativeQrScanRequest } from '../services/NativeBridge';
+import NativeBridge, { NativeQrScanRequest } from '../services/NativeBridge';
 import Logger from '../services/Logger';
+import { envString } from '../services/guards';
+import { parseBridgeMessage } from '../services/BridgeMessage';
 import {
   NATIVE_WEBVIEW_CAPABILITY_SCRIPT,
   NATIVE_WEBVIEW_INJECTED_OBJECT,
@@ -57,11 +59,11 @@ import QuantumLoadingScreen from './QuantumLoadingScreen';
 // __DEV__ is true when running in Expo Go / dev builds, false in production
 // For Android emulator: 10.0.2.2 maps to host localhost
 // For physical device: set EXPO_PUBLIC_DEV_URL to your computer's LAN IP (e.g., http://192.168.1.x:5173)
-const DEV_URL = process.env.EXPO_PUBLIC_DEV_URL || 'http://10.0.2.2:5173';
+const DEV_URL = envString(process.env.EXPO_PUBLIC_DEV_URL) || 'http://10.0.2.2:5173';
 
 // Where the wallet document comes from. See services/WebSource.ts.
 const CONFIGURED_WEB_SOURCE_RESOLUTION = resolveWebSource({
-  requested: process.env.EXPO_PUBLIC_WEB_SOURCE,
+  requested: envString(process.env.EXPO_PUBLIC_WEB_SOURCE),
   isDevelopment: __DEV__,
 });
 const CONFIGURED_WEB_SOURCE = CONFIGURED_WEB_SOURCE_RESOLUTION.mode;
@@ -302,7 +304,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     await markStorageMigrationDone();
   }, []);
 
-  const clearInheritedCaches = useCallback(async () => {
+  const clearInheritedCaches = useCallback(() => {
     if (cachesCleared.current || !servedMigrationPending.current) return;
     const view = webViewRef.current;
     if (!view) return;
@@ -313,12 +315,17 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     } catch (clearError) {
       Logger.warn('QRLWebView', 'Could not clear the WebView cache:', clearError);
     }
-    view.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
+    try {
+      view.injectJavaScript(EMBEDDED_STORAGE_MIGRATION_SCRIPT);
+    } catch (injectError) {
+      Logger.warn('QRLWebView', 'Could not run the storage migration script:', injectError);
+    }
   }, []);
 
   useEffect(() => {
     if (!isEmbedded || documentLoadedAt === null) return;
-    void clearInheritedCaches().then(() => markMigrationDoneIfComplete());
+    clearInheritedCaches();
+    void markMigrationDoneIfComplete();
   }, [isEmbedded, documentLoadedAt, clearInheritedCaches, markMigrationDoneIfComplete]);
 
   // Every message the shipped document sends carries the token, so the first
@@ -619,7 +626,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     });
     canGoBack.current = newNavState.canGoBack === true;
     // If page has loaded completely, ensure loading indicator is hidden
-    if (newNavState.loading === false) {
+    if (!newNavState.loading) {
       setIsLoading(false);
       contentLoaded.current = true;
       tryHideLoadingScreen();
@@ -701,21 +708,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       }
     }
 
-    let message: BridgeMessage;
-    try {
-      message = JSON.parse(data) as BridgeMessage;
-    } catch {
-      // Not a JSON message - ignore
-      return;
-    }
-    if (
-      !message ||
-      typeof message !== 'object' ||
-      typeof message.type !== 'string' ||
-      (message.payload !== undefined &&
-        (!message.payload || typeof message.payload !== 'object' || Array.isArray(message.payload)))
-    ) {
-      Logger.warn('QRLWebView', 'Dropped malformed bridge message');
+    const message = parseBridgeMessage(data);
+    if (message === null) {
+      // Not a JSON message, or not shaped like one: ignore
+      Logger.debug('QRLWebView', 'Dropped malformed bridge message');
       return;
     }
     if (isBackAnswer(message.type)) {
@@ -730,7 +726,8 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       pageAcknowledged.current = true;
       // The page acknowledges while its scripts evaluate, before the load
       // event, so this is usually where the caches half gets its chance.
-      void clearInheritedCaches().then(() => markMigrationDoneIfComplete());
+      clearInheritedCaches();
+      void markMigrationDoneIfComplete();
       return;
     }
     Logger.debug('QRLWebView', 'Bridge message received', message.type);
@@ -909,8 +906,12 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               // window.__QRL_EMBEDDED__, which the document head already
               // carries; both are needed because Android can deliver this one
               // after the document's own scripts have run.
-              injectedJavaScriptBeforeContentLoaded={beforeContentScript}
-              injectedJavaScript={afterContentScript}
+              {...(beforeContentScript !== undefined
+                ? { injectedJavaScriptBeforeContentLoaded: beforeContentScript }
+                : {})}
+              {...(afterContentScript !== undefined
+                ? { injectedJavaScript: afterContentScript }
+                : {})}
               style={styles.webView}
               originWhitelist={originWhitelist}
               userAgent={customUserAgent}

@@ -427,7 +427,7 @@ class BiometricService {
           isCurrent
         );
         if (probe.success) {
-          return this.retrieveStoredPinAfterAuth(walletGeneration, isCurrent);
+          return await this.retrieveStoredPinAfterAuth(walletGeneration, isCurrent);
         }
         if (probe.error === 'not_available') {
           return {

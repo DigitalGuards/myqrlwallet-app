@@ -32,6 +32,8 @@ import Logger from '../services/Logger';
 import Diagnostics from '../services/Diagnostics';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
 import { resolveWebSource } from '../services/WebSource';
+import { envString } from '../services/guards';
+import { LOGO_IMAGE } from '../constants/Assets';
 import { EMBEDDED_WALLET_BUILD_INFO } from '../services/EmbeddedWalletDocument';
 
 // Visual tokens are kept local to this screen per user scope.
@@ -150,7 +152,7 @@ export default function SettingsScreen() {
   // Which wallet the app is running and, when it ships one, which frontend
   // commit it was built from. Makes a device report say what code was on it.
   const webSourceMode = resolveWebSource({
-    requested: process.env.EXPO_PUBLIC_WEB_SOURCE,
+    requested: envString(process.env.EXPO_PUBLIC_WEB_SOURCE),
     isDevelopment: __DEV__,
   }).mode;
   const walletBuildLabel =
@@ -239,7 +241,7 @@ export default function SettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       focused.current = true;
-      loadWalletStatus();
+      void loadWalletStatus();
       return () => {
         focused.current = false;
         invalidateSecurityActions();
@@ -261,7 +263,7 @@ export default function SettingsScreen() {
       await loadWalletStatus();
     }
 
-    loadPreferences();
+    void loadPreferences();
   }, [loadWalletStatus]);
 
   const updatePreference = async (key: keyof UserPreferences, value: boolean) => {
@@ -426,7 +428,7 @@ export default function SettingsScreen() {
         {
           text: 'Remove All',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => {
             if (!isSecurityActionCurrent(action)) return;
             Alert.alert(
               'Delete All Wallets?',
@@ -471,7 +473,7 @@ export default function SettingsScreen() {
   // stored cookie blob and the last-session timestamp. It never touched a
   // WebView cache, and in embedded mode there is no web cache to clear: the
   // wallet is served from the app bundle.
-  const clearSessionData = async () => {
+  const clearSessionData = () => {
     Alert.alert(
       'Reset Session Data',
       'This clears the saved session timestamp and cookie data this app keeps. Your wallet, seed, PIN and address book are not affected. Continue?',
@@ -518,7 +520,7 @@ export default function SettingsScreen() {
   };
 
   const openLink = (url: string) => {
-    Linking.openURL(url).catch((err) => Logger.error('Settings', 'Failed to open link:', err));
+    Linking.openURL(url).catch((err: unknown) => Logger.error('Settings', 'Failed to open link:', err));
   };
 
   const switchTrack = { false: C.divider, true: `${C.brandBlue}66` };
@@ -726,7 +728,7 @@ export default function SettingsScreen() {
         {/* About */}
         <View style={styles.aboutHeader}>
           <Image
-            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
+            source={LOGO_IMAGE}
             style={styles.logo}
             resizeMode="contain"
           />

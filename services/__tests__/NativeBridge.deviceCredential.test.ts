@@ -452,7 +452,7 @@ describe('NativeBridge device credential protocol', () => {
       await flush();
       expect(started).toEqual(['ciphertext-1']);
       for (let step = 0; step < 6; step += 1) {
-        release[step]();
+        release[step]!();
         await flush();
       }
       await Promise.all(handled);
@@ -492,7 +492,7 @@ describe('NativeBridge device credential protocol', () => {
       });
       expect(Logger.error).toHaveBeenCalledWith('NativeBridge', expect.stringContaining('queue is full'));
       for (let step = 0; step < 20; step += 1) {
-        release[step]();
+        release[step]!();
         await flush();
       }
       await Promise.all(handled);
@@ -513,7 +513,7 @@ describe('NativeBridge device credential protocol', () => {
       const second = handleBridge(seedMessage(2));
       await flush();
       NativeBridge.invalidateAuthorization();
-      release[0]();
+      release[0]!();
       await Promise.all([first, second]);
 
       expect(mockBackupSeed).toHaveBeenCalledTimes(1);

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -201,7 +201,7 @@ export default function WalletScreen() {
   }, []);
 
   // Handle seed stored event - Device Login prompt shown on next launch
-  const handleSeedStored = useCallback(async (_address: string) => {
+  const handleSeedStored = useCallback((_address: string) => {
     // Device Login setup prompt is shown on app reopen, not immediately during import
   }, []);
 
@@ -464,7 +464,7 @@ export default function WalletScreen() {
       }
     };
 
-    authCheck();
+    void authCheck();
     return () => {
       cancelled = true;
       if (mounted.current && attemptGeneration === authAttemptGeneration.current) {
@@ -606,7 +606,7 @@ export default function WalletScreen() {
       }
 
       // Notify WebView of every app state transition (single source of truth)
-      NativeBridge.sendAppState(nextAppState as 'active' | 'background' | 'inactive');
+      NativeBridge.sendAppState(nextAppState);
       appState.current = nextAppState;
     });
 
@@ -804,7 +804,7 @@ export default function WalletScreen() {
   // Update session timestamp on screen focus
   useEffect(() => {
     if (isFocused && isAuthorized) {
-      WebViewService.updateLastSession();
+      void WebViewService.updateLastSession();
     }
   }, [isFocused, isAuthorized]);
 

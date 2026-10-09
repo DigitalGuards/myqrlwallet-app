@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import WalletScreen from '../../app/(tabs)/index';
@@ -108,7 +108,7 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
       context: NativeBridge.captureSecurityContext(),
     } as NativeQrScanRequest;
     await act(async () => {
-      jest.mocked(NativeBridge.onQRScanRequest).mock.calls[0][0](request);
+      jest.mocked(NativeBridge.onQRScanRequest).mock.calls[0]![0]!(request);
     });
     expect(scanner().visible).toBe(true);
     return { request, callbacks: scanner() };
@@ -175,7 +175,7 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
       await act(async () => {
         if (reason === 'authorization') NativeBridge.invalidateAuthorization();
         if (reason === 'wallet-clear')
-          jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0][0]();
+          jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0]![0]!();
         if (reason === 'document')
           screen!.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
       });

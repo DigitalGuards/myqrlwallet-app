@@ -12,6 +12,7 @@ import DAppConnectionStore from '../services/DAppConnectionStore';
 import SeedStorageService from '../services/SeedStorageService';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
+import { SPACE_MONO_FONT } from '../constants/Assets';
 import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
 import { embeddedHashRouteForWalletUrl } from '../services/EmbeddedDeepLink';
 import EmbeddedRouteIntent from '../services/EmbeddedRouteIntent';
@@ -25,7 +26,7 @@ const HEADER_TITLE_STYLE = {
 };
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync();
 
 // Boot resilience: the iOS 26 cold-start NSException is suppressed instead of
 // crashing (see patches/react-native), but the native module that threw can
@@ -70,7 +71,7 @@ function withBootTimeout(promise: Promise<unknown>, label: string): Promise<unkn
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+    SpaceMono: SPACE_MONO_FONT,
   });
   // Font loading is a native round-trip too; if it neither resolves nor
   // rejects within the timeout, render with system fonts rather than never.
@@ -83,7 +84,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (bootReady) {
-      (async () => {
+      void (async () => {
         // Initialize screen security (screenshot prevention)
         try {
           await withBootTimeout(ScreenSecurityService.initialize(), 'screen security');
@@ -95,7 +96,7 @@ export default function RootLayout() {
         // reads/writes were part of the concurrent first-150ms storm inside
         // the fragile TurboModule-init window (iOS 26 cold-start SIGABRT).
         InteractionManager.runAfterInteractions(() => {
-          DAppConnectionStore.load().catch((err) => {
+          DAppConnectionStore.load().catch((err: unknown) => {
             Logger.error('RootLayout', 'Failed to load dApp connections:', err);
           });
         });
@@ -106,7 +107,7 @@ export default function RootLayout() {
         // 1.2.1 upgraders can race into the redundant Device Login setup
         // prompt even though they already have it enabled.
         await withBootTimeout(
-          SeedStorageService.repairPinExistsMarker().catch((err) => {
+          SeedStorageService.repairPinExistsMarker().catch((err: unknown) => {
             Logger.error('RootLayout', 'Failed pin_exists marker repair:', err);
           }),
           'pin_exists marker repair',
@@ -164,7 +165,7 @@ export default function RootLayout() {
         .then((url) => {
           if (url && !receivedLiveUrl && !disposed) handleDeepLink({ url });
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           Logger.error('RootLayout', 'Failed to get initial URL:', err);
         });
     });
