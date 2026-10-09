@@ -30,6 +30,7 @@ import { PinEntryModal } from '../components/PinEntryModal';
 import DAppConnectionStore from '../services/DAppConnectionStore';
 import Logger from '../services/Logger';
 import Diagnostics from '../services/Diagnostics';
+import { describeRunningUpdate } from '../services/UpdateDiagnostics';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
 import { resolveWebSource } from '../services/WebSource';
 import { envString } from '../services/guards';
@@ -506,6 +507,7 @@ export default function SettingsScreen() {
                 Diagnostics.export([
                   `app: ${appVersion} (${Platform.OS} ${String(Platform.Version)})`,
                   walletBuildLabel,
+                  describeRunningUpdate(),
                 ]),
               );
               Alert.alert('Copied', 'Diagnostics copied to the clipboard.');
