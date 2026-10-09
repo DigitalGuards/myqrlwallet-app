@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LOGO_IMAGE } from '../constants/Assets';
 
 const { width, height } = Dimensions.get('window');
 
@@ -99,7 +100,7 @@ const Ember: React.FC<{ spec: EmberSpec }> = ({ spec }) => {
 
 interface QuantumLoadingScreenProps {
   visible: boolean;
-  customMessage?: string; // When set, display this instead of cycling messages
+  customMessage?: string | undefined; // When set, display this instead of cycling messages
   /**
    * Real load fraction (0..1). When provided the bar is determinate;
    * without it an indeterminate sky-blue beam sweeps the track.
@@ -270,7 +271,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
           }}
         >
           <Image
-            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
+            source={LOGO_IMAGE}
             style={styles.logo}
             resizeMode="contain"
           />

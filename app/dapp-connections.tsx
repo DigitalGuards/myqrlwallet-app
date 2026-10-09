@@ -125,7 +125,7 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
       {
         text: 'Copy address',
         onPress: () => {
-          Clipboard.setStringAsync(address).catch(err => {
+          Clipboard.setStringAsync(address).catch((err: unknown) => {
             Logger.error('DAppConnections', 'Failed to copy connected account:', err);
             Alert.alert('Error', 'Failed to copy the address. Please try again.');
           });
@@ -227,7 +227,7 @@ export default function DAppConnectionsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadConnections();
+      void loadConnections();
       setNow(Date.now());
       const id = setInterval(() => setNow(Date.now()), 30_000);
       return () => clearInterval(id);
@@ -262,7 +262,7 @@ export default function DAppConnectionsScreen() {
     } else {
       DAppConnectionStore.remove(channelId)
         .then(() => loadConnections())
-        .catch((err) => {
+        .catch((err: unknown) => {
           Logger.error('DAppConnections', 'Failed to remove:', err);
           Alert.alert('Error', 'Failed to remove connection. Please try again.');
         });

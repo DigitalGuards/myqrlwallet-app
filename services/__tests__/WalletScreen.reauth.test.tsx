@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { AppState, Text, TouchableOpacity, type AppStateStatus } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import WalletScreen from '../../app/(tabs)/index';
@@ -206,7 +206,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
   it('waits for active before delivering a WebView-requested unlock result', async () => {
     const { oldAuth, freshAuth: webAuth } = await mountWithPendingAuth();
     await act(async () => { oldAuth.resolve({ success: true, pin: 'initial-pin' }); });
-    const callback = jest.mocked(NativeBridge.onBiometricUnlockRequest).mock.calls[0][0];
+    const callback = jest.mocked(NativeBridge.onBiometricUnlockRequest).mock.calls[0]![0]!;
     let operation!: Promise<void>;
     await act(async () => { operation = callback(NativeBridge.captureSecurityContext()); });
     await transition('inactive');
@@ -237,7 +237,7 @@ describe('wallet screen deferred foreground reauthentication', () => {
     });
     const resumedAuth = deferredAuth();
     getPin.mockReturnValueOnce(resumedAuth.promise);
-    const callback = jest.mocked(NativeBridge.onBiometricUnlockRequest).mock.calls[0][0];
+    const callback = jest.mocked(NativeBridge.onBiometricUnlockRequest).mock.calls[0]![0]!;
     let webUnlock: Promise<void>;
     await act(async () => {
       webUnlock = callback(NativeBridge.captureSecurityContext());

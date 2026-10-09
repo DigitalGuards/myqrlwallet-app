@@ -27,8 +27,7 @@ export interface EmbeddedWalletBuildInfo {
   bytes: number;
 }
 
-export const EMBEDDED_WALLET_BUILD_INFO: EmbeddedWalletBuildInfo =
-  buildInfo as EmbeddedWalletBuildInfo;
+export const EMBEDDED_WALLET_BUILD_INFO: EmbeddedWalletBuildInfo = buildInfo;
 
 /**
  * Set on the document as a fallback for the bootstrap script below.
@@ -167,7 +166,10 @@ async function readEmbeddedDocument(): Promise<string> {
   // The literal path keeps it statically visible to Metro, so the document is
   // bundled into every build regardless.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const moduleId = require('../assets/web/index.html') as number;
+  const moduleId: unknown = require('../assets/web/index.html');
+  if (typeof moduleId !== 'number') {
+    throw new Error('Embedded wallet asset is not a bundled module');
+  }
   const asset = Asset.fromModule(moduleId);
   await asset.downloadAsync();
   const localUri = asset.localUri ?? asset.uri;

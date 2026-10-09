@@ -74,7 +74,7 @@ const { markStorageMigrationDone, isStorageMigrationPending } = jest.requireMock
 const documentTokenFrom = (html: string): string => {
   const match = /var t="([0-9a-f]{64})/.exec(html);
   if (!match) throw new Error('no document token in the served html');
-  return match[1];
+  return match[1]!;
 };
 
 describe('embedded QRLWebView', () => {

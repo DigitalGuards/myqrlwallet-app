@@ -56,6 +56,7 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
       const timer = setTimeout(() => inputRef.current?.focus(), 120);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [visible]);
 
   const handleSubmit = () => {

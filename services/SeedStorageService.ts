@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
+import { isArray, isRecord, parseJson } from './guards';
 import Logger from './Logger';
 import { isQrlAddress, qrlAddressStorageKey, requireQrlAddress } from './QrlAddress';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
@@ -42,7 +43,7 @@ const REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/;
 function isInteractionNotAllowed(error: unknown): boolean {
   if (!error) return false;
   const message =
-    error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
+    error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return (
     message.includes('User interaction is not allowed') ||
     message.includes('errSecInteractionNotAllowed') ||
@@ -97,7 +98,8 @@ function parseBackupWithAddressValidator(
   blockchains: ReadonlySet<string>,
 ): SeedBackup | null {
   try {
-    const parsed = JSON.parse(data) as Partial<SeedBackup>;
+    const parsed = parseJson(data);
+    if (!isRecord(parsed)) return null;
     if (
       !isValidAddress(parsed.address) ||
       typeof parsed.encryptedSeed !== 'string' ||
@@ -112,8 +114,10 @@ function parseBackupWithAddressValidator(
       return null;
     }
     const revision =
-      Number.isSafeInteger(parsed.revision) && (parsed.revision ?? -1) >= 0
-        ? parsed.revision ?? 0
+      typeof parsed.revision === 'number' &&
+      Number.isSafeInteger(parsed.revision) &&
+      parsed.revision >= 0
+        ? parsed.revision
         : 0;
     const ciphertextHash =
       typeof parsed.ciphertextHash === 'string' &&
@@ -148,9 +152,10 @@ function parseLegacyQ40Backup(data: string): SeedBackup | null {
 
 function parseWalletMetadata(data: string): WalletMetadata | null {
   try {
-    const parsed = JSON.parse(data) as Partial<WalletMetadata>;
+    const parsed = parseJson(data);
+    if (!isRecord(parsed)) return null;
     if (
-      !Array.isArray(parsed.addresses) ||
+      !isArray(parsed.addresses) ||
       parsed.addresses.length > MAX_SEED_BACKUPS ||
       !parsed.addresses.every(isQrlAddress) ||
       typeof parsed.hasWallet !== 'boolean' ||
@@ -172,7 +177,8 @@ function parseWalletMetadata(data: string): WalletMetadata | null {
 
 function parsePendingWalletWipe(data: string): PendingWalletWipe | null {
   try {
-    const parsed = JSON.parse(data) as Partial<PendingWalletWipe>;
+    const parsed = parseJson(data);
+    if (!isRecord(parsed)) return null;
     if (
       parsed.version !== 1 ||
       typeof parsed.requestId !== 'string' ||
@@ -585,11 +591,7 @@ class SeedStorageService {
     const data = await AsyncStorage.getItem(BIOMETRIC_ENABLED_KEY);
     if (!data) return false;
 
-    try {
-      return JSON.parse(data) as boolean;
-    } catch {
-      return false;
-    }
+    return parseJson(data) === true;
   }
 
   /** Removing all namespaces preserves Device Login protection from earlier installs. */
@@ -623,11 +625,7 @@ class SeedStorageService {
     const data = await AsyncStorage.getItem(BIOMETRIC_PROMPT_SHOWN_KEY);
     if (!data) return false;
 
-    try {
-      return JSON.parse(data) as boolean;
-    } catch {
-      return false;
-    }
+    return parseJson(data) === true;
   }
 
   private async getAllBackupsRaw(): Promise<SeedBackup[]> {

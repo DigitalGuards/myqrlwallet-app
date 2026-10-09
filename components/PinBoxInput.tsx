@@ -24,9 +24,9 @@ type PinBoxInputProps = {
   inputRef?: React.RefObject<TextInput | null>;
   accessibilityLabel?: string;
   /** Fires once when the value reaches PIN_MAX_LENGTH (used to auto-advance). */
-  onFilled?: () => void;
+  onFilled?: (() => void) | undefined;
   /** Android's numeric keyboard has a Next/Done action key; iOS's does not. */
-  onSubmitEditing?: () => void;
+  onSubmitEditing?: (() => void) | undefined;
 };
 
 export function PinBoxInput({

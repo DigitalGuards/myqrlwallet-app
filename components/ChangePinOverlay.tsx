@@ -79,6 +79,7 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
       const timerId = setTimeout(() => currentPinRef.current?.focus(), 120);
       return () => clearTimeout(timerId);
     }
+    return undefined;
   }, [visible]);
 
   useEffect(() => {

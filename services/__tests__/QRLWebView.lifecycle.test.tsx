@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { Platform } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import QRLWebView from '../../components/QRLWebView';

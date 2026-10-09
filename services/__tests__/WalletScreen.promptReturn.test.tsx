@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -183,7 +183,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     await transition('inactive');
     expect(BiometricService.isAuthenticationPromptActive()).toBe(true);
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     await act(async () => {
       jest.advanceTimersByTime(100);
@@ -207,7 +207,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
     expect(NativeBridge.onBiometricUnlockRequest).toHaveBeenCalledTimes(1);
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expect(state()).toMatchObject({
       promptCount: 1,
@@ -229,7 +229,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     });
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expectManualRetry();
     expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
@@ -241,7 +241,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
       await transition('inactive');
       expect(BiometricService.isAuthenticationPromptActive()).toBe(true);
       await act(async () => {
-        prompts[0]({ success: true });
+        prompts[0]!({ success: true });
       });
       expect(BiometricService.isAuthenticationPromptActive()).toBe(false);
       await act(async () => {
@@ -265,7 +265,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
   it('expires a successful foreground wait after ten seconds without automatically prompting again', async () => {
     await transition('inactive');
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     await act(async () => {
       jest.advanceTimersByTime(10001);
@@ -279,7 +279,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
   it('keeps a cancelled prompt on manual retry after a delayed active return', async () => {
     await transition('inactive');
     await act(async () => {
-      prompts[0]({ success: false, error: 'user_cancel' });
+      prompts[0]!({ success: false, error: 'user_cancel' });
     });
     await act(async () => {
       jest.advanceTimersByTime(1000);
@@ -293,7 +293,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
   it('offers working PIN fallback after the device authentication wait expires', async () => {
     await transition('inactive');
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     await act(async () => {
       jest.advanceTimersByTime(10001);
@@ -329,7 +329,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
       await modal.props.onSubmit('9357');
     });
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
     expect(NativeBridge.sendUnlockWithPinIfReady).toHaveBeenCalledTimes(1);
@@ -351,7 +351,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
       screen.root.findByType('PinEntryModal' as never).props.onCancel();
     });
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expectManualRetry();
     expect(NativeBridge.verifyPin).not.toHaveBeenCalled();
@@ -361,7 +361,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
   it('unlocks on the first attempt after the initial document starts', async () => {
     await transition('inactive');
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
       jest.advanceTimersByTime(350);
     });
     expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
@@ -387,7 +387,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     });
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expectManualRetry();
     expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
@@ -402,7 +402,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
         })
     );
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expect(SeedStorageService.getStoredPin).toHaveBeenCalledTimes(1);
     await act(async () => {
@@ -421,7 +421,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     await transition('background');
     await transition('active');
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expectManualRetry();
     expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
@@ -431,7 +431,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     });
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(2);
     await act(async () => {
-      prompts[1]({ success: true });
+      prompts[1]!({ success: true });
     });
     expect(NativeBridge.sendUnlockWithPinIfReady).toHaveBeenCalledTimes(1);
     expect(NativeBridge.sendUnlockWithPinIfReady).toHaveBeenCalledWith('9357', expect.any(Object));
@@ -445,7 +445,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
 
   it('authenticates once after an already unlocked session returns from background', async () => {
     await act(async () => {
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
     });
     expect(state()).toMatchObject({ promptCount: 1, deliveredUnlocks: 1, authorized: true });
     await transition('inactive');
@@ -456,7 +456,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     expect(state()).toMatchObject({ deliveredUnlocks: 1, authorized: false, lockOverlay: true });
     jest.mocked(SeedStorageService.getStoredPin).mockResolvedValue('9357');
     await act(async () => {
-      prompts[1]({ success: true });
+      prompts[1]!({ success: true });
     });
     expect(state()).toMatchObject({
       promptCount: 2,
@@ -489,7 +489,7 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     await transition('active');
     await act(async () => {
       completeVerification({ success: true });
-      prompts[0]({ success: true });
+      prompts[0]!({ success: true });
       await submission;
     });
     expectManualRetry();
@@ -501,22 +501,22 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     async (completionFirst) => {
       await act(async () => {
         NativeBridge.invalidateAuthorization();
-        jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0][0]();
+        jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0]![0]!();
       });
       expect(state()).toMatchObject({ authorized: false, lockOverlay: true, deliveredUnlocks: 0 });
       jest.mocked(SeedStorageService.hasWallet).mockResolvedValue(false);
       if (completionFirst) {
         await act(async () => {
-          jest.mocked(NativeBridge.onWalletCleared).mock.calls[0][0]();
+          jest.mocked(NativeBridge.onWalletCleared).mock.calls[0]![0]!();
         });
       }
       await act(async () => {
-        prompts[0]({ success: true });
+        prompts[0]!({ success: true });
       });
       if (!completionFirst) {
         expect(state()).toMatchObject({ authorized: false, lockOverlay: true });
         await act(async () => {
-          jest.mocked(NativeBridge.onWalletCleared).mock.calls[0][0]();
+          jest.mocked(NativeBridge.onWalletCleared).mock.calls[0]![0]!();
         });
       }
       expect(state()).toMatchObject({
@@ -535,8 +535,8 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
   it('keeps an incomplete or failed wipe locked until completion is confirmed', async () => {
     await act(async () => {
       NativeBridge.invalidateAuthorization();
-      jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0][0]();
-      prompts[0]({ success: true });
+      jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0]![0]!();
+      prompts[0]!({ success: true });
     });
     await transition('active');
     await act(async () => {
@@ -562,13 +562,13 @@ describe('WalletScreen with real BiometricService prompt-return lifecycle', () =
     async (change) => {
       await transition('inactive');
       await act(async () => {
-        prompts[0]({ success: true });
+        prompts[0]!({ success: true });
       });
       await act(async () => {
         NativeBridge.invalidateAuthorization();
         if (change === 'document')
           screen.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
-        if (change === 'wipe') jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0][0]();
+        if (change === 'wipe') jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0]![0]!();
         jest.advanceTimersByTime(1000);
       });
       await transition('active');

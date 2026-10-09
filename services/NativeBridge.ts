@@ -1,5 +1,5 @@
 import { RefObject } from 'react';
-import { Alert, BackHandler, Share, Platform, Linking } from 'react-native';
+import { type AppStateStatus, BackHandler, Share, Platform, Linking } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
@@ -12,6 +12,7 @@ import Diagnostics from './Diagnostics';
 import { isWalletOwnHost } from './ExternalLinkPolicy';
 import { resolveDAppReturn } from './DAppReturnPolicy';
 import { isQrlAddress } from './QrlAddress';
+import { isRecord } from './guards';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
 
@@ -72,8 +73,8 @@ function createRequestId(): string {
 }
 
 function isValidContact(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false;
-  const contact = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
+  const contact = value;
   return (
     typeof contact.id === 'string' &&
     contact.id.length > 0 &&
@@ -170,7 +171,7 @@ export type WebToNativeMessageType =
   | 'DAPP_HAPTIC' // Trigger haptic for dApp approve/reject
   | 'DAPP_RETURN'; // Bounce back to the dApp after approval (peer redirect)
 
-const LOCKED_ALLOWED_MESSAGE_TYPES = new Set<WebToNativeMessageType>([
+const LOCKED_ALLOWED_MESSAGE_TYPES: ReadonlySet<string> = new Set<WebToNativeMessageType>([
   'LOG',
   'WEB_APP_READY',
   'WEB_DOCUMENT_READY',
@@ -215,9 +216,13 @@ export type NativeToWebMessageType =
   | 'NAVIGATE' // Ask the web wallet to navigate to an in-app route
   | 'NATIVE_BACK'; // Android hardware back: close a modal, go back, or answer at root
 
+/**
+ * A message from the WebView. `type` is wire input: `handle()` validates it and
+ * drops anything outside the known set, so it is a string here.
+ */
 export interface BridgeMessage {
-  type: WebToNativeMessageType;
-  payload?: Record<string, unknown>;
+  type: string;
+  payload?: Record<string, unknown> | undefined;
 }
 
 export interface BridgeResponse {
@@ -455,7 +460,7 @@ class NativeBridge {
     this.nativeAuthorized = authorized && !this.walletClearInProgress;
     if (!this.nativeAuthorized) this.authorizedSyncDocumentGeneration = -1;
     if (this.nativeAuthorized && this.isWebAppReady) {
-      this.synchronizeAuthorizedDocument().catch((error) => {
+      this.synchronizeAuthorizedDocument().catch((error: unknown) => {
         Logger.error('NativeBridge', 'Authorized document sync failed:', error);
       });
     }
@@ -525,7 +530,7 @@ class NativeBridge {
     const operation = Promise.race([work, timeout]).finally(() => clearTimeout(timer));
     // The losing branch must not surface as an unhandled rejection.
     work.catch(() => undefined);
-    const checked = operation.catch((error) => {
+    const checked = operation.catch((error: unknown) => {
       if (this.authorizedSyncPromise === inFlight) {
         this.authorizedSyncDocumentGeneration = -1;
       }
@@ -602,12 +607,12 @@ class NativeBridge {
     const showAt = this.heldDAppShowWebViewAt;
     this.clearHeldDAppEvents();
     for (const payload of connections) {
-      this.handle({ type: 'DAPP_CONNECTED', payload: { ...payload, documentId } }).catch((error) => {
+      this.handle({ type: 'DAPP_CONNECTED', payload: { ...payload, documentId } }).catch((error: unknown) => {
         Logger.error('NativeBridge', 'Held DAPP_CONNECTED failed:', error);
       });
     }
     if (showAt !== null && Date.now() - showAt < DAPP_INTENT_TTL_MS) {
-      this.handle({ type: 'DAPP_SHOW_WEBVIEW', payload: { documentId } }).catch((error) => {
+      this.handle({ type: 'DAPP_SHOW_WEBVIEW', payload: { documentId } }).catch((error: unknown) => {
         Logger.error('NativeBridge', 'Held DAPP_SHOW_WEBVIEW failed:', error);
       });
     }
@@ -863,7 +868,7 @@ class NativeBridge {
         settled = true;
         clearTimeout(timeout);
         this.pendingDAppDisconnects.delete(requestId);
-        resolve({ success, error });
+        resolve(error === undefined ? { success } : { success, error });
       };
       const timeout = setTimeout(
         () => finish(false, 'dApp disconnect confirmation timed out'),
@@ -1197,9 +1202,10 @@ class NativeBridge {
             ? this.isPendingPinVerificationCurrent(lockedPinVerification)
             : this.nativeAuthorized);
         try {
-          const credential = createIfMissing
-            ? await SeedStorageService.getOrCreateDeviceCredential(candidate as string)
-            : await SeedStorageService.getDeviceCredential();
+          const credential =
+            createIfMissing && typeof candidate === 'string'
+              ? await SeedStorageService.getOrCreateDeviceCredential(candidate)
+              : await SeedStorageService.getDeviceCredential();
           if (!mayRespond()) return;
           if (!credential) {
             this.sendDeviceCredentialResponse(requestId, undefined, 'NOT_FOUND');
@@ -1596,7 +1602,7 @@ class NativeBridge {
 
   private enqueueDAppStoreWrite(writeFn: () => Promise<void>): Promise<void> {
     const operation = this.dappStoreWriteQueue.catch(() => undefined).then(writeFn);
-    this.dappStoreWriteQueue = operation.catch((err) => {
+    this.dappStoreWriteQueue = operation.catch((err: unknown) => {
       Logger.error('NativeBridge', 'Failed to persist dApp connection state:', err);
     });
     return operation;
@@ -1748,26 +1754,26 @@ class NativeBridge {
   private handleHaptic(style?: string) {
     switch (style) {
       case 'light':
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         break;
       case 'medium':
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         break;
       case 'heavy':
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
         break;
       case 'success':
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         break;
       case 'warning':
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         break;
       case 'error':
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         break;
       default:
         if (style === undefined) {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
     }
   }
@@ -1845,7 +1851,7 @@ class NativeBridge {
   /**
    * Send app state change to WebView
    */
-  sendAppState(state: 'active' | 'background' | 'inactive') {
+  sendAppState(state: AppStateStatus) {
     this.sendToWeb({
       type: 'APP_STATE',
       payload: { state },
@@ -2059,7 +2065,7 @@ class NativeBridge {
         if (this.pendingWalletClearRequest?.requestId === requestId) {
           this.pendingWalletClearRequest = null;
         }
-        resolve({ success, error });
+        resolve(error === undefined ? { success } : { success, error });
       };
       const timeout = setTimeout(
         () => finish(false, 'Wallet clear confirmation timed out'),
@@ -2189,7 +2195,7 @@ class NativeBridge {
         if (this.pendingPinVerification?.requestId === requestId) {
           this.pendingPinVerification = null;
         }
-        resolve({ success, error });
+        resolve(error === undefined ? { success } : { success, error });
       };
       // Set up timeout
       const timeout = setTimeout(() => {
@@ -2264,7 +2270,7 @@ class NativeBridge {
         this.pinChangedCallback = null;
         this.pinChangePending = false;
         this.pendingPinChangeRequest = null;
-        resolve({ success, error });
+        resolve(error === undefined ? { success } : { success, error });
       };
 
       // Set up timeout

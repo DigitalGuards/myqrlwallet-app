@@ -49,10 +49,10 @@ function normalize(value: string | undefined): string {
  */
 export function resolveWebSource(environment: WebSourceEnvironment): WebSourceResolution {
   const requested = normalize(environment.requested);
-  const isKnown = (WEB_SOURCE_MODES as readonly string[]).includes(requested);
+  const knownMode = WEB_SOURCE_MODES.find((mode) => mode === requested);
 
   if (environment.isDevelopment) {
-    if (isKnown) return { mode: requested as WebSourceMode };
+    if (knownMode !== undefined) return { mode: knownMode };
     return requested === ''
       ? { mode: 'dev' }
       : { mode: 'dev', refused: { requested, reason: 'unknown' } };

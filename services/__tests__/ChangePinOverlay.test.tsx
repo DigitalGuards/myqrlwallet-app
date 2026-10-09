@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { BackHandler, Modal } from 'react-native';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
 import { ChangePinOverlay } from '../../components/ChangePinOverlay';

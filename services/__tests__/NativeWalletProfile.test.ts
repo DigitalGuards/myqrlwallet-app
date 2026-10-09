@@ -38,8 +38,10 @@ describe('native Testnet v3 compatibility contract', () => {
     // Android only sees the capabilities through these injected scripts. Both
     // hooks compose them with the embedded-mode scripts, so the assertion is
     // on the composed lists rather than on a bare ternary.
-    expect(source).toMatch(/injectedJavaScriptBeforeContentLoaded=\{beforeContentScript\}/);
-    expect(source).toMatch(/injectedJavaScript=\{afterContentScript\}/);
+    expect(source).toMatch(
+      /injectedJavaScriptBeforeContentLoaded: beforeContentScript/,
+    );
+    expect(source).toMatch(/injectedJavaScript: afterContentScript/);
     for (const name of ['beforeContentScript', 'afterContentScript']) {
       const list = new RegExp(
         `const ${name} = \\[[\\s\\S]*?Platform\\.OS === 'android' \\? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : null,`,
