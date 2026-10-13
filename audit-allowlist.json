@@ -3,7 +3,7 @@
     {
       "id": "GHSA-vfj7-8cjw-p6xm",
       "package": "braces",
-      "reason": "No patched release is available. Expo and React Native use braces through Metro's metro-file-map -> micromatch for build-host file matching; Jest also uses it for test discovery. These tools are excluded from the shipped app bundle, so wallet input cannot reach the vulnerable parser. Recheck upstream before expiry.",
+      "reason": "No patched release is available. braces@3.0.3 arrives through micromatch on four build-host or test paths: expo -> @expo/cli -> @expo/metro-file-map; expo -> @expo/metro -> metro-file-map; react-native-worklets -> @react-native/metro-config -> metro -> metro-file-map; and react-native -> @react-native/jest-preset -> jest-haste-map and jest-message-util. An Android export with source maps contains no module from braces or micromatch, so wallet input cannot reach the parser. Recheck upstream before expiry.",
       "expires": "2027-01-10"
     },
     {
