@@ -1,0 +1,16 @@
+{
+  "exceptions": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "reason": "No patched release is available. Expo and React Native use braces through Metro's metro-file-map -> micromatch for build-host file matching; Jest also uses it for test discovery. These tools are excluded from the shipped app bundle, so wallet input cannot reach the vulnerable parser. Recheck upstream before expiry.",
+      "expires": "2027-01-10"
+    },
+    {
+      "id": "GHSA-86w9-cpqp-85rv",
+      "package": "node-forge",
+      "reason": "No patched release is available. expo -> @expo/cli uses node-forge for local iOS certificate handling and @expo/code-signing-certificates for development-server signing. CLI code is excluded from the shipped app bundle, so app users cannot reach the affected RSA verifier. Recheck upstream before expiry.",
+      "expires": "2027-01-10"
+    }
+  ]
+}

@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: node scripts/audit-gate.mjs
+
       - name: Verify the bundled wallet document against its reviewed pin
         run: npm run verify:embedded-web
 

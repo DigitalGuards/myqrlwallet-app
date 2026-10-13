@@ -75,6 +75,8 @@ npm install
 npm start
 ```
 
+CI runs `node scripts/audit-gate.mjs` immediately after `npm ci` to check production dependencies for high and critical advisories. Exceptions in `audit-allowlist.json` require a reachability reason and an expiry within 90 days of review.
+
 ### Running the App
 
 ```bash

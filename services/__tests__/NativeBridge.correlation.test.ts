@@ -39,7 +39,7 @@ jest.mock('../Logger', () => ({
   default: { debug: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
-import NativeBridge, { BridgeMessage } from '../NativeBridge';
+import NativeBridge, { type BridgeMessage } from '../NativeBridge';
 import SeedStorageService from '../SeedStorageService';
 import DAppConnectionStore from '../DAppConnectionStore';
 import * as Crypto from 'expo-crypto';

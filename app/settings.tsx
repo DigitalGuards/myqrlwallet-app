@@ -18,7 +18,7 @@ import Constants from 'expo-constants';
 import * as Clipboard from 'expo-clipboard';
 import { router, useFocusEffect, useNavigation } from 'expo-router';
 
-import WebViewService, { UserPreferences } from '../services/WebViewService';
+import WebViewService, { type UserPreferences } from '../services/WebViewService';
 import BiometricService from '../services/BiometricService';
 import SeedStorageService from '../services/SeedStorageService';
 import ScreenSecurityService from '../services/ScreenSecurityService';

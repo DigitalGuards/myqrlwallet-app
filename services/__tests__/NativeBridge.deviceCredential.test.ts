@@ -44,7 +44,7 @@ jest.mock('../Logger', () => ({
 }));
 
 import NativeBridge, {
-  BridgeMessage,
+  type BridgeMessage,
   NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
   NATIVE_PIN_COMMIT_ERROR,
 } from '../NativeBridge';
