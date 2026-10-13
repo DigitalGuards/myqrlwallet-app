@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, BackHandler, Linking, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
-import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import NativeBridge, { NativeQrScanRequest } from '../services/NativeBridge';
+import NativeBridge, { type NativeQrScanRequest } from '../services/NativeBridge';
 import Logger from '../services/Logger';
 import { envString } from '../services/guards';
 import { parseBridgeMessage } from '../services/BridgeMessage';

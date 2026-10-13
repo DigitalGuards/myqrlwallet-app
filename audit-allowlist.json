@@ -1,0 +1,16 @@
+{
+  "exceptions": [
+    {
+      "id": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "reason": "No patched release is available. braces@3.0.3 arrives through micromatch on four build-host or test paths: expo -> @expo/cli -> @expo/metro-file-map; expo -> @expo/metro -> metro-file-map; react-native-worklets -> @react-native/metro-config -> metro -> metro-file-map; and react-native -> @react-native/jest-preset -> jest-haste-map and jest-message-util. An Android export with source maps contains no module from braces or micromatch, so wallet input cannot reach the parser. Recheck upstream before expiry.",
+      "expires": "2027-01-10"
+    },
+    {
+      "id": "GHSA-86w9-cpqp-85rv",
+      "package": "node-forge",
+      "reason": "No patched release is available. expo -> @expo/cli uses node-forge for local iOS certificate handling and @expo/code-signing-certificates for development-server signing. CLI code is excluded from the shipped app bundle, so app users cannot reach the affected RSA verifier. Recheck upstream before expiry.",
+      "expires": "2027-01-10"
+    }
+  ]
+}

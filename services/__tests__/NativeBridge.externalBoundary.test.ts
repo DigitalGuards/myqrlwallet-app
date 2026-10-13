@@ -46,7 +46,7 @@ jest.mock('../Logger', () => ({
 import { BackHandler, Linking, Platform, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import NativeBridge, { BridgeMessage } from '../NativeBridge';
+import NativeBridge, { type BridgeMessage } from '../NativeBridge';
 import DAppConnectionStore from '../DAppConnectionStore';
 import Logger from '../Logger';
 import WebViewService from '../WebViewService';

@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import DAppConnectionStore, { DAppConnectionRecord } from '../services/DAppConnectionStore';
+import DAppConnectionStore, { type DAppConnectionRecord } from '../services/DAppConnectionStore';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 import { formatQrlAddressFingerprint } from '../services/QrlAddress';

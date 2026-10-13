@@ -16,7 +16,7 @@ module.exports = [
   
   // Main configuration for all files
   {
-    files: ['**/*.{js,jsx,ts,tsx}'],
+    files: ['**/*.{js,mjs,jsx,ts,tsx}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -111,7 +111,7 @@ module.exports = [
   // Plain JS (configs, scripts, plugins) is outside the TypeScript program's
   // type information; the type-aware rules cannot run there.
   {
-    files: ['**/*.js'],
+    files: ['**/*.{js,mjs}'],
     ...tseslint.configs.disableTypeChecked,
   },
 
@@ -185,7 +185,7 @@ module.exports = [
       'metro.config.js',
       '**/*.config.js',
       '**/*.config.ts',
-      'scripts/**/*.js',
+      'scripts/**/*.{js,mjs}',
       'plugins/**/*.js',
     ],
     rules: {

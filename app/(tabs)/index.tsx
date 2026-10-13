@@ -3,7 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  AppStateStatus,
+  type AppStateStatus,
   BackHandler,
   InteractionManager,
   Linking,
@@ -14,14 +14,14 @@ import {
   TouchableOpacity,
   View as RNView,
 } from 'react-native';
-import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
+import QRLWebView, { type QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
 import QuantumLoadingScreen from '../../components/QuantumLoadingScreen';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
-import NativeBridge, { NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
+import NativeBridge, { type NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
 import Diagnostics from '../../services/Diagnostics';
 import { createBackgroundLock } from '../../services/BackgroundLock';
