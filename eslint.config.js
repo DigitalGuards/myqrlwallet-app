@@ -53,6 +53,12 @@ const baseConfig = tseslint.config(
         'error',
         { 'ts-ignore': true, 'ts-nocheck': true, 'ts-expect-error': true },
       ],
+      // TypeScript applies @ts-nocheck in any letter case and after extra
+      // slashes, while ban-ts-comment matches only the lower-case form.
+      'no-warning-comments': [
+        'error',
+        { terms: ['@ts-nocheck'], location: 'start', decoration: ['/'] },
+      ],
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-require-imports': [
