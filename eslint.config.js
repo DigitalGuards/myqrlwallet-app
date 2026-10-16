@@ -561,36 +561,6 @@ const lintRatchet = [
   },
   {
     "files": [
-      "services/__tests__/WalletScreen.lifecycle.test.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-deprecated": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-unnecessary-type-assertion": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/WalletScreen.reauth.test.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-confusing-void-expression": "off",
-      "@typescript-eslint/no-deprecated": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "@typescript-eslint/no-unnecessary-type-assertion": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
       "services/__tests__/WebViewService.contacts.test.ts"
     ],
     "rules": {

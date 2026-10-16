@@ -1,10 +1,45 @@
-import { act } from 'react';
+import { act, type ReactElement } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { create, type ReactTestRenderer } from 'react-test-renderer';
 import WalletScreen from '../../app/(tabs)/index';
+import QRLWebView from '../../components/QRLWebView';
+import QRScannerModal from '../../components/QRScannerModal';
+import { malformed } from '../../test-utils/malformed';
 import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
 import NativeBridge, { type NativeQrScanRequest } from '../NativeBridge';
+import { isRecord } from '../guards';
+import { runAsPromise } from '../runAsPromise';
+
+interface TestInstance {
+  props: Record<string, unknown>;
+  findByType: (type: unknown) => TestInstance;
+}
+
+interface TestRenderer {
+  root: TestInstance;
+  unmount: () => void;
+}
+
+function isNativeTestRenderer(value: unknown): value is {
+  create: (element: ReactElement) => Promise<TestRenderer>;
+} {
+  return isRecord(value) && typeof value.create === 'function';
+}
+
+const nativeRendererModule: unknown = jest.requireActual('@react-native/jest-preset/jest/renderer');
+if (!isNativeTestRenderer(nativeRendererModule)) throw new TypeError('Missing native test renderer');
+const nativeTestRenderer = nativeRendererModule;
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new TypeError('Missing test value');
+  return value;
+}
+
+function callProp(props: Record<string, unknown>, key: string, ...args: unknown[]): unknown {
+  const callback = props[key];
+  if (typeof callback !== 'function') throw new TypeError(`Missing callback ${key}`);
+  return Reflect.apply(callback, props, args);
+}
 
 const mockInvalidationListeners = new Set<() => void>();
 jest.mock('../../components/QRLWebView', () => 'QRLWebView');
@@ -20,12 +55,12 @@ jest.mock('expo-router', () => ({
 jest.mock('../Logger', () => ({ debug: jest.fn(), warn: jest.fn(), error: jest.fn() }));
 jest.mock('../WebViewService', () => ({ updateLastSession: jest.fn() }));
 jest.mock('../SeedStorageService', () => ({
-  getPendingWalletWipe: jest.fn(async () => null),
-  hasWallet: jest.fn(async () => true),
-  isBiometricEnabled: jest.fn(async () => true),
+  getPendingWalletWipe: jest.fn(() => Promise.resolve(null)),
+  hasWallet: jest.fn(() => Promise.resolve(true)),
+  isBiometricEnabled: jest.fn(() => Promise.resolve(true)),
 }));
 jest.mock('../BiometricService', () => ({
-  getPinWithBiometric: jest.fn(async () => ({ success: false, error: 'Cancelled test prompt' })),
+  getPinWithBiometric: jest.fn(() => Promise.resolve({ success: false, error: 'Cancelled test prompt' })),
   isAuthenticationPromptActive: jest.fn(() => false),
   isAuthenticationTransitionActive: jest.fn(() => false),
   onAuthenticationPromptSettled: jest.fn(() => jest.fn()),
@@ -56,9 +91,12 @@ jest.mock('../NativeBridge', () => ({
 }));
 
 describe('WalletScreen initial foreground and scanner lifecycle', () => {
-  let screen: ReactTestRenderer | undefined;
+  let screen: TestRenderer | undefined;
   const listeners = new Set<(state: AppStateStatus) => void>();
   let original: AppStateStatus;
+  const setNativeAuthorization = jest.spyOn(NativeBridge, 'setNativeAuthorization');
+  const sendQRResult = jest.spyOn(NativeBridge, 'sendQRResult');
+  const sendQRCancelled = jest.spyOn(NativeBridge, 'sendQRCancelled');
 
   beforeEach(() => {
     jest.useFakeTimers();
@@ -72,7 +110,7 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
     });
   });
   afterEach(async () => {
-    if (screen) await act(async () => screen?.unmount());
+    if (screen) await act(() => runAsPromise(() => { screen?.unmount(); }));
     screen = undefined;
     AppState.currentState = original;
     jest.restoreAllMocks();
@@ -82,88 +120,96 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
   async function mount(state: AppStateStatus = 'active', startDocument = true) {
     AppState.currentState = state;
     await act(async () => {
-      screen = create(<WalletScreen />);
+      screen = await nativeTestRenderer.create(<WalletScreen />);
     });
-    expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+    expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(0);
     if (startDocument) await documentLoadStart();
   }
   async function documentLoadStart() {
-    await act(async () => {
+    await act(() => runAsPromise(() => {
       NativeBridge.invalidateAuthorization();
-      screen!.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
-    });
+      callProp(required(screen).root.findByType(QRLWebView).props, 'onDocumentLoadStart');
+    }));
   }
   async function transition(next: AppStateStatus) {
-    await act(async () => {
+    await act(() => runAsPromise(() => {
       AppState.currentState = next;
       for (const listener of [...listeners]) listener(next);
-    });
+    }));
   }
   function scanner() {
-    return screen!.root.findByType('QRScannerModal' as never).props;
+    return required(screen).root.findByType(QRScannerModal).props;
   }
   async function openScanner(id: string) {
-    const request = {
+    const request: NativeQrScanRequest = {
       requestId: id,
       context: NativeBridge.captureSecurityContext(),
-    } as NativeQrScanRequest;
-    await act(async () => {
-      jest.mocked(NativeBridge.onQRScanRequest).mock.calls[0]![0]!(request);
-    });
+    };
+    await act(() => runAsPromise(() => {
+      required(jest.mocked(NativeBridge).onQRScanRequest.mock.calls[0])[0](request);
+    }));
     expect(scanner().visible).toBe(true);
     return { request, callbacks: scanner() };
   }
 
-  it.each(['inactive', 'background', 'unknown', null] as AppStateStatus[])(
+  it.each<AppStateStatus>(['inactive', 'background', 'unknown', malformed<AppStateStatus>(null)])(
     'starts authentication once when first mounted %s and then activated',
     async (state) => {
       await mount(state);
-      expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(0);
       await transition('active');
       await transition('active');
-      expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
-      expect(NativeBridge.setNativeAuthorization).toHaveBeenLastCalledWith(false);
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(1);
+      expect(setNativeAuthorization).toHaveBeenLastCalledWith(false);
     }
   );
 
   it('starts once after the first document load on an active initial mount', async () => {
     await mount();
-    expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(1);
   });
 
-  it.each(['inactive', 'unknown', null] as AppStateStatus[])(
+  it.each<AppStateStatus>(['inactive', 'unknown', malformed<AppStateStatus>(null)])(
     'waits for the first document if %s becomes active before it starts',
     async (state) => {
       await mount(state, false);
       await transition('active');
-      expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(0);
       await documentLoadStart();
-      expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(1);
     }
   );
 
-  it.each([
+  it.each<[
+    method: 'getPendingWalletWipe' | 'hasWallet' | 'isBiometricEnabled',
+    value: boolean | null,
+  ]>([
     ['getPendingWalletWipe', null],
     ['hasWallet', true],
     ['isBiometricEnabled', true],
-  ] as const)(
+  ])(
     'resumes a live %s preflight after a short inactive interval',
     async (method, value) => {
       let finishRead!: (result: typeof value) => void;
       const read = new Promise<typeof value>((resolve) => { finishRead = resolve; });
-      jest.mocked(SeedStorageService[method]).mockImplementationOnce(() => read as never);
+      const readMock: jest.MockInstance<
+        Promise<Awaited<ReturnType<(typeof SeedStorageService)[typeof method]>>>,
+        []
+      > = jest.spyOn(SeedStorageService, method);
+      readMock.mockImplementationOnce(() => read);
       await mount();
-      expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+      expect(readMock.mock.results).toEqual([{ type: 'return', value: read }]);
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(0);
       await transition('inactive');
-      await act(async () => {
+      await act(() => runAsPromise(() => {
         finishRead(value);
         jest.advanceTimersByTime(100);
-      });
-      expect(BiometricService.getPinWithBiometric).not.toHaveBeenCalled();
+      }));
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(0);
       await transition('active');
-      expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(1);
       await transition('active');
-      expect(BiometricService.getPinWithBiometric).toHaveBeenCalledTimes(1);
+      expect(jest.mocked(BiometricService).getPinWithBiometric.mock.calls).toHaveLength(1);
     }
   );
 
@@ -172,21 +218,21 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
     async (reason) => {
       await mount();
       const { callbacks } = await openScanner('first');
-      await act(async () => {
+      await act(() => runAsPromise(() => {
         if (reason === 'authorization') NativeBridge.invalidateAuthorization();
         if (reason === 'wallet-clear')
-          jest.mocked(NativeBridge.onWalletClearStarted).mock.calls[0]![0]!();
+          required(jest.mocked(NativeBridge).onWalletClearStarted.mock.calls[0])[0]();
         if (reason === 'document')
-          screen!.root.findByType('QRLWebView' as never).props.onDocumentLoadStart();
-      });
+          callProp(required(screen).root.findByType(QRLWebView).props, 'onDocumentLoadStart');
+      }));
       if (reason === 'background') await transition('background');
       expect(scanner().visible).toBe(false);
-      await act(async () => {
-        callbacks.onScan('qrlconnect://stale');
-        callbacks.onClose();
-      });
-      expect(NativeBridge.sendQRResult).not.toHaveBeenCalled();
-      expect(NativeBridge.sendQRCancelled).not.toHaveBeenCalled();
+      await act(() => runAsPromise(() => {
+        callProp(callbacks, 'onScan', 'qrlconnect://stale');
+        callProp(callbacks, 'onClose');
+      }));
+      expect(jest.mocked(NativeBridge).sendQRResult.mock.calls).toHaveLength(0);
+      expect(jest.mocked(NativeBridge).sendQRCancelled.mock.calls).toHaveLength(0);
     }
   );
 
@@ -194,35 +240,35 @@ describe('WalletScreen initial foreground and scanner lifecycle', () => {
     await mount();
     const first = await openScanner('first');
     const second = await openScanner('second');
-    await act(async () => {
-      first.callbacks.onScan('stale');
-      first.callbacks.onClose();
-    });
-    expect(NativeBridge.sendQRResult).not.toHaveBeenCalled();
+    await act(() => runAsPromise(() => {
+      callProp(first.callbacks, 'onScan', 'stale');
+      callProp(first.callbacks, 'onClose');
+    }));
+    expect(jest.mocked(NativeBridge).sendQRResult.mock.calls).toHaveLength(0);
     expect(scanner().visible).toBe(true);
-    await act(async () => {
-      second.callbacks.onScan('fresh');
-      second.callbacks.onClose();
-    });
-    expect(NativeBridge.sendQRResult).toHaveBeenCalledWith('fresh', second.request);
-    expect(NativeBridge.sendQRResult).toHaveBeenCalledTimes(1);
-    expect(NativeBridge.sendQRCancelled).not.toHaveBeenCalled();
+    await act(() => runAsPromise(() => {
+      callProp(second.callbacks, 'onScan', 'fresh');
+      callProp(second.callbacks, 'onClose');
+    }));
+    expect(sendQRResult).toHaveBeenCalledWith('fresh', second.request);
+    expect(jest.mocked(NativeBridge).sendQRResult.mock.calls).toHaveLength(1);
+    expect(jest.mocked(NativeBridge).sendQRCancelled.mock.calls).toHaveLength(0);
     expect(scanner().visible).toBe(false);
   });
 
   it('cancels the current scanner once when unmounted', async () => {
     await mount();
     const { request, callbacks } = await openScanner('current');
-    await act(async () => {
+    await act(() => runAsPromise(() => {
       screen?.unmount();
       screen = undefined;
-    });
-    await act(async () => {
-      callbacks.onScan('stale');
-      callbacks.onClose();
-    });
-    expect(NativeBridge.sendQRCancelled).toHaveBeenCalledTimes(1);
-    expect(NativeBridge.sendQRCancelled).toHaveBeenCalledWith(request);
-    expect(NativeBridge.sendQRResult).not.toHaveBeenCalled();
+    }));
+    await act(() => runAsPromise(() => {
+      callProp(callbacks, 'onScan', 'stale');
+      callProp(callbacks, 'onClose');
+    }));
+    expect(jest.mocked(NativeBridge).sendQRCancelled.mock.calls).toHaveLength(1);
+    expect(sendQRCancelled).toHaveBeenCalledWith(request);
+    expect(jest.mocked(NativeBridge).sendQRResult.mock.calls).toHaveLength(0);
   });
 });
