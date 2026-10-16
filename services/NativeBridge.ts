@@ -3,7 +3,7 @@ import { type AppStateStatus, BackHandler, Share, Platform, Linking } from 'reac
 import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
-import WebView from 'react-native-webview';
+import type WebView from 'react-native-webview';
 import SeedStorageService from './SeedStorageService';
 import DAppConnectionStore from './DAppConnectionStore';
 import WebViewService from './WebViewService';
@@ -842,6 +842,7 @@ class NativeBridge {
     channelId: string,
     timeoutMs: number = 15000
   ): Promise<{ success: boolean; error?: string }> {
+    const isNativeAuthorized = (): boolean => this.nativeAuthorized;
     if (!CHANNEL_ID_PATTERN.test(channelId)) {
       return { success: false, error: 'Invalid dApp channel ID' };
     }
@@ -855,7 +856,7 @@ class NativeBridge {
     } catch {
       return { success: false, error: 'Web app not ready. Please try again.' };
     }
-    if (!this.nativeAuthorized || !this.isSecurityContextCurrent(context)) {
+    if (!isNativeAuthorized() || !this.isSecurityContextCurrent(context)) {
       return { success: false, error: 'App authorization changed. Please try again.' };
     }
 
@@ -1841,7 +1842,7 @@ class NativeBridge {
     }) ?? false;
   }
 
-  private consumeQrScan(request: NativeQrScanRequest): boolean {
+  private consumeQrScan(request: NativeQrScanRequest | null | undefined): boolean {
     if (!request || this.pendingQrScan !== request) return false;
     this.pendingQrScan = null;
     return this.nativeAuthorized && this.isWebAppReady && request.context.documentId !== null &&
@@ -2232,6 +2233,7 @@ class NativeBridge {
     newPin: string,
     options: number | NativePinChangeOptions = {}
   ): Promise<{ success: boolean; error?: string }> {
+    const isWalletClearInProgress = (): boolean => this.walletClearInProgress;
     const timeoutMs = typeof options === 'number' ? options : (options.timeoutMs ?? 120000);
     const acceptAlreadyTarget =
       typeof options === 'number' ? false : (options.acceptAlreadyTarget ?? false);
@@ -2250,7 +2252,7 @@ class NativeBridge {
     try {
       Logger.debug('NativeBridge', 'Waiting for web app to be ready before PIN change...');
       await this.waitForWebAppReady();
-      if (this.walletClearInProgress || walletGeneration !== this.walletMutationGeneration) {
+      if (isWalletClearInProgress() || walletGeneration !== this.walletMutationGeneration) {
         this.pinChangePending = false;
         return { success: false, error: 'Wallet clear is in progress' };
       }

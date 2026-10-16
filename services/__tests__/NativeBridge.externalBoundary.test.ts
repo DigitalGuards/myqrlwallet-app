@@ -484,6 +484,35 @@ describe('NativeBridge hosted WebView boundaries', () => {
     send.mockRestore();
   });
 
+  it.each([null, undefined, false, 0, '', {}])(
+    'rejects a malformed QR request %p while preserving the active scan',
+    async (value) => {
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+      const scan = jest.fn<undefined, [NativeQrScanRequest]>();
+      NativeBridge.onQRScanRequest(scan);
+      const invalidRequest = malformed<NativeQrScanRequest>(value);
+
+      expect(NativeBridge.sendQRResult(QIP55_ADDRESS, invalidRequest)).toBe(false);
+      expect(NativeBridge.sendQRCancelled(invalidRequest)).toBe(false);
+      expect(send).not.toHaveBeenCalled();
+
+      await handleBridge({ type: 'SCAN_QR' });
+      const request = scan.mock.calls[0]?.[0];
+      if (!request) throw new Error('QR scan was not requested');
+      expect(NativeBridge.sendQRResult(QIP55_ADDRESS, invalidRequest)).toBe(false);
+      expect(NativeBridge.sendQRCancelled(invalidRequest)).toBe(false);
+      expect(NativeBridge.sendQRResult(QIP55_ADDRESS, { ...request })).toBe(false);
+      expect(send).not.toHaveBeenCalled();
+
+      expect(NativeBridge.sendQRResult(QIP55_ADDRESS, request)).toBe(true);
+      expect(send.mock.calls).toEqual([[{
+        type: 'QR_RESULT',
+        payload: { address: QIP55_ADDRESS },
+      }]]);
+      send.mockRestore();
+    },
+  );
+
   it.each(['lock', 'document', 'wipe', 'replacement'])('rejects late QR results after %s', async change => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     const scan = jest.fn<undefined, [NativeQrScanRequest]>();

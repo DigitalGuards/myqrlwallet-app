@@ -186,24 +186,6 @@ const baseConfig = tseslint.config(
 const lintRatchet = [
   {
     "files": [
-      "components/ChangePinOverlay.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-imports": "off",
-      "react-hooks/set-state-in-effect": "off"
-    }
-  },
-  {
-    "files": [
-      "components/PinEntryModal.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-imports": "off",
-      "react-hooks/set-state-in-effect": "off"
-    }
-  },
-  {
-    "files": [
       "components/QRLWebView.tsx"
     ],
     "rules": {
@@ -233,35 +215,6 @@ const lintRatchet = [
     ],
     "rules": {
       "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  },
-  {
-    "files": [
-      "services/ForegroundAuthorization.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  },
-  {
-    "files": [
-      "services/NativeBridge.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-imports": "off",
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/ChangePinOverlay.test.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-deprecated": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/require-await": "off",
-      "no-restricted-syntax": "off"
     }
   },
   {

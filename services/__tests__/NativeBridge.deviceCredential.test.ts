@@ -771,6 +771,42 @@ describe('NativeBridge device credential protocol', () => {
     send.mockRestore();
   });
 
+  it.each([false, true])(
+    'rejects a PIN change when a wipe starts during readiness (wipe finished: %s)',
+    async (finishWipe) => {
+      let finishReadiness: (() => void) | undefined;
+      const readiness = jest.spyOn(NativeBridge, 'waitForWebAppReady').mockImplementationOnce(
+        () => new Promise<void>((resolve) => { finishReadiness = resolve; }),
+      );
+      const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+      try {
+        const change = NativeBridge.changePin('1234', '5678');
+        NativeBridge.beginWalletClear();
+        if (finishWipe) NativeBridge.endWalletClear();
+        if (!finishReadiness) throw new Error('Readiness was not requested');
+        finishReadiness();
+
+        await expect(change).resolves.toEqual({
+          success: false,
+          error: 'Wallet clear is in progress',
+        });
+        expect(send.mock.calls.some(([message]) => message.type === 'CHANGE_PIN')).toBe(false);
+        expect(mockStorePin).not.toHaveBeenCalled();
+
+        NativeBridge.endWalletClear();
+        send.mockImplementation(() => false);
+        await expect(NativeBridge.changePin('1234', '5678')).resolves.toEqual({
+          success: false,
+          error: 'Web app is unavailable',
+        });
+      } finally {
+        NativeBridge.endWalletClear();
+        readiness.mockRestore();
+        send.mockRestore();
+      }
+    },
+  );
+
   it('ignores a late success after timeout and commits only the compensation target', async () => {
     jest.useFakeTimers();
     try {
