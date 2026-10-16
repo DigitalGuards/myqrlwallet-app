@@ -158,6 +158,13 @@ const baseConfig = tseslint.config(
   // The logger is the existing console boundary.
   { files: ['services/Logger.ts'], rules: { 'no-console': 'off' } },
   {
+    files: ['test-utils/malformed.ts'],
+    rules: {
+      // Malformed test fixtures use this single assertion boundary.
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'as' }],
+    },
+  },
+  {
     // Metro types bundled asset requires as any. Callers use typed constants.
     files: ['constants/Assets.ts'],
     rules: {
