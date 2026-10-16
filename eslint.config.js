@@ -433,21 +433,6 @@ const lintRatchet = [
   },
   {
     "files": [
-      "services/__tests__/QRLWebView.lifecycle.test.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-confusing-void-expression": "off",
-      "@typescript-eslint/no-deprecated": "off",
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
       "services/__tests__/QrlAddress.test.ts"
     ],
     "rules": {
@@ -469,49 +454,6 @@ const lintRatchet = [
       "services/__tests__/WalletRemoval.test.ts"
     ],
     "rules": {
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/WalletScreen.deviceLoginSetup.test.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-deprecated": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/WalletScreen.lifecycle.test.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-deprecated": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-unnecessary-type-assertion": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/WalletScreen.reauth.test.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-confusing-void-expression": "off",
-      "@typescript-eslint/no-deprecated": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "@typescript-eslint/no-unnecessary-type-assertion": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/require-await": "off",
       "@typescript-eslint/unbound-method": "off"
     }
   },
