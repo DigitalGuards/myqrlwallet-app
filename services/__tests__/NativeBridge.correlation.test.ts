@@ -16,7 +16,7 @@ jest.mock('expo-haptics', () => ({
 jest.mock('../SeedStorageService', () => ({
   __esModule: true,
   default: {
-    getPendingWalletWipe: jest.fn(async () => null),
+    getPendingWalletWipe: jest.fn().mockResolvedValue(null),
     getDeviceCredential: jest.fn(),
     getOrCreateDeviceCredential: jest.fn(),
   },
@@ -24,14 +24,14 @@ jest.mock('../SeedStorageService', () => ({
 jest.mock('../DAppConnectionStore', () => ({
   __esModule: true,
   default: {
-    onDisconnected: jest.fn(async () => undefined),
+    onDisconnected: jest.fn().mockResolvedValue(undefined),
   },
 }));
 jest.mock('../WebViewService', () => ({
   __esModule: true,
   default: {
-    getUserPreferences: jest.fn(async () => ({})),
-    getContactsBackup: jest.fn(async () => null),
+    getUserPreferences: jest.fn(() => Promise.resolve({})),
+    getContactsBackup: jest.fn().mockResolvedValue(null),
   },
 }));
 jest.mock('../Logger', () => ({
@@ -43,19 +43,13 @@ import NativeBridge, { type BridgeMessage } from '../NativeBridge';
 import SeedStorageService from '../SeedStorageService';
 import DAppConnectionStore from '../DAppConnectionStore';
 import * as Crypto from 'expo-crypto';
+import type WebView from 'react-native-webview';
 
 const CHANNEL_ID = '11111111-1111-4111-8111-111111111111';
-const mockGetDeviceCredential = SeedStorageService.getDeviceCredential as jest.MockedFunction<
-  typeof SeedStorageService.getDeviceCredential
->;
-const mockGetPendingWalletWipe =
-  SeedStorageService.getPendingWalletWipe as jest.MockedFunction<
-    typeof SeedStorageService.getPendingWalletWipe
-  >;
-const mockOnDisconnected = DAppConnectionStore.onDisconnected as jest.MockedFunction<
-  typeof DAppConnectionStore.onDisconnected
->;
-const mockRandomBytes = Crypto.getRandomBytes as jest.MockedFunction<typeof Crypto.getRandomBytes>;
+const mockGetDeviceCredential = jest.spyOn(SeedStorageService, 'getDeviceCredential');
+const mockGetPendingWalletWipe = jest.spyOn(SeedStorageService, 'getPendingWalletWipe');
+const mockOnDisconnected = jest.spyOn(DAppConnectionStore, 'onDisconnected');
+const mockRandomBytes = jest.mocked(Crypto).getRandomBytes;
 const DOCUMENT_ID = 'de'.repeat(16);
 const nativeHandle = NativeBridge.handle.bind(NativeBridge);
 
@@ -63,7 +57,7 @@ async function authenticateDocument(): Promise<void> {
   const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
   await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
   const challenge = send.mock.calls
-    .map(([message]) => message as { type?: string; payload?: Record<string, unknown> })
+    .map(([message]) => message)
     .find((message) => message.type === 'WEB_DOCUMENT_CHALLENGE');
   const challengeId = challenge?.payload?.challengeId;
   if (typeof challengeId !== 'string') throw new Error('Document challenge was not sent');
@@ -82,9 +76,12 @@ async function handleBridge(message: BridgeMessage): Promise<void> {
   });
 }
 
-function requestPayload(send: jest.SpyInstance, type: string): Record<string, unknown> {
+function requestPayload(
+  send: jest.SpiedFunction<typeof NativeBridge.sendToWeb>,
+  type: string,
+): Record<string, unknown> {
   const message = send.mock.calls
-    .map(([value]) => value as { type?: string; payload?: Record<string, unknown> })
+    .map(([value]) => value)
     .find((value) => value.type === type);
   if (!message?.payload) throw new Error(`${type} was not sent`);
   return message.payload;
@@ -107,10 +104,10 @@ describe('NativeBridge correlation and generation boundaries', () => {
     const verification = NativeBridge.verifyPin('1234');
     await Promise.resolve();
     const payload = requestPayload(send, 'VERIFY_PIN');
-    const requestId = payload.requestId as string;
+    const requestId = payload.requestId;
 
     let settled = false;
-    verification.then(() => {
+    void verification.then(() => {
       settled = true;
     });
     await handleBridge({
@@ -129,7 +126,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     const verification = NativeBridge.verifyPin('1234');
     await Promise.resolve();
-    const requestId = requestPayload(send, 'VERIFY_PIN').requestId as string;
+    const requestId = requestPayload(send, 'VERIFY_PIN').requestId;
 
     NativeBridge.resetWebAppReady();
     await expect(verification).resolves.toEqual({
@@ -178,7 +175,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
 
     NativeBridge.invalidateAuthorization();
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
-    const challengeId = requestPayload(send, 'WEB_DOCUMENT_CHALLENGE').challengeId as string;
+    const challengeId = requestPayload(send, 'WEB_DOCUMENT_CHALLENGE').challengeId;
     await nativeHandle({
       type: 'WEB_DOCUMENT_READY',
       payload: { documentId: DOCUMENT_ID, challengeId },
@@ -190,7 +187,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
     });
     expect(
       send.mock.calls.some(
-        ([message]) => (message as { type?: string }).type === 'DAPP_DISCONNECT',
+        ([message]) => message.type === 'DAPP_DISCONNECT',
       ),
     ).toBe(false);
     send.mockRestore();
@@ -206,10 +203,10 @@ describe('NativeBridge correlation and generation boundaries', () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     const disconnect = NativeBridge.requestDAppDisconnect(CHANNEL_ID);
     await Promise.resolve();
-    const requestId = requestPayload(send, 'DAPP_DISCONNECT').requestId as string;
+    const requestId = requestPayload(send, 'DAPP_DISCONNECT').requestId;
 
     let settled = false;
-    disconnect.then(() => {
+    void disconnect.then(() => {
       settled = true;
     });
     const response = handleBridge({
@@ -255,7 +252,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
 
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
     const preResetChallenge = send.mock.calls
-      .map(([message]) => message as { type?: string; payload?: Record<string, unknown> })
+      .map(([message]) => message)
       .find((message) => message.type === 'WEB_DOCUMENT_CHALLENGE')?.payload?.challengeId;
     expect(typeof preResetChallenge).toBe('string');
 
@@ -267,7 +264,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: staleDocumentId } });
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: newDocumentId } });
     const challenges = send.mock.calls
-      .map(([message]) => message as { type?: string; payload?: Record<string, unknown> })
+      .map(([message]) => message)
       .filter((message) => message.type === 'WEB_DOCUMENT_CHALLENGE');
     const newChallenge = challenges.find(
       (message) => message.payload?.documentId === newDocumentId,
@@ -278,24 +275,40 @@ describe('NativeBridge correlation and generation boundaries', () => {
       type: 'WEB_DOCUMENT_READY',
       payload: {
         documentId: DOCUMENT_ID,
-        challengeId: preResetChallenge as string,
+        challengeId: preResetChallenge,
       },
     });
     expect(NativeBridge.getIsWebAppReady()).toBe(false);
 
     await nativeHandle({
       type: 'WEB_DOCUMENT_READY',
-      payload: { documentId: newDocumentId, challengeId: newChallenge as string },
+      payload: { documentId: newDocumentId, challengeId: newChallenge },
     });
     expect(NativeBridge.getIsWebAppReady()).toBe(true);
     send.mockRestore();
 
-    const injectJavaScript = jest.fn();
-    NativeBridge.setWebViewRef({ current: { injectJavaScript } } as never);
+    const injectJavaScript = jest.fn((_script: string) => undefined);
+    const webView: WebView = {
+      injectJavaScript,
+      goBack: jest.fn(),
+      goForward: jest.fn(),
+      reload: jest.fn(),
+      stopLoading: jest.fn(),
+      requestFocus: jest.fn(),
+      postMessage: jest.fn(),
+      clearCache: jest.fn(),
+      props: {},
+      state: {},
+      context: undefined,
+      setState: jest.fn(),
+      forceUpdate: jest.fn(),
+      render: jest.fn(() => null),
+    };
+    NativeBridge.setWebViewRef({ current: webView });
     expect(
       NativeBridge.sendToWeb({ type: 'ERROR', payload: { message: 'bound message' } }),
     ).toBe(true);
-    expect(injectJavaScript.mock.calls[0][0]).toContain(newDocumentId);
+    expect(injectJavaScript.mock.calls[0]?.[0]).toContain(newDocumentId);
   });
 
   it('coalesces duplicate ready signals and still rejects a well-formed wrong challenge', async () => {
@@ -307,7 +320,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
     const challenges = send.mock.calls
-      .map(([message]) => message as { type?: string; payload?: Record<string, unknown> })
+      .map(([message]) => message)
       .filter((message) => message.type === 'WEB_DOCUMENT_CHALLENGE');
     const challengeId = challenges[0]?.payload?.challengeId;
     expect(challenges[1]?.payload?.challengeId).toBe(challengeId);
@@ -321,7 +334,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
 
     await nativeHandle({
       type: 'WEB_DOCUMENT_READY',
-      payload: { documentId: DOCUMENT_ID, challengeId: challengeId as string },
+      payload: { documentId: DOCUMENT_ID, challengeId },
     });
     expect(NativeBridge.getIsWebAppReady()).toBe(true);
     send.mockClear();
@@ -344,7 +357,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
 
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
-    const firstChallenge = requestPayload(send, 'WEB_DOCUMENT_CHALLENGE').challengeId as string;
+    const firstChallenge = requestPayload(send, 'WEB_DOCUMENT_CHALLENGE').challengeId;
     const pendingEcho = nativeHandle({
       type: 'WEB_DOCUMENT_READY',
       payload: { documentId: DOCUMENT_ID, challengeId: firstChallenge },
@@ -356,7 +369,7 @@ describe('NativeBridge correlation and generation boundaries', () => {
 
     send.mockClear();
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
-    const retriedChallenge = requestPayload(send, 'WEB_DOCUMENT_CHALLENGE').challengeId as string;
+    const retriedChallenge = requestPayload(send, 'WEB_DOCUMENT_CHALLENGE').challengeId;
     expect(retriedChallenge).toBe(firstChallenge);
     expect(mockRandomBytes).toHaveBeenCalledTimes(1);
     resolveJournalRead?.(null);
