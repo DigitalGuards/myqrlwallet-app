@@ -3,6 +3,7 @@ import {
   classifyEmbeddedNavigation,
   type EmbeddedNavigationRequest,
 } from '../EmbeddedNavigationPolicy';
+import { malformed } from '../../test-utils/malformed';
 
 const iosPending = { initialDocumentPending: true, platform: 'ios' };
 const iosConsumed = { initialDocumentPending: false, platform: 'ios' };
@@ -12,6 +13,59 @@ const androidConsumed = { initialDocumentPending: false, platform: 'android' };
 const req = (url: string, extra: Partial<EmbeddedNavigationRequest> = {}) => ({ url, ...extra });
 
 describe('embedded wallet navigation policy', () => {
+  it.each([undefined, null, false, 0, 7n, 'request', [], {}, { url: null }, { url: 42 }])(
+    'refuses a request without a usable URL: %p',
+    (request) => {
+      expect(classifyEmbeddedNavigation(malformed<EmbeddedNavigationRequest>(request), iosPending))
+        .toEqual({ action: 'block', reason: 'unsupported-scheme' });
+    },
+  );
+
+  it('preserves requests with extra fields and loosely typed native metadata', () => {
+    const request = {
+      url: 'https://qrlwallet.com/#/transfer',
+      navigationType: 7,
+      isTopFrame: 0,
+      mainDocumentURL: null,
+      extra: { retained: true },
+    };
+    expect(classifyEmbeddedNavigation(request, iosConsumed))
+      .toEqual({ action: 'allow', reason: 'fragment' });
+    expect(classifyEmbeddedNavigation({ ...request, url: 'https://theqrl.org/' }, iosConsumed))
+      .toEqual({ action: 'open-external' });
+    expect(classifyEmbeddedNavigation({ ...request, url: EMBEDDED_BASE_URL }, iosPending))
+      .toEqual({ action: 'block', reason: 'navigation-type' });
+    expect(classifyEmbeddedNavigation({ ...request, url: 'about:blank', isTopFrame: false }, iosPending))
+      .toEqual({ action: 'allow', reason: 'webview-internal' });
+    expect(request.extra).toEqual({ retained: true });
+  });
+
+  it('uses a URL carried by arrays, callables and inherited properties', () => {
+    const url = 'https://qrlwallet.com/#/transfer';
+    class NativeRequest {
+      get url() { return url; }
+    }
+    for (const request of [
+      Object.assign([], { url }),
+      Object.assign(() => undefined, { url }),
+      new NativeRequest(),
+    ]) {
+      expect(classifyEmbeddedNavigation(request, iosConsumed))
+        .toEqual({ action: 'allow', reason: 'fragment' });
+    }
+  });
+
+  it('reads the native URL once and preserves accessor errors', () => {
+    const readUrl = jest.fn(() => EMBEDDED_BASE_URL);
+    const request = { get url() { return readUrl(); } };
+    expect(classifyEmbeddedNavigation(request, iosPending))
+      .toEqual({ action: 'allow', reason: 'initial-document' });
+    expect(readUrl).toHaveBeenCalledTimes(1);
+    const failure = new Error('native URL failed');
+    readUrl.mockImplementation(() => { throw failure; });
+    expect(() => classifyEmbeddedNavigation(request, iosPending)).toThrow(failure);
+  });
+
   it('admits the injected document exactly once on iOS', () => {
     expect(classifyEmbeddedNavigation(req(EMBEDDED_BASE_URL), iosPending)).toEqual({
       action: 'allow',

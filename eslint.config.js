@@ -204,39 +204,6 @@ const lintRatchet = [
   },
   {
     "files": [
-      "components/QRLWebView.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  },
-  {
-    "files": [
-      "components/QRScannerModal.tsx"
-    ],
-    "rules": {
-      "react-hooks/set-state-in-effect": "off"
-    }
-  },
-  {
-    "files": [
-      "components/QuantumLoadingScreen.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "react-hooks/refs": "off"
-    }
-  },
-  {
-    "files": [
-      "services/EmbeddedNavigationPolicy.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  },
-  {
-    "files": [
       "services/ForegroundAuthorization.ts"
     ],
     "rules": {
