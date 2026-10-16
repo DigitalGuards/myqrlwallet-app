@@ -5,8 +5,10 @@ import { PinEntryModal } from '../../components/PinEntryModal';
 import { isRecord } from '../guards';
 
 interface TestInstance {
+  type: unknown;
   props: Record<string, unknown>;
   instance: unknown;
+  findAll: (predicate: (node: TestInstance) => boolean) => TestInstance[];
   findAllByType: (type: unknown) => TestInstance[];
   findAllByProps: (props: Record<string, unknown>) => TestInstance[];
 }
@@ -57,7 +59,7 @@ describe('ChangePinOverlay', () => {
   });
 
   afterEach(async () => {
-    if (screen) await act<unknown>(() => { screen?.unmount(); });
+    if (screen) await act<undefined>(() => { screen?.unmount(); });
     screen = undefined;
     jest.restoreAllMocks();
     jest.useRealTimers();
@@ -73,7 +75,7 @@ describe('ChangePinOverlay', () => {
   it('draws in the screen tree without a native Modal', async () => {
     // A Fabric Modal presented right after the Face ID sheet can be refused by UIKit.
     await render(true);
-    expect(required(screen).root.findAllByType(Modal)).toHaveLength(0);
+    expect(required(screen).root.findAll(node => Object.is(node.type, Modal))).toHaveLength(0);
     expect(required(screen).root.findAllByProps({ accessibilityLabel: 'Current PIN' }).length).toBeGreaterThan(0);
   });
 
@@ -86,12 +88,12 @@ describe('ChangePinOverlay', () => {
     const onCancel = await render(true);
     expect(backListener).toBeDefined();
     let handled: boolean | null | undefined = false;
-    await act<unknown>(() => {
+    await act<undefined>(() => {
       handled = required(backListener)({ type: 'hardwareBackPress', timeStamp: 1 });
     });
     expect(handled).toBe(true);
     expect(onCancel).toHaveBeenCalledTimes(1);
-    await act<unknown>(() => { screen?.unmount(); });
+    await act<undefined>(() => { screen?.unmount(); });
     screen = undefined;
     expect(remove).toHaveBeenCalled();
   });
@@ -123,11 +125,11 @@ describe.each(['entry', 'change'])('%s PIN form lifecycle', (form) => {
   }
 
   async function update(visible: boolean, title?: string): Promise<void> {
-    await act<unknown>(() => { required(screen).update(element(visible, title)); });
+    await act<undefined>(() => { required(screen).update(element(visible, title)); });
   }
 
   async function enter(label: string, value: string): Promise<void> {
-    await act<unknown>(() => { callProp(input(label), 'onChangeText', value); });
+    await act<undefined>(() => { callProp(input(label), 'onChangeText', value); });
   }
 
   function focusMock(): unknown {
@@ -145,7 +147,7 @@ describe.each(['entry', 'change'])('%s PIN form lifecycle', (form) => {
   });
 
   afterEach(async () => {
-    await act<unknown>(() => { screen?.unmount(); });
+    await act<undefined>(() => { screen?.unmount(); });
     screen = undefined;
     jest.restoreAllMocks();
     jest.useRealTimers();
@@ -159,7 +161,7 @@ describe.each(['entry', 'change'])('%s PIN form lifecycle', (form) => {
       await enter('New PIN', '5678');
       await enter('Confirm New PIN', '9999');
     }
-    await act<unknown>(() => { callProp(input(submitLabel), 'onSubmitEditing'); });
+    await act<undefined>(() => { callProp(input(submitLabel), 'onSubmitEditing'); });
     expect(onSubmit).not.toHaveBeenCalled();
     expect(required(screen).root.findAllByProps({ children: errorText }).length).toBeGreaterThan(0);
 
@@ -187,7 +189,7 @@ describe.each(['entry', 'change'])('%s PIN form lifecycle', (form) => {
     }
     const buttons = required(screen).root.findAllByType(TouchableOpacity);
     expect(required(buttons.at(-1)).props.disabled).toBe(false);
-    await act<unknown>(() => { callProp(input(submitLabel), 'onSubmitEditing'); });
+    await act<undefined>(() => { callProp(input(submitLabel), 'onSubmitEditing'); });
     expect(onSubmit.mock.calls).toEqual(form === 'entry' ? [['1234']] : [['1234', '567890']]);
     expect(input(firstLabel).props.value).toBe('1234');
   });
@@ -196,7 +198,7 @@ describe.each(['entry', 'change'])('%s PIN form lifecycle', (form) => {
     screen = await nativeTestRenderer.create(element(true));
     await enter(firstLabel, '1234');
     const cancelButton = required(required(screen).root.findAllByType(TouchableOpacity)[0]);
-    await act<unknown>(() => { callProp(cancelButton, 'onPress'); });
+    await act<undefined>(() => { callProp(cancelButton, 'onPress'); });
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
     expect(input(firstLabel).props.value).toBe(form === 'entry' ? '' : '1234');
@@ -210,31 +212,31 @@ describe.each(['entry', 'change'])('%s PIN form lifecycle', (form) => {
     await update(true);
     const focus = focusMock();
     expect(focus).not.toHaveBeenCalled();
-    await act<unknown>(() => { jest.advanceTimersByTime(119); });
+    await act<undefined>(() => { jest.advanceTimersByTime(119); });
     expect(focus).not.toHaveBeenCalled();
     await update(true, 'Confirm wallet PIN');
-    await act<unknown>(() => { jest.advanceTimersByTime(1); });
+    await act<undefined>(() => { jest.advanceTimersByTime(1); });
     expect(focus).toHaveBeenCalledTimes(1);
-    await act<unknown>(() => { jest.advanceTimersByTime(120); });
+    await act<undefined>(() => { jest.advanceTimersByTime(120); });
     expect(focus).toHaveBeenCalledTimes(1);
   });
 
   it('cancels the pending focus on hide and unmount', async () => {
     screen = await nativeTestRenderer.create(element(true));
     const focus = focusMock();
-    await act<unknown>(() => { jest.advanceTimersByTime(119); });
+    await act<undefined>(() => { jest.advanceTimersByTime(119); });
     await update(false);
-    await act<unknown>(() => { jest.advanceTimersByTime(1); });
+    await act<undefined>(() => { jest.advanceTimersByTime(1); });
     expect(focus).not.toHaveBeenCalled();
     await update(true);
-    await act<unknown>(() => { jest.advanceTimersByTime(120); });
+    await act<undefined>(() => { jest.advanceTimersByTime(120); });
     expect(focusMock()).toHaveBeenCalledTimes(1);
     await update(false);
     await update(true);
     const reopenedFocus = focusMock();
-    await act<unknown>(() => { required(screen).unmount(); });
+    await act<undefined>(() => { required(screen).unmount(); });
     screen = undefined;
-    await act<unknown>(() => { jest.advanceTimersByTime(120); });
+    await act<undefined>(() => { jest.advanceTimersByTime(120); });
     expect(reopenedFocus).toHaveBeenCalledTimes(1);
   });
 });

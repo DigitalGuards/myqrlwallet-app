@@ -32,10 +32,10 @@ describe('QRL Connect deep-link logging', () => {
       'RootLayout',
       'qrlconnect deep link received (URI redacted)',
     );
-    expect(JSON.stringify((Logger.debug as jest.Mock).mock.calls)).not.toContain(
+    expect(JSON.stringify(jest.mocked(Logger.debug).mock.calls)).not.toContain(
       uri,
     );
-    expect(JSON.stringify((Logger.debug as jest.Mock).mock.calls)).not.toContain(
+    expect(JSON.stringify(jest.mocked(Logger.debug).mock.calls)).not.toContain(
       'PQP3-BEARER-CAPABILITY',
     );
   });

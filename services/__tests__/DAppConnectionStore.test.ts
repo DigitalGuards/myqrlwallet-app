@@ -1,14 +1,17 @@
 const mockAsyncData = new Map<string, string>();
 
-jest.mock('@react-native-async-storage/async-storage', () => ({
-  getItem: jest.fn(async (key: string) => mockAsyncData.get(key) ?? null),
-  setItem: jest.fn(async (key: string, value: string) => {
-    mockAsyncData.set(key, value);
-  }),
-  removeItem: jest.fn(async (key: string) => {
-    mockAsyncData.delete(key);
-  }),
-}));
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const { runAsPromise } = jest.requireActual<typeof import('../runAsPromise')>('../runAsPromise');
+  return {
+    getItem: jest.fn((key: string) => runAsPromise(() => mockAsyncData.get(key) ?? null)),
+    setItem: jest.fn((key: string, value: string) => runAsPromise(() => {
+      mockAsyncData.set(key, value);
+    })),
+    removeItem: jest.fn((key: string) => runAsPromise(() => {
+      mockAsyncData.delete(key);
+    })),
+  };
+});
 jest.mock('../Logger', () => ({
   __esModule: true,
   default: { debug: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -17,7 +20,7 @@ jest.mock('../Logger', () => ({
 import DAppConnectionStore from '../DAppConnectionStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const mockGetItem = AsyncStorage.getItem as jest.MockedFunction<typeof AsyncStorage.getItem>;
+const mockGetItem = jest.mocked(AsyncStorage.getItem);
 const QIP55_ADDRESS = `Q${'aB'.repeat(64)}`;
 const LEGACY_Q40_ADDRESS = `Q${'12'.repeat(20)}`;
 
