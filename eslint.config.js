@@ -387,52 +387,6 @@ const lintRatchet = [
   },
   {
     "files": [
-      "services/__tests__/NativeBridge.correlation.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-floating-promises": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/NativeBridge.walletWipe.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-confusing-void-expression": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/NativeConfig.security.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-require-imports": "off",
-      "@typescript-eslint/no-unnecessary-type-assertion": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "no-restricted-syntax": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/NativeWalletProfile.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-implied-eval": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-return": "off"
-    }
-  },
-  {
-    "files": [
       "services/__tests__/QrlAddress.test.ts"
     ],
     "rules": {
