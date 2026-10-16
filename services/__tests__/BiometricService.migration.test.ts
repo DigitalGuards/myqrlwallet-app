@@ -42,27 +42,12 @@ import { AppState, type AppStateStatus } from 'react-native';
 import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
 
-const mockEnrolledLevel =
-  LocalAuthentication.getEnrolledLevelAsync as jest.MockedFunction<
-    typeof LocalAuthentication.getEnrolledLevelAsync
-  >;
-const mockSupportedTypes =
-  LocalAuthentication.supportedAuthenticationTypesAsync as jest.MockedFunction<
-    typeof LocalAuthentication.supportedAuthenticationTypesAsync
-  >;
-const mockAuthenticate = LocalAuthentication.authenticateAsync as jest.MockedFunction<
-  typeof LocalAuthentication.authenticateAsync
->;
-const mockGetStoredPin = SeedStorageService.getStoredPin as jest.MockedFunction<
-  typeof SeedStorageService.getStoredPin
->;
-const mockNeedsMigration =
-  SeedStorageService.needsPinAccessibilityMigration as jest.MockedFunction<
-    typeof SeedStorageService.needsPinAccessibilityMigration
-  >;
-const mockMigrate = SeedStorageService.migratePinAccessibility as jest.MockedFunction<
-  typeof SeedStorageService.migratePinAccessibility
->;
+const mockEnrolledLevel = jest.mocked(LocalAuthentication.getEnrolledLevelAsync);
+const mockSupportedTypes = jest.mocked(LocalAuthentication.supportedAuthenticationTypesAsync);
+const mockAuthenticate = jest.mocked(LocalAuthentication.authenticateAsync);
+const mockGetStoredPin = jest.spyOn(SeedStorageService, 'getStoredPin');
+const mockNeedsMigration = jest.spyOn(SeedStorageService, 'needsPinAccessibilityMigration');
+const mockMigrate = jest.spyOn(SeedStorageService, 'migratePinAccessibility');
 
 describe('BiometricService PIN accessibility migration', () => {
   let originalState: AppStateStatus;
@@ -70,10 +55,10 @@ describe('BiometricService PIN accessibility migration', () => {
     originalState = AppState.currentState;
     AppState.currentState = 'active';
     jest.clearAllMocks();
-    (SeedStorageService.getWalletGeneration as jest.Mock).mockReturnValue(7);
-    (SeedStorageService.isWalletGenerationCurrent as jest.Mock).mockReturnValue(true);
-    (SeedStorageService.isBiometricEnabled as jest.Mock).mockResolvedValue(true);
-    (SeedStorageService.hasPinStored as jest.Mock).mockResolvedValue(true);
+    jest.mocked(SeedStorageService).getWalletGeneration.mockReturnValue(7);
+    jest.mocked(SeedStorageService).isWalletGenerationCurrent.mockReturnValue(true);
+    jest.mocked(SeedStorageService).isBiometricEnabled.mockResolvedValue(true);
+    jest.mocked(SeedStorageService).hasPinStored.mockResolvedValue(true);
     mockEnrolledLevel.mockResolvedValue(LocalAuthentication.SecurityLevel.BIOMETRIC_STRONG);
     mockSupportedTypes.mockResolvedValue([
       LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
@@ -108,19 +93,20 @@ describe('BiometricService PIN accessibility migration', () => {
   });
 
   it.each(['disabled', 'rotated'])('skips stale accessibility migration after Device Login is %s', async change => {
-    let releaseMigrationCheck!: () => void;
+    let releaseMigrationCheck: (() => void) | undefined;
     mockNeedsMigration.mockImplementationOnce(() => new Promise<boolean>(resolve => {
-      releaseMigrationCheck = () => resolve(true);
+      releaseMigrationCheck = () => { resolve(true); };
     }));
     const unlock = BiometricService.getPinWithBiometric();
     for (let i = 0; i < 30 && !releaseMigrationCheck; i++) await Promise.resolve();
     expect(releaseMigrationCheck).toBeDefined();
     if (change === 'disabled') {
-      jest.mocked(SeedStorageService.isBiometricEnabled).mockResolvedValue(false);
+      jest.mocked(SeedStorageService).isBiometricEnabled.mockResolvedValue(false);
       mockGetStoredPin.mockResolvedValue(null);
     } else {
       mockGetStoredPin.mockResolvedValue('5678');
     }
+    if (!releaseMigrationCheck) throw new Error('Migration check was not reached');
     releaseMigrationCheck();
     await unlock;
     expect(mockMigrate).not.toHaveBeenCalled();

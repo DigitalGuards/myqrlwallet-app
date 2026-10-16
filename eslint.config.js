@@ -254,53 +254,6 @@ const lintRatchet = [
   },
   {
     "files": [
-      "services/__tests__/BiometricService.foreground.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-confusing-void-expression": "off",
-      "@typescript-eslint/no-unsafe-enum-assignment": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/BiometricService.migration.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/no-confusing-void-expression": "off",
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/BiometricService.pinChange.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-assertions": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/BiometricService.probe.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unsafe-enum-assignment": "off",
-      "@typescript-eslint/unbound-method": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/BiometricService.promptLifecycle.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-non-null-assertion": "off"
-    }
-  },
-  {
-    "files": [
       "services/__tests__/ChangePinOverlay.test.tsx"
     ],
     "rules": {
@@ -326,16 +279,6 @@ const lintRatchet = [
     ],
     "rules": {
       "@typescript-eslint/consistent-type-assertions": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/DeviceLoginState.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/unbound-method": "off"
     }
   },
   {
@@ -375,14 +318,6 @@ const lintRatchet = [
     "rules": {
       "@typescript-eslint/consistent-type-assertions": "off",
       "no-restricted-syntax": "off"
-    }
-  },
-  {
-    "files": [
-      "services/__tests__/ForegroundAuthorization.test.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/unbound-method": "off"
     }
   },
   {
