@@ -14,8 +14,8 @@ import SeedStorageService from '../SeedStorageService';
 import { authorizeWalletRemoval } from '../WalletRemoval';
 
 describe('wallet removal authorization', () => {
-  const required = jest.mocked(SeedStorageService.requiresWalletRemovalAuthentication);
-  const authenticate = jest.mocked(BiometricService.authenticate);
+  const required = jest.spyOn(SeedStorageService, 'requiresWalletRemovalAuthentication');
+  const authenticate = jest.spyOn(BiometricService, 'authenticate');
 
   beforeEach(() => jest.resetAllMocks());
 

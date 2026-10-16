@@ -65,7 +65,9 @@ describe('Diagnostics redaction', () => {
 });
 
 describe('Diagnostics buffer', () => {
-  beforeEach(() => Diagnostics.clear());
+  beforeEach(() => {
+    Diagnostics.clear();
+  });
 
   it('never serializes objects passed as data', () => {
     Diagnostics.record('error', 'Test', 'bridge failed', { pin: '1234', seed: 'abandon', payload: [1, 2] });

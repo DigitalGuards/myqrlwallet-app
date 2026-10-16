@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 import {
   BACK_AT_ROOT_MESSAGE_TYPE,
@@ -13,12 +14,17 @@ import {
   embeddedBootstrapScript,
   withEmbeddedFlag,
 } from '../EmbeddedWalletDocument';
+import { isRecord } from '../guards';
 
 const projectRoot = resolve(__dirname, '../..');
 const documentPath = resolve(projectRoot, 'assets/web/index.html');
-const buildInfo = JSON.parse(
+const buildInfo: unknown = JSON.parse(
   readFileSync(resolve(projectRoot, 'assets/web/BUILD_INFO.json'), 'utf8'),
-) as { sha256: string; bytes: number; frontendCommit: string; frontendCommitShort: string };
+);
+
+function isCallback(value: unknown): value is () => unknown {
+  return typeof value === 'function';
+}
 
 describe('embedded wallet document', () => {
   const token = 'a'.repeat(64);
@@ -82,14 +88,16 @@ describe('embedded wallet document', () => {
     const executable: { attributes: string; digest: string }[] = [];
     const pattern = /<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/g;
     for (let match = pattern.exec(shipped); match !== null; match = pattern.exec(shipped)) {
-      const attributes = match[1]!;
+      const attributes = match[1];
+      const code = match[2];
+      if (attributes === undefined || code === undefined) throw new Error('Missing script captures');
       const type = /type\s*=\s*"([^"]*)"/.exec(attributes)?.[1] ?? '';
       const isExecutable =
         type === '' || type === 'module' || type === 'text/javascript' || type === 'module ';
       if (!isExecutable) continue;
       executable.push({
         attributes,
-        digest: createHash('sha256').update(match[2]!, 'utf8').digest('base64'),
+        digest: createHash('sha256').update(code, 'utf8').digest('base64'),
       });
     }
 
@@ -144,7 +152,7 @@ describe('embedded wallet document', () => {
       ReactNativeWebView: { postMessage: () => undefined },
       document: { currentScript: tag },
     };
-    new Function('window', 'document', body)(win, win.document);
+    runInNewContext(body, { window: win, document: win.document });
     expect(removed).toEqual([tag]);
   });
 
@@ -169,23 +177,40 @@ describe('embedded wallet document', () => {
     const script = embeddedBootstrapScript(token, false);
     const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
     const posted: string[] = [];
-    const win: Record<string, unknown> = {
+    const win = {
       ReactNativeWebView: { postMessage: (m: string) => posted.push(m) },
     };
-    new Function('window', body)(win);
-    const bridge = win.ReactNativeWebView as { postMessage: (m: string) => void };
+    runInNewContext(body, { window: win });
+    const bridge = win.ReactNativeWebView;
     bridge.postMessage('{"type":"WEB_APP_READY"}');
     expect(posted).toEqual([`${token}${BRIDGE_TOKEN_SEPARATOR}{"type":"WEB_APP_READY"}`]);
   });
+
+  it.each([undefined, null, false, 0, 1.5, 5n, '0x12'])(
+    'preserves bridge receiver and return value when stringifying %s',
+    (message) => {
+      const script = embeddedBootstrapScript(token, false);
+      const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
+      const result = {};
+      const postMessage = jest.fn((_message: unknown) => result);
+      const win = { ReactNativeWebView: { postMessage } };
+      runInNewContext(body, { window: win });
+
+      expect(win.ReactNativeWebView.postMessage(message)).toBe(result);
+      expect(postMessage).toHaveBeenCalledTimes(1);
+      expect(postMessage).toHaveBeenCalledWith(`${token}${BRIDGE_TOKEN_SEPARATOR}${String(message)}`);
+      expect(postMessage.mock.contexts[0]).toBe(win.ReactNativeWebView);
+    },
+  );
 
   it('wraps a bridge the WebView installs after the head script ran', () => {
     const script = embeddedBootstrapScript(token, false);
     const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
     const posted: string[] = [];
-    const win: Record<string, unknown> = {};
-    new Function('window', body)(win);
+    const win: { ReactNativeWebView?: { postMessage: (m: string) => void } } = {};
+    runInNewContext(body, { window: win });
     win.ReactNativeWebView = { postMessage: (m: string) => posted.push(m) };
-    (win.ReactNativeWebView as { postMessage: (m: string) => void }).postMessage('PAGE_LOADED');
+    win.ReactNativeWebView.postMessage('PAGE_LOADED');
     expect(posted).toEqual([`${token}${BRIDGE_TOKEN_SEPARATOR}PAGE_LOADED`]);
   });
 
@@ -193,13 +218,17 @@ describe('embedded wallet document', () => {
     const script = embeddedBootstrapScript(token, false);
     const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
     const posted: string[] = [];
-    const win: Record<string, unknown> = {
+    const win: {
+      ReactNativeWebView: { postMessage: (m: string) => void };
+      __qrlBindBridge?: unknown;
+    } = {
       ReactNativeWebView: { postMessage: (m: string) => posted.push(m) },
     };
-    new Function('window', body)(win);
-    (win.__qrlBindBridge as () => void)();
-    (win.__qrlBindBridge as () => void)();
-    (win.ReactNativeWebView as { postMessage: (m: string) => void }).postMessage('x');
+    runInNewContext(body, { window: win });
+    if (!isCallback(win.__qrlBindBridge)) throw new TypeError('Missing bridge binder');
+    win.__qrlBindBridge();
+    win.__qrlBindBridge();
+    win.ReactNativeWebView.postMessage('x');
     expect(posted).toEqual([`${token}${BRIDGE_TOKEN_SEPARATOR}x`]);
   });
 
@@ -217,6 +246,9 @@ describe('embedded wallet document', () => {
 
   it('ships a document that matches its recorded hash', () => {
     const bytes = readFileSync(documentPath);
+    if (!isRecord(buildInfo) || typeof buildInfo.frontendCommit !== 'string') {
+      throw new TypeError('Expected build info with a frontend commit');
+    }
     expect(bytes.length).toBe(buildInfo.bytes);
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(buildInfo.sha256);
     expect(buildInfo.frontendCommit).toMatch(/^[0-9a-f]{40}$/);
