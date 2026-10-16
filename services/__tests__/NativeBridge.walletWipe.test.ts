@@ -16,28 +16,28 @@ jest.mock('expo-haptics', () => ({
 jest.mock('../SeedStorageService', () => ({
   __esModule: true,
   default: {
-    getPendingWalletWipe: jest.fn(async () => null),
-    beginWalletWipe: jest.fn(async (requestId: string) => ({
+    getPendingWalletWipe: jest.fn().mockResolvedValue(null),
+    beginWalletWipe: jest.fn((requestId: string) => Promise.resolve({
       version: 1,
       requestId,
       startedAt: 1,
     })),
-    clearWallet: jest.fn(async () => undefined),
-    completeWalletWipe: jest.fn(async () => undefined),
+    clearWallet: jest.fn().mockResolvedValue(undefined),
+    completeWalletWipe: jest.fn().mockResolvedValue(undefined),
   },
 }));
 jest.mock('../DAppConnectionStore', () => ({
   __esModule: true,
   default: {
-    clear: jest.fn(async () => undefined),
+    clear: jest.fn().mockResolvedValue(undefined),
   },
 }));
 jest.mock('../WebViewService', () => ({
   __esModule: true,
   default: {
-    clearContactsBackupStrict: jest.fn(async () => undefined),
-    getUserPreferences: jest.fn(async () => ({})),
-    getContactsBackup: jest.fn(async () => null),
+    clearContactsBackupStrict: jest.fn().mockResolvedValue(undefined),
+    getUserPreferences: jest.fn(() => Promise.resolve({})),
+    getContactsBackup: jest.fn().mockResolvedValue(null),
   },
 }));
 jest.mock('../Logger', () => ({
@@ -50,24 +50,12 @@ import SeedStorageService from '../SeedStorageService';
 import DAppConnectionStore from '../DAppConnectionStore';
 import WebViewService from '../WebViewService';
 
-const mockGetPending = SeedStorageService.getPendingWalletWipe as jest.MockedFunction<
-  typeof SeedStorageService.getPendingWalletWipe
->;
-const mockBegin = SeedStorageService.beginWalletWipe as jest.MockedFunction<
-  typeof SeedStorageService.beginWalletWipe
->;
-const mockClear = SeedStorageService.clearWallet as jest.MockedFunction<
-  typeof SeedStorageService.clearWallet
->;
-const mockComplete = SeedStorageService.completeWalletWipe as jest.MockedFunction<
-  typeof SeedStorageService.completeWalletWipe
->;
-const mockClearDApps = DAppConnectionStore.clear as jest.MockedFunction<
-  typeof DAppConnectionStore.clear
->;
-const mockClearContacts = WebViewService.clearContactsBackupStrict as jest.MockedFunction<
-  typeof WebViewService.clearContactsBackupStrict
->;
+const mockGetPending = jest.spyOn(SeedStorageService, 'getPendingWalletWipe');
+const mockBegin = jest.spyOn(SeedStorageService, 'beginWalletWipe');
+const mockClear = jest.spyOn(SeedStorageService, 'clearWallet');
+const mockComplete = jest.spyOn(SeedStorageService, 'completeWalletWipe');
+const mockClearDApps = jest.spyOn(DAppConnectionStore, 'clear');
+const mockClearContacts = jest.spyOn(WebViewService, 'clearContactsBackupStrict');
 const DOCUMENT_ID = 'de'.repeat(16);
 const nativeHandle = NativeBridge.handle.bind(NativeBridge);
 
@@ -75,7 +63,7 @@ async function authenticateDocument(): Promise<void> {
   const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
   await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
   const challenge = send.mock.calls
-    .map(([message]) => message as { type?: string; payload?: Record<string, unknown> })
+    .map(([message]) => message)
     .find((message) => message.type === 'WEB_DOCUMENT_CHALLENGE');
   const challengeId = challenge?.payload?.challengeId;
   if (typeof challengeId !== 'string') throw new Error('Document challenge was not sent');
@@ -93,10 +81,12 @@ async function handleBridge(message: BridgeMessage): Promise<void> {
   });
 }
 
-async function waitForClearRequest(send: jest.SpyInstance): Promise<Record<string, unknown>> {
+async function waitForClearRequest(
+  send: jest.SpiedFunction<typeof NativeBridge.sendToWeb>,
+): Promise<Record<string, unknown>> {
   for (let iteration = 0; iteration < 20; iteration += 1) {
     const message = send.mock.calls
-      .map(([value]) => value as { type?: string; payload?: Record<string, unknown> })
+      .map(([value]) => value)
       .find((value) => value.type === 'CLEAR_WALLET');
     if (message?.payload) return message.payload;
     await Promise.resolve();
@@ -113,7 +103,7 @@ describe('NativeBridge durable wallet wipe', () => {
     await authenticateDocument();
     jest.clearAllMocks();
     mockGetPending.mockResolvedValue(null);
-    mockBegin.mockImplementation(async (requestId: string) => ({
+    mockBegin.mockImplementation((requestId: string) => Promise.resolve({
       version: 1,
       requestId,
       startedAt: 1,
@@ -128,7 +118,7 @@ describe('NativeBridge durable wallet wipe', () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     const wipe = NativeBridge.clearWalletDurably();
     const request = await waitForClearRequest(send);
-    const requestId = request.requestId as string;
+    const requestId = request.requestId;
 
     expect(mockBegin).toHaveBeenCalledWith(requestId);
     expect(mockClear).toHaveBeenCalledTimes(1);
@@ -162,7 +152,7 @@ describe('NativeBridge durable wallet wipe', () => {
     let authorized = true;
     let releaseRead!: () => void;
     mockGetPending.mockImplementationOnce(() => new Promise(resolve => {
-      releaseRead = () => resolve(null);
+      releaseRead = () => { resolve(null); };
     }));
     const wipe = NativeBridge.clearWalletDurably(1000, () => authorized);
     authorized = false;
@@ -175,7 +165,7 @@ describe('NativeBridge durable wallet wipe', () => {
   it('leaves the durable journal pending when hosted-wallet deletion fails', async () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     const wipe = NativeBridge.clearWalletDurably();
-    const requestId = (await waitForClearRequest(send)).requestId as string;
+    const requestId = (await waitForClearRequest(send)).requestId;
 
     await handleBridge({
       type: 'WALLET_CLEARED',
