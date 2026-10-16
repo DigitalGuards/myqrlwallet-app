@@ -1,6 +1,4 @@
-const { transformMainActivity } = require('../../plugins/withBackgroundOnBack.js') as {
-  transformMainActivity: (contents: string) => string;
-};
+import { transformMainActivity } from '../../plugins/withBackgroundOnBack.js';
 
 /**
  * The Expo SDK 54 template's MainActivity, as prebuild writes it. The plugin
@@ -67,7 +65,7 @@ describe('withBackgroundOnBack config plugin', () => {
     expect(result).toContain('class MainActivity : ReactActivity() {');
     // One method, and the class still closes.
     expect(result.match(/override fun invokeDefaultOnBackPressed\(\)/g)).toHaveLength(1);
-    const braces = [...result].reduce(
+    const braces = Array.from(result).reduce(
       (depth, character) =>
         character === '{' ? depth + 1 : character === '}' ? depth - 1 : depth,
       0,
@@ -90,7 +88,7 @@ describe('withBackgroundOnBack config plugin', () => {
     // Doing nothing quietly would ship an app that finishes its activity on
     // every back press at the wallet root.
     const withoutMethod = TEMPLATE.replace(
-      /override fun invokeDefaultOnBackPressed\(\)[\s\S]*?\n  \}\n/,
+      /override fun invokeDefaultOnBackPressed\(\)[\s\S]*?\n {2}\}\n/,
       '',
     );
     expect(() => transformMainActivity(withoutMethod)).toThrow(/is not in MainActivity/);

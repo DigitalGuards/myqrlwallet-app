@@ -6,14 +6,17 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(),
 }));
 
-jest.mock('expo-crypto', () => ({
-  __esModule: true,
-  CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
-  digestStringAsync: jest.fn(async (_algorithm: string, value: string) => {
-    const { createHash } = require('node:crypto') as typeof import('node:crypto');
-    return createHash('sha256').update(value).digest('hex');
-  }),
-}));
+jest.mock('expo-crypto', () => {
+  const { runAsPromise } = jest.requireActual<typeof import('../runAsPromise')>('../runAsPromise');
+  return {
+    __esModule: true,
+    CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+    digestStringAsync: jest.fn((_algorithm: string, value: string) => runAsPromise(() => {
+      const { createHash } = jest.requireActual<typeof import('node:crypto')>('node:crypto');
+      return createHash('sha256').update(value).digest('hex');
+    })),
+  };
+});
 
 jest.mock('@react-native-async-storage/async-storage', () => {
   const storage = {
@@ -41,33 +44,18 @@ import SeedStorageService from '../SeedStorageService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { createHash } from 'node:crypto';
+import { runAsPromise } from '../runAsPromise';
 
-const mockSecureGet = SecureStore.getItemAsync as jest.MockedFunction<
-  typeof SecureStore.getItemAsync
->;
-const mockSecureSet = SecureStore.setItemAsync as jest.MockedFunction<
-  typeof SecureStore.setItemAsync
->;
-const mockSecureDelete = SecureStore.deleteItemAsync as jest.MockedFunction<
-  typeof SecureStore.deleteItemAsync
->;
-const mockAsyncGetAllKeys = AsyncStorage.getAllKeys as jest.MockedFunction<
-  typeof AsyncStorage.getAllKeys
->;
-const mockAsyncMultiRemove = AsyncStorage.multiRemove as jest.MockedFunction<
-  typeof AsyncStorage.multiRemove
->;
-const mockAsyncGet = AsyncStorage.getItem as jest.MockedFunction<typeof AsyncStorage.getItem>;
-const mockAsyncSet = AsyncStorage.setItem as jest.MockedFunction<typeof AsyncStorage.setItem>;
-const mockAsyncMultiGet = AsyncStorage.multiGet as jest.MockedFunction<
-  typeof AsyncStorage.multiGet
->;
-const mockAsyncMultiSet = AsyncStorage.multiSet as jest.MockedFunction<
-  typeof AsyncStorage.multiSet
->;
-const mockAsyncRemove = AsyncStorage.removeItem as jest.MockedFunction<
-  typeof AsyncStorage.removeItem
->;
+const mockSecureGet = jest.mocked(SecureStore.getItemAsync);
+const mockSecureSet = jest.mocked(SecureStore.setItemAsync);
+const mockSecureDelete = jest.mocked(SecureStore.deleteItemAsync);
+const mockAsyncGetAllKeys = jest.mocked(AsyncStorage.getAllKeys);
+const mockAsyncMultiRemove = jest.mocked(AsyncStorage.multiRemove);
+const mockAsyncGet = jest.mocked(AsyncStorage.getItem);
+const mockAsyncSet = jest.mocked(AsyncStorage.setItem);
+const mockAsyncMultiGet = jest.mocked(AsyncStorage.multiGet);
+const mockAsyncMultiSet = jest.mocked(AsyncStorage.multiSet);
+const mockAsyncRemove = jest.mocked(AsyncStorage.removeItem);
 
 const CANDIDATE = 'ab'.repeat(32);
 const EXISTING = 'cd'.repeat(32);
@@ -86,23 +74,23 @@ describe('SeedStorageService device credential escrow', () => {
     asyncData = new Map();
     mockSecureSet.mockResolvedValue(undefined);
     mockSecureDelete.mockResolvedValue(undefined);
-    mockAsyncGet.mockImplementation(async key => asyncData.get(key) ?? null);
-    mockAsyncSet.mockImplementation(async (key, value) => {
+    mockAsyncGet.mockImplementation(key => runAsPromise(() => asyncData.get(key) ?? null));
+    mockAsyncSet.mockImplementation((key, value) => runAsPromise(() => {
       asyncData.set(key, value);
-    });
-    mockAsyncRemove.mockImplementation(async key => {
+    }));
+    mockAsyncRemove.mockImplementation(key => runAsPromise(() => {
       asyncData.delete(key);
-    });
-    mockAsyncGetAllKeys.mockImplementation(async () => [...asyncData.keys()]);
-    mockAsyncMultiGet.mockImplementation(async keys =>
-      keys.map(key => [key, asyncData.get(key) ?? null] as [string, string | null]),
-    );
-    mockAsyncMultiSet.mockImplementation(async entries => {
+    }));
+    mockAsyncGetAllKeys.mockImplementation(() => runAsPromise(() => [...asyncData.keys()]));
+    mockAsyncMultiGet.mockImplementation(keys => runAsPromise(() =>
+      keys.map((key): [string, string | null] => [key, asyncData.get(key) ?? null]),
+    ));
+    mockAsyncMultiSet.mockImplementation(entries => runAsPromise(() => {
       for (const [key, value] of entries) asyncData.set(key, value);
-    });
-    mockAsyncMultiRemove.mockImplementation(async keys => {
+    }));
+    mockAsyncMultiRemove.mockImplementation(keys => runAsPromise(() => {
       for (const key of keys) asyncData.delete(key);
-    });
+    }));
   });
 
   it('stores a candidate with this-device-only accessibility and confirms it by reading back', async () => {
@@ -132,8 +120,8 @@ describe('SeedStorageService device credential escrow', () => {
     asyncData.set('biometric_enabled', 'true');
     asyncData.set('pin_exists', '1');
     asyncData.set('wallet_metadata', 'legacy metadata');
-    mockSecureGet.mockImplementation(async key => secureData.get(key) ?? null);
-    mockSecureSet.mockImplementation(async (key, value) => { secureData.set(key, value); });
+    mockSecureGet.mockImplementation(key => runAsPromise(() => secureData.get(key) ?? null));
+    mockSecureSet.mockImplementation((key, value) => runAsPromise(() => { secureData.set(key, value); }));
 
     await expect(SeedStorageService.getDeviceCredential()).resolves.toBeNull();
     await expect(SeedStorageService.hasPinStored()).resolves.toBe(false);

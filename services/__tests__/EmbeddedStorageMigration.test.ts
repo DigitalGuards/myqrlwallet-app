@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { runInNewContext } from 'node:vm';
 
 import {
   EMBEDDED_STORAGE_MIGRATION_SCRIPT,
@@ -15,8 +16,8 @@ jest.mock('expo-secure-store', () => ({
 }));
 jest.mock('../Logger', () => ({ debug: jest.fn(), warn: jest.fn(), error: jest.fn() }));
 
-const getItemAsync = SecureStore.getItemAsync as jest.Mock;
-const setItemAsync = SecureStore.setItemAsync as jest.Mock;
+const getItemAsync = jest.mocked(SecureStore.getItemAsync);
+const setItemAsync = jest.mocked(SecureStore.setItemAsync);
 
 describe('inherited web storage migration', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -107,13 +108,12 @@ describe('inherited web storage migration', () => {
           removed.push(key);
         },
       },
-    } as unknown as Record<string, unknown>;
-    new Function(
-      'window',
-      'navigator',
-      'localStorage',
-      EMBEDDED_STORAGE_MIGRATION_SCRIPT,
-    )(win, win.navigator, win.localStorage);
+    };
+    runInNewContext(EMBEDDED_STORAGE_MIGRATION_SCRIPT, {
+      window: win,
+      navigator: win.navigator,
+      localStorage: win.localStorage,
+    });
     expect(removed).toEqual(['qrlwallet:v3:dappSessions', '@qrlwallet/connect:session']);
   });
 });

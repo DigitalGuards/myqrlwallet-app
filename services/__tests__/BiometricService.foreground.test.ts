@@ -46,14 +46,16 @@ describe('Device Login successful prompt foreground completion', () => {
       listeners.add(listener);
       return { remove: () => listeners.delete(listener) };
     });
-    jest.mocked(SeedStorageService.getWalletGeneration).mockReturnValue(7);
-    jest.mocked(SeedStorageService.isWalletGenerationCurrent).mockReturnValue(true);
-    jest.mocked(SeedStorageService.isBiometricEnabled).mockResolvedValue(true);
-    jest.mocked(SeedStorageService.hasPinStored).mockResolvedValue(true);
-    jest.mocked(SeedStorageService.getStoredPin).mockResolvedValue('1234');
-    jest.mocked(SeedStorageService.needsPinAccessibilityMigration).mockResolvedValue(false);
+    jest.mocked(SeedStorageService).getWalletGeneration.mockReturnValue(7);
+    jest.mocked(SeedStorageService).isWalletGenerationCurrent.mockReturnValue(true);
+    jest.mocked(SeedStorageService).isBiometricEnabled.mockResolvedValue(true);
+    jest.mocked(SeedStorageService).hasPinStored.mockResolvedValue(true);
+    jest.mocked(SeedStorageService).getStoredPin.mockResolvedValue('1234');
+    jest.mocked(SeedStorageService).needsPinAccessibilityMigration.mockResolvedValue(false);
     jest.mocked(LocalAuthentication.getEnrolledLevelAsync).mockResolvedValue(3);
-    jest.mocked(LocalAuthentication.supportedAuthenticationTypesAsync).mockResolvedValue([2]);
+    jest.mocked(LocalAuthentication.supportedAuthenticationTypesAsync).mockResolvedValue([
+      LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+    ]);
     jest.mocked(LocalAuthentication.authenticateAsync).mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -77,7 +79,7 @@ describe('Device Login successful prompt foreground completion', () => {
       resolvePrompt({ success: true });
       await drain();
       await jest.advanceTimersByTimeAsync(delay);
-      expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+      expect(jest.mocked(SeedStorageService).getStoredPin.mock.calls).toHaveLength(0);
       transition('active');
       await expect(unlock).resolves.toEqual({ success: true, pin: '1234' });
       expect(listeners.size).toBe(0);
@@ -116,7 +118,7 @@ describe('Device Login successful prompt foreground completion', () => {
     await jest.advanceTimersByTimeAsync(10_000);
     await expect(unlock).resolves.toMatchObject({ success: false });
     expect(BiometricService.isAuthenticationTransitionActive()).toBe(false);
-    expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+    expect(jest.mocked(SeedStorageService).getStoredPin.mock.calls).toHaveLength(0);
     expect(listeners.size).toBe(0);
     expect(jest.getTimerCount()).toBe(0);
     transition('active');
@@ -136,12 +138,12 @@ describe('Device Login successful prompt foreground completion', () => {
       resolvePrompt({ success: true });
       await drain();
       if (kind === 'wallet')
-        jest.mocked(SeedStorageService.isWalletGenerationCurrent).mockReturnValue(false);
+        jest.mocked(SeedStorageService).isWalletGenerationCurrent.mockReturnValue(false);
       else if (kind === 'operation') BiometricService.clearPendingSecurityOperations();
       else current = false;
       await jest.advanceTimersByTimeAsync(50);
       await expect(unlock).resolves.toMatchObject({ success: false });
-      expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+      expect(jest.mocked(SeedStorageService).getStoredPin.mock.calls).toHaveLength(0);
       expect(listeners.size).toBe(0);
       expect(jest.getTimerCount()).toBe(0);
       expect(BiometricService.isAuthenticationTransitionActive()).toBe(false);
@@ -162,7 +164,7 @@ describe('Device Login successful prompt foreground completion', () => {
       transition('active');
       if (when === 'before-result') resolvePrompt({ success: true });
       await expect(unlock).resolves.toMatchObject({ success: false });
-      expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+      expect(jest.mocked(SeedStorageService).getStoredPin.mock.calls).toHaveLength(0);
       expect(listeners.size).toBe(0);
       expect(jest.getTimerCount()).toBe(0);
     }
@@ -172,28 +174,28 @@ describe('Device Login successful prompt foreground completion', () => {
     'rejects stale context after the async %s boundary',
     async (boundary) => {
       let current = true;
-      let finish!: () => void;
+      let finish: (() => void) | undefined;
       if (boundary === 'read') {
-        jest.mocked(SeedStorageService.getStoredPin).mockImplementationOnce(
+        jest.mocked(SeedStorageService).getStoredPin.mockImplementationOnce(
           () =>
             new Promise((resolve) => {
-              finish = () => resolve('1234');
+              finish = () => { resolve('1234'); };
             })
         );
       } else {
-        jest.mocked(SeedStorageService.needsPinAccessibilityMigration).mockResolvedValue(true);
+        jest.mocked(SeedStorageService).needsPinAccessibilityMigration.mockResolvedValue(true);
         if (boundary === 'migration-check') {
-          jest.mocked(SeedStorageService.needsPinAccessibilityMigration).mockImplementationOnce(
+          jest.mocked(SeedStorageService).needsPinAccessibilityMigration.mockImplementationOnce(
             () =>
               new Promise((resolve) => {
-                finish = () => resolve(true);
+                finish = () => { resolve(true); };
               })
           );
         } else {
-          jest.mocked(DeviceLoginState.migratePinAccessibility).mockImplementationOnce(
+          jest.mocked(DeviceLoginState).migratePinAccessibility.mockImplementationOnce(
             () =>
               new Promise((resolve) => {
-                finish = () => resolve(true);
+                finish = () => { resolve(true); };
               })
           );
         }
@@ -204,6 +206,7 @@ describe('Device Login successful prompt foreground completion', () => {
       await drain();
       expect(finish).toBeDefined();
       current = false;
+      if (!finish) throw new Error('Async boundary was not reached');
       finish();
       await expect(unlock).resolves.toMatchObject({ success: false });
       expect(listeners.size).toBe(0);
@@ -218,13 +221,13 @@ describe('Device Login successful prompt foreground completion', () => {
     resolvePrompt({ success: true });
     await drain();
     await jest.advanceTimersByTimeAsync(1_000);
-    expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+    expect(jest.mocked(SeedStorageService).getStoredPin.mock.calls).toHaveLength(0);
     transition('active');
     await expect(unlock).resolves.toMatchObject({ success: true, pin: '1234' });
     expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['user_cancel', 'app_cancel', 'system_cancel'] as const)(
+  it.each<LocalAuthentication.LocalAuthenticationError>(['user_cancel', 'app_cancel', 'system_cancel'])(
     'does not fall through to a second prompt after probe %s',
     async (error) => {
       jest.mocked(LocalAuthentication.getEnrolledLevelAsync).mockResolvedValue(1);
@@ -233,7 +236,7 @@ describe('Device Login successful prompt foreground completion', () => {
       resolvePrompt({ success: false, error });
       await expect(unlock).resolves.toMatchObject({ success: false });
       expect(LocalAuthentication.authenticateAsync).toHaveBeenCalledTimes(1);
-      expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+      expect(jest.mocked(SeedStorageService).getStoredPin.mock.calls).toHaveLength(0);
       expect(listeners.size).toBe(0);
     }
   );
@@ -244,7 +247,7 @@ describe('Device Login successful prompt foreground completion', () => {
     resolvePrompt({ success: true });
     await expect(authenticate).resolves.toEqual({ success: true });
     expect(BiometricService.isAuthenticationTransitionActive()).toBe(false);
-    expect(SeedStorageService.getStoredPin).not.toHaveBeenCalled();
+    expect(jest.mocked(SeedStorageService).getStoredPin.mock.calls).toHaveLength(0);
     expect(listeners.size).toBe(0);
     expect(jest.getTimerCount()).toBe(0);
   });
