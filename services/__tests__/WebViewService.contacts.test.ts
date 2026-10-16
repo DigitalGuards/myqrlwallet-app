@@ -13,10 +13,11 @@ jest.mock('../Logger', () => ({
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WebViewService from '../WebViewService';
+import { runAsPromise } from '../runAsPromise';
 
-const mockSet = AsyncStorage.setItem as jest.MockedFunction<typeof AsyncStorage.setItem>;
-const mockGet = AsyncStorage.getItem as jest.MockedFunction<typeof AsyncStorage.getItem>;
-const mockRemove = AsyncStorage.removeItem as jest.MockedFunction<typeof AsyncStorage.removeItem>;
+const mockSet = jest.mocked(AsyncStorage.setItem);
+const mockGet = jest.mocked(AsyncStorage.getItem);
+const mockRemove = jest.mocked(AsyncStorage.removeItem);
 
 describe('WebViewService contact wipe ordering', () => {
   it('queues a wipe behind an in-flight backup so contacts cannot be resurrected', async () => {
@@ -31,10 +32,10 @@ describe('WebViewService contact wipe ordering', () => {
           };
         }),
     );
-    mockGet.mockImplementation(async () => stored);
-    mockRemove.mockImplementation(async () => {
+    mockGet.mockImplementation(() => runAsPromise(() => stored));
+    mockRemove.mockImplementation(() => runAsPromise(() => {
       stored = null;
-    });
+    }));
 
     const save = WebViewService.saveContactsBackupStrict('[{"id":"contact"}]');
     for (let iteration = 0; iteration < 10 && !releaseWrite; iteration += 1) {
@@ -57,9 +58,9 @@ describe('WebViewService contact wipe ordering', () => {
     const oldKey = '@MyQRLWallet:contactsBackup';
     const oldContacts = '[{"id":"legacy-contact"}]';
     const data = new Map([[oldKey, oldContacts]]);
-    mockSet.mockImplementation(async (key, value) => { data.set(key, value); });
-    mockGet.mockImplementation(async key => data.get(key) ?? null);
-    mockRemove.mockImplementation(async key => { data.delete(key); });
+    mockSet.mockImplementation((key, value) => runAsPromise(() => { data.set(key, value); }));
+    mockGet.mockImplementation(key => runAsPromise(() => data.get(key) ?? null));
+    mockRemove.mockImplementation(key => runAsPromise(() => { data.delete(key); }));
 
     expect(await WebViewService.getContactsBackup()).toBeNull();
     await WebViewService.saveContactsBackupStrict('[{"id":"v3-contact"}]');

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { malformed } from '../../test-utils/malformed';
 
 import {
   EMBEDDED_V3_MARKERS,
@@ -8,6 +9,7 @@ import {
   embeddedProfileErrorMessage,
 } from '../EmbeddedWalletProfile';
 import { NATIVE_WALLET_BLOCKCHAIN, NATIVE_WALLET_CAPABILITIES } from '../NativeWalletProfile';
+import { isRecord } from '../guards';
 
 const projectRoot = resolve(__dirname, '../..');
 
@@ -49,7 +51,7 @@ describe('bundled wallet network profile', () => {
 
   it('rejects an empty or missing document', () => {
     expect(detectEmbeddedWalletProfile('').profile).toBe('unknown');
-    expect(detectEmbeddedWalletProfile(undefined as unknown as string).profile).toBe('unknown');
+    expect(detectEmbeddedWalletProfile(malformed(undefined)).profile).toBe('unknown');
   });
 
   it('keeps the sync script markers in step with this module', () => {
@@ -64,9 +66,10 @@ describe('bundled wallet network profile', () => {
 
   it('agrees with the profile recorded for the document in the bundle', () => {
     const html = readFileSync(resolve(projectRoot, 'assets/web/index.html'), 'utf8');
-    const buildInfo = JSON.parse(
+    const buildInfo: unknown = JSON.parse(
       readFileSync(resolve(projectRoot, 'assets/web/BUILD_INFO.json'), 'utf8'),
-    ) as { walletProfile?: string };
+    );
+    if (!isRecord(buildInfo)) throw new TypeError('Expected build info object');
     expect(detectEmbeddedWalletProfile(html).profile).toBe(buildInfo.walletProfile);
   });
 });
