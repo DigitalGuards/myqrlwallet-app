@@ -30,7 +30,7 @@ describe('bounded foreground authorization', () => {
 
   it('handles a synchronous foreground callback during listener registration', async () => {
     const remove = jest.fn();
-    jest.mocked(AppState.addEventListener).mockImplementationOnce((_event, listener) => {
+    jest.mocked(AppState).addEventListener.mockImplementationOnce((_event, listener) => {
       AppState.currentState = 'active';
       listener('active');
       return { remove };
@@ -42,7 +42,7 @@ describe('bounded foreground authorization', () => {
 
   it('rechecks state changed during listener registration without an event', async () => {
     const remove = jest.fn();
-    jest.mocked(AppState.addEventListener).mockImplementationOnce(() => {
+    jest.mocked(AppState).addEventListener.mockImplementationOnce(() => {
       AppState.currentState = 'active';
       return { remove };
     });
