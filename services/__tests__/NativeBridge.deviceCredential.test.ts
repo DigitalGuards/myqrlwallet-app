@@ -20,11 +20,11 @@ jest.mock('../SeedStorageService', () => ({
     getOrCreateDeviceCredential: jest.fn(),
     backupSeed: jest.fn(),
     storePinSecurely: jest.fn(),
-    clearStoredPin: jest.fn(async () => undefined),
+    clearStoredPin: jest.fn().mockResolvedValue(undefined),
     getWalletGeneration: jest.fn(() => 0),
     isWalletGenerationCurrent: jest.fn(() => true),
-    isBiometricEnabled: jest.fn(async () => true),
-    getPendingWalletWipe: jest.fn(async () => null),
+    isBiometricEnabled: jest.fn().mockResolvedValue(true),
+    getPendingWalletWipe: jest.fn().mockResolvedValue(null),
   },
 }));
 jest.mock('../DAppConnectionStore', () => ({
@@ -34,8 +34,8 @@ jest.mock('../DAppConnectionStore', () => ({
 jest.mock('../WebViewService', () => ({
   __esModule: true,
   default: {
-    getUserPreferences: jest.fn(async () => ({})),
-    getContactsBackup: jest.fn(async () => null),
+    getUserPreferences: jest.fn(() => Promise.resolve({})),
+    getContactsBackup: jest.fn().mockResolvedValue(null),
   },
 }));
 jest.mock('../Logger', () => ({
@@ -48,22 +48,20 @@ import NativeBridge, {
   NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR,
   NATIVE_PIN_COMMIT_ERROR,
 } from '../NativeBridge';
-import SeedStorageService from '../SeedStorageService';
+import SeedStorageService, { type SeedBackup } from '../SeedStorageService';
 import Logger from '../Logger';
+import { runAsPromise } from '../runAsPromise';
+import { malformed } from '../../test-utils/malformed';
 
 const mockGetDeviceCredential =
-  SeedStorageService.getDeviceCredential as jest.MockedFunction<
-    typeof SeedStorageService.getDeviceCredential
-  >;
+  jest.spyOn(SeedStorageService, 'getDeviceCredential');
 const mockGetOrCreate =
-  SeedStorageService.getOrCreateDeviceCredential as jest.MockedFunction<
-    typeof SeedStorageService.getOrCreateDeviceCredential
-  >;
-const mockBackupSeed = SeedStorageService.backupSeed as jest.MockedFunction<
-  typeof SeedStorageService.backupSeed
->;
-const mockStorePin = SeedStorageService.storePinSecurely as jest.MockedFunction<
-  typeof SeedStorageService.storePinSecurely
+  jest.spyOn(SeedStorageService, 'getOrCreateDeviceCredential');
+const mockBackupSeed = jest.spyOn(SeedStorageService, 'backupSeed');
+const mockStorePin = jest.spyOn(SeedStorageService, 'storePinSecurely');
+type SendToWebSpy = jest.SpyInstance<
+  ReturnType<typeof NativeBridge.sendToWeb>,
+  Parameters<typeof NativeBridge.sendToWeb>
 >;
 
 const REQUEST_ID = '12'.repeat(16);
@@ -78,7 +76,7 @@ async function authenticateDocument(): Promise<void> {
   const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
   await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
   const challenge = send.mock.calls
-    .map(([message]) => message as { type?: string; payload?: Record<string, unknown> })
+    .map(([message]) => message)
     .find((message) => message.type === 'WEB_DOCUMENT_CHALLENGE');
   const challengeId = challenge?.payload?.challengeId;
   if (typeof challengeId !== 'string') throw new Error('Document challenge was not sent');
@@ -97,10 +95,10 @@ async function handleBridge(message: BridgeMessage): Promise<void> {
   });
 }
 
-function lastPinChangeRequestId(send: jest.SpyInstance): string {
+function lastPinChangeRequestId(send: SendToWebSpy): string {
   const message = [...send.mock.calls]
     .reverse()
-    .map(call => call[0] as { type?: string; payload?: Record<string, unknown> })
+    .map(call => call[0])
     .find(candidate => candidate.type === 'CHANGE_PIN');
   const requestId = message?.payload?.requestId;
   if (typeof requestId !== 'string') throw new Error('CHANGE_PIN requestId was not sent');
@@ -115,8 +113,8 @@ describe('NativeBridge device credential protocol', () => {
     await authenticateDocument();
     jest.clearAllMocks();
     mockStorePin.mockResolvedValue(undefined);
-    jest.mocked(SeedStorageService.getWalletGeneration).mockReturnValue(0);
-    jest.mocked(SeedStorageService.isWalletGenerationCurrent).mockReturnValue(true);
+    jest.mocked(SeedStorageService).getWalletGeneration.mockReturnValue(0);
+    jest.mocked(SeedStorageService).isWalletGenerationCurrent.mockReturnValue(true);
   });
 
   it('returns a credential only after SecureStore get-or-create resolves', async () => {
@@ -187,7 +185,7 @@ describe('NativeBridge device credential protocol', () => {
   });
 
   describe('locked device credential boundaries', () => {
-    let send: jest.SpyInstance;
+    let send: SendToWebSpy;
 
     beforeEach(() => {
       NativeBridge.invalidateAuthorization();
@@ -208,7 +206,9 @@ describe('NativeBridge device credential protocol', () => {
       const request = [...send.mock.calls].reverse()
         .find(([message]) => message.type === 'VERIFY_PIN')?.[0];
       expect(request).toBeDefined();
-      return { result, requestId: request.payload.requestId as string };
+      const requestId = request?.payload?.requestId;
+      if (typeof requestId !== 'string') throw new Error('VERIFY_PIN requestId was not sent');
+      return { result, requestId };
     }
 
     const readCredential = () => handleBridge({
@@ -372,7 +372,7 @@ describe('NativeBridge device credential protocol', () => {
     let releaseBackup!: () => void;
     mockBackupSeed.mockReturnValueOnce(
       new Promise((resolve) => {
-        releaseBackup = () =>
+        releaseBackup = () => {
           resolve({
             address: ADDRESS,
             encryptedSeed: 'ciphertext',
@@ -381,6 +381,7 @@ describe('NativeBridge device credential protocol', () => {
             ciphertextHash: CIPHERTEXT_HASH,
             storedAt: 1,
           });
+        };
       }),
     );
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
@@ -443,7 +444,7 @@ describe('NativeBridge device credential protocol', () => {
         (_address, encryptedSeed) =>
           new Promise((resolve) => {
             started.push(encryptedSeed);
-            release.push(() => resolve({} as never));
+            release.push(() => { resolve(malformed<SeedBackup>({})); });
           }),
       );
       const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
@@ -452,19 +453,21 @@ describe('NativeBridge device credential protocol', () => {
       await flush();
       expect(started).toEqual(['ciphertext-1']);
       for (let step = 0; step < 6; step += 1) {
-        release[step]!();
+        const releaseBackup = release[step];
+        if (!releaseBackup) throw new Error('Seed backup was not started');
+        releaseBackup();
         await flush();
       }
       await Promise.all(handled);
 
       expect(started).toEqual([1, 2, 3, 4, 5, 6].map((index) => `ciphertext-${index}`));
       const responses = send.mock.calls
-        .map(([message]) => message as { type: string; payload: Record<string, unknown> })
+        .map(([message]) => message)
         .filter((message) => message.type === 'SEED_STORED_RESPONSE');
-      expect(responses.map((message) => message.payload.requestId)).toEqual(
+      expect(responses.map((message) => message.payload?.requestId)).toEqual(
         [1, 2, 3, 4, 5, 6].map(idFor),
       );
-      expect(responses.every((message) => message.payload.success === true)).toBe(true);
+      expect(responses.every((message) => message.payload?.success === true)).toBe(true);
       send.mockRestore();
     });
 
@@ -473,7 +476,7 @@ describe('NativeBridge device credential protocol', () => {
       mockBackupSeed.mockImplementation(
         () =>
           new Promise((resolve) => {
-            release.push(() => resolve({} as never));
+            release.push(() => { resolve(malformed<SeedBackup>({})); });
           }),
       );
       const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
@@ -492,7 +495,9 @@ describe('NativeBridge device credential protocol', () => {
       });
       expect(Logger.error).toHaveBeenCalledWith('NativeBridge', expect.stringContaining('queue is full'));
       for (let step = 0; step < 20; step += 1) {
-        release[step]!();
+        const releaseBackup = release[step];
+        if (!releaseBackup) throw new Error('Seed backup was not started');
+        releaseBackup();
         await flush();
       }
       await Promise.all(handled);
@@ -504,7 +509,7 @@ describe('NativeBridge device credential protocol', () => {
       mockBackupSeed.mockImplementation(
         () =>
           new Promise((resolve) => {
-            release.push(() => resolve({} as never));
+            release.push(() => { resolve(malformed<SeedBackup>({})); });
           }),
       );
       const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
@@ -513,7 +518,9 @@ describe('NativeBridge device credential protocol', () => {
       const second = handleBridge(seedMessage(2));
       await flush();
       NativeBridge.invalidateAuthorization();
-      release[0]!();
+      const releaseBackup = release[0];
+      if (!releaseBackup) throw new Error('Seed backup was not started');
+      releaseBackup();
       await Promise.all([first, second]);
 
       expect(mockBackupSeed).toHaveBeenCalledTimes(1);
@@ -685,13 +692,13 @@ describe('NativeBridge device credential protocol', () => {
     let effectiveSecurePin = '1234';
     let effectiveCiphertextPin = '1234';
     mockStorePin
-      .mockImplementationOnce(async pin => {
+      .mockImplementationOnce(pin => runAsPromise(() => {
         effectiveSecurePin = pin;
         throw new Error('marker write failed after secure commit');
-      })
-      .mockImplementationOnce(async pin => {
+      }))
+      .mockImplementationOnce(pin => runAsPromise(() => {
         effectiveSecurePin = pin;
-      });
+      }));
     await handleBridge({ type: 'WEB_APP_READY' });
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => undefined);
 
@@ -875,9 +882,9 @@ describe('NativeBridge device credential protocol', () => {
   it('does not let a delayed compensation commit target a replacement wallet', async () => {
     jest.useFakeTimers();
     let generation = 1;
-    jest.mocked(SeedStorageService.getWalletGeneration).mockImplementation(() => generation);
-    jest.mocked(SeedStorageService.isWalletGenerationCurrent).mockImplementation(value => value === generation);
-    let releaseCommit!: () => void;
+    jest.mocked(SeedStorageService).getWalletGeneration.mockImplementation(() => generation);
+    jest.mocked(SeedStorageService).isWalletGenerationCurrent.mockImplementation(value => value === generation);
+    let releaseCommit: (() => void) | undefined;
     mockStorePin.mockImplementationOnce(() => new Promise<void>(resolve => { releaseCommit = resolve; }));
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
     try {
@@ -889,6 +896,7 @@ describe('NativeBridge device credential protocol', () => {
       });
       for (let i = 0; i < 30 && !releaseCommit; i++) await Promise.resolve();
       expect(releaseCommit).toBeDefined();
+      if (!releaseCommit) throw new Error('Secure PIN commit was not started');
       jest.advanceTimersByTime(10);
       await original;
       const compensation = NativeBridge.changePin('5678', '1234');
