@@ -36,8 +36,14 @@ function applyEmbeddedDevVariant(config) {
   // filter. A second, unverifiable claimant only produces a chooser dialog.
   delete android.intentFilters;
 
+  // Over-the-air updates are signed and published for the production app
+  // only. This variant is a different app with its own native build, so it
+  // never checks for or loads one.
+  const updates = { ...config.updates, enabled: false, checkAutomatically: 'NEVER' };
+
   return {
     ...config,
+    updates,
     name: 'MyQRLWallet Embedded',
     scheme: [EMBEDDED_DEV_SCHEME],
     ios,
