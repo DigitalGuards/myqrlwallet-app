@@ -40,6 +40,33 @@ describe('bounded foreground authorization', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  it('keeps a synchronous background result when an active event follows during registration', async () => {
+    const remove = jest.fn();
+    jest.mocked(AppState).addEventListener.mockImplementationOnce((_event, listener) => {
+      listener('background');
+      AppState.currentState = 'active';
+      listener('active');
+      return { remove };
+    });
+    await expect(waitForForegroundAuthorization(() => true)).resolves.toBe(false);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('rejects authorization revoked by a synchronous foreground callback', async () => {
+    let current = true;
+    const remove = jest.fn();
+    jest.mocked(AppState).addEventListener.mockImplementationOnce((_event, listener) => {
+      current = false;
+      AppState.currentState = 'active';
+      listener('active');
+      return { remove };
+    });
+    await expect(waitForForegroundAuthorization(() => current)).resolves.toBe(false);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('rechecks state changed during listener registration without an event', async () => {
     const remove = jest.fn();
     jest.mocked(AppState).addEventListener.mockImplementationOnce(() => {

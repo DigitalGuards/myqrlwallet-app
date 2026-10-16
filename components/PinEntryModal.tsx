@@ -3,7 +3,7 @@ import {
   Modal,
   View,
   Text,
-  TextInput,
+  type TextInput,
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
@@ -48,11 +48,18 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
+  const [previousVisible, setPreviousVisible] = useState(visible);
 
-  useEffect(() => {
+  if (visible !== previousVisible) {
+    setPreviousVisible(visible);
     if (visible) {
       setPin('');
       setError(null);
+    }
+  }
+
+  useEffect(() => {
+    if (visible) {
       const timer = setTimeout(() => inputRef.current?.focus(), 120);
       return () => clearTimeout(timer);
     }

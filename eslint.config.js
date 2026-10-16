@@ -183,43 +183,7 @@ const baseConfig = tseslint.config(
 // Existing lint debt, including tests. Entries may only be removed.
 // Regenerate with npm run lint:ratchet:update after fixing a file/rule pair.
 // BEGIN LINT RATCHET
-const lintRatchet = [
-  {
-    "files": [
-      "components/ChangePinOverlay.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-imports": "off",
-      "react-hooks/set-state-in-effect": "off"
-    }
-  },
-  {
-    "files": [
-      "components/PinEntryModal.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-imports": "off",
-      "react-hooks/set-state-in-effect": "off"
-    }
-  },
-  {
-    "files": [
-      "services/ForegroundAuthorization.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  },
-  {
-    "files": [
-      "services/NativeBridge.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/consistent-type-imports": "off",
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  }
-];
+const lintRatchet = [];
 // END LINT RATCHET
 
 module.exports = [...baseConfig, ...lintRatchet];

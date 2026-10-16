@@ -3,7 +3,7 @@ import {
   BackHandler,
   View,
   Text,
-  TextInput,
+  type TextInput,
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
@@ -69,13 +69,20 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
   const currentPinRef = useRef<TextInput>(null);
   const newPinRef = useRef<TextInput>(null);
   const confirmPinRef = useRef<TextInput>(null);
+  const [previousVisible, setPreviousVisible] = useState(visible);
 
-  useEffect(() => {
+  if (visible !== previousVisible) {
+    setPreviousVisible(visible);
     if (visible) {
       setCurrentPin('');
       setNewPin('');
       setConfirmPin('');
       setError(null);
+    }
+  }
+
+  useEffect(() => {
+    if (visible) {
       const timerId = setTimeout(() => currentPinRef.current?.focus(), 120);
       return () => clearTimeout(timerId);
     }
