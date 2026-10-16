@@ -183,41 +183,7 @@ const baseConfig = tseslint.config(
 // Existing lint debt, including tests. Entries may only be removed.
 // Regenerate with npm run lint:ratchet:update after fixing a file/rule pair.
 // BEGIN LINT RATCHET
-const lintRatchet = [
-  {
-    "files": [
-      "components/QRLWebView.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  },
-  {
-    "files": [
-      "components/QRScannerModal.tsx"
-    ],
-    "rules": {
-      "react-hooks/set-state-in-effect": "off"
-    }
-  },
-  {
-    "files": [
-      "components/QuantumLoadingScreen.tsx"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off",
-      "react-hooks/refs": "off"
-    }
-  },
-  {
-    "files": [
-      "services/EmbeddedNavigationPolicy.ts"
-    ],
-    "rules": {
-      "@typescript-eslint/no-unnecessary-condition": "off"
-    }
-  }
-];
+const lintRatchet = [];
 // END LINT RATCHET
 
 module.exports = [...baseConfig, ...lintRatchet];

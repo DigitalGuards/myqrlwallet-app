@@ -3,6 +3,7 @@ import { BackHandler, Linking, Platform } from 'react-native';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import QRLWebView, { type QRLWebViewRef } from '../../components/QRLWebView';
 import NativeBridge from '../NativeBridge';
+import Logger from '../Logger';
 import { isRecord } from '../guards';
 import { runAsPromise } from '../runAsPromise';
 
@@ -774,6 +775,56 @@ describe('embedded QRLWebView', () => {
       await Promise.resolve();
     });
     expect(mockWebViewNode.clearCache).toHaveBeenCalledWith(true);
+    expect(markStorageMigrationDone).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, null])('completes migration when native clearCache is %p', async (clearCache) => {
+    const descriptor = Object.getOwnPropertyDescriptor(mockWebViewNode, 'clearCache');
+    if (!descriptor) throw new Error('missing cache method descriptor');
+    Object.defineProperty(mockWebViewNode, 'clearCache', { ...descriptor, value: clearCache });
+    try {
+      const view = await renderEmbedded();
+      const source = recordFrom(view.props.source);
+      const token = documentTokenFrom(source.html);
+      await act<unknown>(() => callProp(view.props, 'onLoadEnd'));
+      expect(mockWebViewNode.injectJavaScript).toHaveBeenCalledTimes(1);
+      expect(mockWebViewNode.injectJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining('serviceWorker'),
+      );
+      expect(jest.mocked(Logger).warn.mock.calls).toEqual([]);
+      expect(markStorageMigrationDone).not.toHaveBeenCalled();
+
+      const acknowledgement = {
+        nativeEvent: {
+          data: `${token}${BRIDGE_TOKEN_SEPARATOR}${JSON.stringify({ type: 'EMBEDDED_MIGRATION_DONE' })}`,
+          url: 'https://qrlwallet.com/',
+        },
+      };
+      await act<unknown>(() => callProp(view.props, 'onMessage', acknowledgement));
+      await act<unknown>(() => callProp(view.props, 'onMessage', acknowledgement));
+      expect(markStorageMigrationDone).toHaveBeenCalledTimes(1);
+      expect(mockWebViewNode.injectJavaScript).toHaveBeenCalledTimes(1);
+      expect(readWebView(screen.root.find(hasType('NativeWebView'))).props.source).toBe(source);
+    } finally {
+      Object.defineProperty(mockWebViewNode, 'clearCache', descriptor);
+    }
+  });
+
+  it('keeps the native cache receiver, arguments and error handling before script injection', async () => {
+    const failure = new Error('native cache unavailable');
+    mockWebViewNode.clearCache.mockImplementationOnce(function (this: unknown, includeDiskFiles) {
+      expect(this).toBe(mockWebViewNode);
+      expect(includeDiskFiles).toBe(true);
+      expect(mockWebViewNode.injectJavaScript).not.toHaveBeenCalled();
+      throw failure;
+    });
+    const view = await renderEmbedded();
+    await act<unknown>(() => callProp(view.props, 'onLoadEnd'));
+    expect(mockWebViewNode.clearCache).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(Logger).warn.mock.calls).toEqual([
+      ['QRLWebView', 'Could not clear the WebView cache:', failure],
+    ]);
+    expect(mockWebViewNode.injectJavaScript).toHaveBeenCalledTimes(1);
     expect(markStorageMigrationDone).not.toHaveBeenCalled();
   });
 

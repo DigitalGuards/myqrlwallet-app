@@ -40,10 +40,10 @@ export type EmbeddedNavigationDecision =
  * document load through the guard at all.
  */
 export interface EmbeddedNavigationRequest {
-  url: string;
-  navigationType?: string;
-  isTopFrame?: boolean;
-  mainDocumentURL?: string;
+  url?: unknown;
+  navigationType?: unknown;
+  isTopFrame?: unknown;
+  mainDocumentURL?: unknown;
 }
 
 export interface EmbeddedNavigationState {
@@ -81,11 +81,11 @@ function isWalletHost(candidate: URL, base: URL): boolean {
 }
 
 export function classifyEmbeddedNavigation(
-  request: EmbeddedNavigationRequest,
+  request: EmbeddedNavigationRequest | null | undefined,
   state: EmbeddedNavigationState,
 ): EmbeddedNavigationDecision {
   const url = request?.url;
-  if (typeof url !== 'string' || url.length === 0 || url.length > MAX_NAVIGATION_URL_LENGTH) {
+  if (typeof url !== 'string' || url.length === 0 || url.length > MAX_NAVIGATION_URL_LENGTH || request == null) {
     return { action: 'block', reason: 'unsupported-scheme' };
   }
 

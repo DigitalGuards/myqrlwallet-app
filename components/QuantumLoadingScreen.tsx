@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -46,7 +46,7 @@ type EmberSpec = {
  * on the native driver.
  */
 const Ember: React.FC<{ spec: EmberSpec }> = ({ spec }) => {
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     let loop: Animated.CompositeAnimation | null = null;
@@ -113,12 +113,12 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
   customMessage,
   progress,
 }) => {
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const logoScale = useRef(new Animated.Value(0.9)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const messageOpacity = useRef(new Animated.Value(1)).current;
-  const beamPosition = useRef(new Animated.Value(0)).current;
-  const fillScale = useRef(new Animated.Value(0)).current;
+  const [fadeAnim] = useState(() => new Animated.Value(1));
+  const [logoScale] = useState(() => new Animated.Value(0.9));
+  const [logoOpacity] = useState(() => new Animated.Value(0));
+  const [messageOpacity] = useState(() => new Animated.Value(1));
+  const [beamPosition] = useState(() => new Animated.Value(0));
+  const [fillScale] = useState(() => new Animated.Value(0));
   const [messageIndex, setMessageIndex] = useState(0);
 
   const [embers] = useState<EmberSpec[]>(() =>
@@ -213,7 +213,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
   useEffect(() => {
     if (!isDeterminate) return;
     Animated.timing(fillScale, {
-      toValue: Math.min(Math.max(progress ?? 0, 0), 1),
+      toValue: Math.min(Math.max(progress, 0), 1),
       duration: 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,

@@ -24,16 +24,21 @@ interface QRScannerModalProps {
 export default function QRScannerModal({ visible, onScan, onClose }: QRScannerModalProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
+  const [wasVisible, setWasVisible] = useState(visible);
   // Synchronous lock: state updates are async, so without a ref the camera
   // fires onBarcodeScanned many times for the same code before React can
   // re-render with scanned=true and swap the prop to undefined.
   const scanLock = useRef(false);
 
-  // Reset scanned state when modal opens
+  // Reset before rendering the camera for a new opening.
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    if (visible) setScanned(false);
+  }
+
   useEffect(() => {
     if (visible) {
       scanLock.current = false;
-      setScanned(false);
     }
   }, [visible]);
 
