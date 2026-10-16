@@ -9,12 +9,14 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest --watchAll",
-    "test:ci": "jest --runInBand",
+    "test:ci": "jest --maxWorkers=4",
     "typecheck": "tsc --noEmit",
     "verify:embedded-web": "node scripts/verify-embedded-web.js",
     "eas-build-post-install": "node scripts/verify-embedded-web.js",
     "build": "expo export --platform all",
-    "lint": "expo lint && eslint .",
+    "lint": "eslint . --no-inline-config --report-unused-disable-directives --max-warnings 0",
+    "lint:ratchet": "eslint . --no-inline-config --report-unused-disable-directives --max-warnings 0 && node scripts/lint-ratchet.mjs --check",
+    "lint:ratchet:update": "eslint . --no-inline-config --report-unused-disable-directives --max-warnings 0 && node scripts/lint-ratchet.mjs",
     "postinstall": "patch-package"
   },
   "jest": {

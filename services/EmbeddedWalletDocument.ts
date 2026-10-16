@@ -3,6 +3,7 @@ import { File } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
 
 import buildInfo from '../assets/web/BUILD_INFO.json';
+import { getEmbeddedWalletModuleId } from '../constants/Assets';
 
 /**
  * The wallet document shipped inside the app bundle.
@@ -162,11 +163,7 @@ let cachedHtml: string | null = null;
 let inFlight: Promise<string> | null = null;
 
 async function readEmbeddedDocument(): Promise<string> {
-  // Required lazily so the asset is resolved only when embedded mode runs.
-  // The literal path keeps it statically visible to Metro, so the document is
-  // bundled into every build regardless.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const moduleId: unknown = require('../assets/web/index.html');
+  const moduleId = getEmbeddedWalletModuleId();
   if (typeof moduleId !== 'number') {
     throw new Error('Embedded wallet asset is not a bundled module');
   }

@@ -108,7 +108,6 @@ describe('inherited web storage migration', () => {
         },
       },
     } as unknown as Record<string, unknown>;
-    // eslint-disable-next-line no-new-func
     new Function(
       'window',
       'navigator',

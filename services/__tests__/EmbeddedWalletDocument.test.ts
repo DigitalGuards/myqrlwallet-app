@@ -144,7 +144,6 @@ describe('embedded wallet document', () => {
       ReactNativeWebView: { postMessage: () => undefined },
       document: { currentScript: tag },
     };
-    // eslint-disable-next-line no-new-func
     new Function('window', 'document', body)(win, win.document);
     expect(removed).toEqual([tag]);
   });
@@ -173,7 +172,6 @@ describe('embedded wallet document', () => {
     const win: Record<string, unknown> = {
       ReactNativeWebView: { postMessage: (m: string) => posted.push(m) },
     };
-    // eslint-disable-next-line no-new-func
     new Function('window', body)(win);
     const bridge = win.ReactNativeWebView as { postMessage: (m: string) => void };
     bridge.postMessage('{"type":"WEB_APP_READY"}');
@@ -185,7 +183,6 @@ describe('embedded wallet document', () => {
     const body = script.replace(/^<script>/, '').replace(/<\/script>$/, '');
     const posted: string[] = [];
     const win: Record<string, unknown> = {};
-    // eslint-disable-next-line no-new-func
     new Function('window', body)(win);
     win.ReactNativeWebView = { postMessage: (m: string) => posted.push(m) };
     (win.ReactNativeWebView as { postMessage: (m: string) => void }).postMessage('PAGE_LOADED');
@@ -199,7 +196,6 @@ describe('embedded wallet document', () => {
     const win: Record<string, unknown> = {
       ReactNativeWebView: { postMessage: (m: string) => posted.push(m) },
     };
-    // eslint-disable-next-line no-new-func
     new Function('window', body)(win);
     (win.__qrlBindBridge as () => void)();
     (win.__qrlBindBridge as () => void)();

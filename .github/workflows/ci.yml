@@ -31,6 +31,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -50,11 +53,32 @@ jobs:
       - name: Run lint
         run: npm run lint
 
+      - name: Check lint ratchet
+        env:
+          LINT_RATCHET_PR_BASE: ${{ github.event.pull_request.base.sha }}
+          LINT_RATCHET_PUSH_BASE: ${{ github.event.before }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) LINT_RATCHET_BASE="$LINT_RATCHET_PR_BASE" ;;
+            push) LINT_RATCHET_BASE="$LINT_RATCHET_PUSH_BASE" ;;
+            *) LINT_RATCHET_BASE="" ;;
+          esac
+          if [ -z "$LINT_RATCHET_BASE" ] || [ "$LINT_RATCHET_BASE" = "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev
+            LINT_RATCHET_BASE="$(git merge-base HEAD origin/dev)"
+            if [ "$LINT_RATCHET_BASE" = "$(git rev-parse HEAD)" ]; then
+              LINT_RATCHET_BASE="$(git rev-parse HEAD^1)"
+            fi
+          else
+            git fetch --no-tags origin "$LINT_RATCHET_BASE"
+          fi
+          npm run lint:ratchet -- --base-ref "$LINT_RATCHET_BASE"
+
       - name: TypeScript type check
         run: npm run typecheck
 
       - name: Native bridge and storage regressions
-        run: npm run test:ci
+        run: env -u DISPLAY -u WAYLAND_DISPLAY npm run test:ci
 
       - name: Export iOS, Android, and web bundles
         run: npm run build
