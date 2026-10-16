@@ -306,7 +306,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   const clearInheritedCaches = useCallback(() => {
     if (cachesCleared.current || !servedMigrationPending.current) return;
-    const view = webViewRef.current;
+    const view: {
+      clearCache?: WebView['clearCache'];
+      injectJavaScript: WebView['injectJavaScript'];
+    } | null = webViewRef.current;
     if (!view) return;
     cachesCleared.current = true;
     Logger.debug('QRLWebView', 'Clearing web caches inherited from the hosted wallet');
