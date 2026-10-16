@@ -1,4 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { transformMainActivity } = require('../../plugins/withBackgroundOnBack.js') as {
   transformMainActivity: (contents: string) => string;
 };

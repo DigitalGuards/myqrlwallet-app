@@ -81,7 +81,6 @@ describe('generated native security configuration', () => {
   });
 
   it('keeps the production variant identical to app.json and isolates the embedded one', () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const appConfigFactory = require('../../app.config.js') as (input: {
       config: Record<string, unknown>;
     }) => Record<string, unknown>;

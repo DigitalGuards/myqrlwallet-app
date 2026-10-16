@@ -822,22 +822,24 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // object mid-session would hand the WebView a new document and reload the
   // wallet under the user, so the token and the migration flag are read from
   // refs here and a new document is produced only when the epoch advances.
-  const embeddedSource = useMemo(
+  const { source: embeddedSource, epoch: renderEpoch } = useMemo(
     () => {
-      if (!isEmbedded) return { uri: devUri };
-      if (embeddedRawHtml === null || !migrationResolved) return null;
+      const epoch = documentEpoch;
+      if (!isEmbedded) return { epoch, source: { uri: devUri } };
+      if (embeddedRawHtml === null || !migrationResolved) return { epoch, source: null };
       const owesMigration = migrationPendingRef.current === true;
       servedMigrationPending.current = owesMigration;
       return {
-        html: withEmbeddedFlag(embeddedRawHtml, documentToken.current, owesMigration),
-        baseUrl: EMBEDDED_BASE_URL,
+        epoch,
+        source: {
+          html: withEmbeddedFlag(embeddedRawHtml, documentToken.current, owesMigration),
+          baseUrl: EMBEDDED_BASE_URL,
+        },
       };
     },
-    // documentEpoch is what makes a new document: reloadDocument rotates the
-    // token and advances the epoch together. The linter cannot see that,
-    // because the token and the migration flag are read from refs so that
-    // changing either cannot rebuild the document under a live session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Capture the epoch with its source so the WebView key and callbacks
+    // identify the document they belong to. Token and migration refs stay
+    // fixed for this source until reloadDocument advances the epoch.
     [isEmbedded, devUri, embeddedRawHtml, migrationResolved, documentEpoch],
   );
 
@@ -868,10 +870,6 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // from the bundle. The loading screen below stays up.
   const documentReady = embeddedSource !== null;
 
-  // Captured at render so every callback the WebView raises can say which
-  // view it came from.
-  const renderEpoch = documentEpoch;
-
   return (
     <View style={[styles.outerContainer, { backgroundColor: '#080C16' }]}>
       <StatusBar backgroundColor="#080C16" barStyle="light-content" />
@@ -894,7 +892,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               ref={webViewRef}
               // Remounted on a new epoch so the shipped document is handed to
               // a fresh WebView after a content-process death.
-              key={isEmbedded ? `embedded-${documentEpoch}` : 'dev'}
+              key={isEmbedded ? `embedded-${renderEpoch}` : 'dev'}
               source={embeddedSource}
               injectedJavaScriptObject={NATIVE_WEBVIEW_INJECTED_OBJECT}
               // Android defines injectedObjectJson() with a one-off evaluate
