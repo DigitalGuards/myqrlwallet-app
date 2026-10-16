@@ -20,22 +20,22 @@ jest.mock('expo-haptics', () => ({
 jest.mock('../SeedStorageService', () => ({
   __esModule: true,
   default: {
-    getPendingWalletWipe: jest.fn(async () => null),
+    getPendingWalletWipe: jest.fn().mockResolvedValue(null),
   },
 }));
 jest.mock('../DAppConnectionStore', () => ({
   __esModule: true,
   default: {
-    onConnected: jest.fn(async () => undefined),
-    onDisconnected: jest.fn(async () => undefined),
+    onConnected: jest.fn().mockResolvedValue(undefined),
+    onDisconnected: jest.fn().mockResolvedValue(undefined),
   },
 }));
 jest.mock('../WebViewService', () => ({
   __esModule: true,
   default: {
-    saveContactsBackupStrict: jest.fn(async () => undefined),
-    getUserPreferences: jest.fn(async () => ({})),
-    getContactsBackup: jest.fn(async () => null),
+    saveContactsBackupStrict: jest.fn().mockResolvedValue(undefined),
+    getUserPreferences: jest.fn(() => Promise.resolve({})),
+    getContactsBackup: jest.fn().mockResolvedValue(null),
   },
 }));
 jest.mock('../Logger', () => ({
@@ -46,36 +46,32 @@ jest.mock('../Logger', () => ({
 import { BackHandler, Linking, Platform, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import NativeBridge, { type BridgeMessage } from '../NativeBridge';
+import NativeBridge, { type BridgeMessage, type NativeQrScanRequest } from '../NativeBridge';
 import DAppConnectionStore from '../DAppConnectionStore';
 import Logger from '../Logger';
 import WebViewService from '../WebViewService';
+import { runAsPromise } from '../runAsPromise';
+import { malformed } from '../../test-utils/malformed';
 
-const mockExitApp = BackHandler.exitApp as jest.MockedFunction<typeof BackHandler.exitApp>;
+const mockExitApp = jest.spyOn(BackHandler, 'exitApp');
 /** The mock above is a plain object, so the platform is just a field. */
-const setPlatform = (os: string) => {
-  (Platform as unknown as { OS: string }).OS = os;
+const setPlatform = (os: typeof Platform.OS) => {
+  Platform.OS = os;
 };
-const mockCanOpenUrl = Linking.canOpenURL as jest.MockedFunction<typeof Linking.canOpenURL>;
-const mockOpenUrl = Linking.openURL as jest.MockedFunction<typeof Linking.openURL>;
-const mockShare = Share.share as jest.MockedFunction<typeof Share.share>;
-const mockSetStringAsync = Clipboard.setStringAsync as jest.MockedFunction<
-  typeof Clipboard.setStringAsync
->;
-const mockImpactAsync = Haptics.impactAsync as jest.MockedFunction<typeof Haptics.impactAsync>;
-const mockNotificationAsync = Haptics.notificationAsync as jest.MockedFunction<
-  typeof Haptics.notificationAsync
->;
-const mockDAppConnected = DAppConnectionStore.onConnected as jest.MockedFunction<
-  typeof DAppConnectionStore.onConnected
->;
-const mockGetUserPreferences = WebViewService.getUserPreferences as jest.MockedFunction<
-  typeof WebViewService.getUserPreferences
->;
-const mockWarn = Logger.warn as jest.MockedFunction<typeof Logger.warn>;
-const mockError = Logger.error as jest.MockedFunction<typeof Logger.error>;
-const mockSaveContacts = WebViewService.saveContactsBackupStrict as jest.MockedFunction<
-  typeof WebViewService.saveContactsBackupStrict
+const mockCanOpenUrl = jest.spyOn(Linking, 'canOpenURL');
+const mockOpenUrl = jest.spyOn(Linking, 'openURL');
+const mockShare = jest.spyOn(Share, 'share');
+const mockSetStringAsync = jest.mocked(Clipboard).setStringAsync;
+const mockImpactAsync = jest.mocked(Haptics).impactAsync;
+const mockNotificationAsync = jest.mocked(Haptics).notificationAsync;
+const mockDAppConnected = jest.spyOn(DAppConnectionStore, 'onConnected');
+const mockGetUserPreferences = jest.spyOn(WebViewService, 'getUserPreferences');
+const mockWarn = jest.mocked(Logger).warn;
+const mockError = jest.mocked(Logger).error;
+const mockSaveContacts = jest.spyOn(WebViewService, 'saveContactsBackupStrict');
+type SendToWebSpy = jest.SpyInstance<
+  ReturnType<typeof NativeBridge.sendToWeb>,
+  Parameters<typeof NativeBridge.sendToWeb>
 >;
 const DOCUMENT_ID = 'de'.repeat(16);
 const QIP55_ADDRESS = `Q${'aB'.repeat(64)}`;
@@ -86,7 +82,7 @@ async function authenticateDocument(): Promise<void> {
   const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
   await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
   const challenge = send.mock.calls
-    .map(([message]) => message as { type?: string; payload?: Record<string, unknown> })
+    .map(([message]) => message)
     .find((message) => message.type === 'WEB_DOCUMENT_CHALLENGE');
   const challengeId = challenge?.payload?.challengeId;
   if (typeof challengeId !== 'string') throw new Error('Document challenge was not sent');
@@ -318,7 +314,7 @@ describe('NativeBridge hosted WebView boundaries', () => {
     expect(mockDAppConnected).toHaveBeenCalledWith(expect.objectContaining({ connectedAccount }));
   });
 
-  it.each(['invalidateAuthorization', 'beginWalletClear'] as const)(
+  it.each<'invalidateAuthorization' | 'beginWalletClear'>(['invalidateAuthorization', 'beginWalletClear'])(
     'sends APP_LOCKED to the page on %s',
     (lock) => {
       const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
@@ -331,10 +327,10 @@ describe('NativeBridge hosted WebView boundaries', () => {
   it('sanitizes a page-chosen message type before it reaches the logs', async () => {
     NativeBridge.invalidateAuthorization();
     await nativeHandle({
-      type: 'X\nerror [Fake] forged entry' as never,
+      type: 'X\nerror [Fake] forged entry',
       payload: { documentId: DOCUMENT_ID },
     });
-    const logged = mockWarn.mock.calls.map((call) => String(call[1])).join('|');
+    const logged = mockWarn.mock.calls.map((call: readonly unknown[]) => String(call[1])).join('|');
     expect(logged).toContain('Dropped X?error??Fake??forged?entry');
     expect(logged).not.toContain('\n');
     NativeBridge.setNativeAuthorization(true);
@@ -370,12 +366,12 @@ describe('NativeBridge hosted WebView boundaries', () => {
 
     it('does not resurrect a session whose disconnect arrived while locked', async () => {
       const order: string[] = [];
-      mockDAppConnected.mockImplementation(async () => {
+      mockDAppConnected.mockImplementation(() => runAsPromise(() => {
         order.push('connected');
-      });
-      (DAppConnectionStore.onDisconnected as jest.Mock).mockImplementation(async () => {
+      }));
+      jest.mocked(DAppConnectionStore).onDisconnected.mockImplementation(() => runAsPromise(() => {
         order.push('disconnected');
-      });
+      }));
       NativeBridge.invalidateAuthorization();
       await handleBridge(connected('ghost'));
       await handleBridge({
@@ -473,10 +469,11 @@ describe('NativeBridge hosted WebView boundaries', () => {
 
   it('returns the exact Q+128 QR payload once for the active scanner request', async () => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
-    const scan = jest.fn();
+    const scan = jest.fn<undefined, [NativeQrScanRequest]>();
     NativeBridge.onQRScanRequest(scan);
     await handleBridge({ type: 'SCAN_QR' });
-    const request = scan.mock.calls[0][0];
+    const request = scan.mock.calls[0]?.[0];
+    if (!request) throw new Error('QR scan was not requested');
     expect(NativeBridge.sendQRResult(QIP55_ADDRESS, request)).toBe(true);
     expect(NativeBridge.sendQRResult(QIP55_ADDRESS, request)).toBe(false);
 
@@ -489,10 +486,11 @@ describe('NativeBridge hosted WebView boundaries', () => {
 
   it.each(['lock', 'document', 'wipe', 'replacement'])('rejects late QR results after %s', async change => {
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
-    const scan = jest.fn();
+    const scan = jest.fn<undefined, [NativeQrScanRequest]>();
     NativeBridge.onQRScanRequest(scan);
     await handleBridge({ type: 'SCAN_QR' });
-    const request = scan.mock.calls[0][0];
+    const request = scan.mock.calls[0]?.[0];
+    if (!request) throw new Error('QR scan was not requested');
     if (change === 'lock') NativeBridge.invalidateAuthorization();
     if (change === 'document') NativeBridge.resetWebAppReady();
     if (change === 'wipe') NativeBridge.beginWalletClear();
@@ -537,13 +535,13 @@ describe('NativeBridge hosted WebView boundaries', () => {
     jest.useRealTimers();
   });
 
-  async function authenticateNextDocument(documentId: string, send: jest.SpyInstance): Promise<void> {
+  async function authenticateNextDocument(documentId: string, send: SendToWebSpy): Promise<void> {
     await nativeHandle({ type: 'WEB_APP_READY', payload: { documentId } });
     const challenge = send.mock.calls.find(([message]) => message.type === 'WEB_DOCUMENT_CHALLENGE')?.[0];
     await nativeHandle({ type: 'WEB_DOCUMENT_READY', payload: challenge?.payload });
   }
-  const sentUris = (send: jest.SpyInstance) =>
-    send.mock.calls.filter(([message]) => message.type === 'DAPP_URI').map(([message]) => message.payload.uri);
+  const sentUris = (send: SendToWebSpy) =>
+    send.mock.calls.filter(([message]) => message.type === 'DAPP_URI').map(([message]) => message.payload?.uri);
 
   it('keeps a pending dApp intent across a document reset and delivers it to the next document after unlock', async () => {
     // iOS can kill the WebView content process while the user is in the dApp's browser.
@@ -610,7 +608,7 @@ describe('NativeBridge hosted WebView boundaries', () => {
   it('waits for authorized wallet restore before delivering a queued dApp intent', async () => {
     NativeBridge.invalidateAuthorization();
     const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
-    let releaseRestore!: () => void;
+    let releaseRestore: (() => void) | undefined;
     NativeBridge.onWebAppReady(() => new Promise<void>(resolve => {
       releaseRestore = () => {
         NativeBridge.sendRestoreSeed(QIP55_ADDRESS, 'fixture ciphertext', 'TEST_NET_V3', 1);
@@ -622,13 +620,14 @@ describe('NativeBridge hosted WebView boundaries', () => {
       NativeBridge.setNativeAuthorization(true);
       for (let i = 0; i < 20 && !releaseRestore; i++) await Promise.resolve();
       expect(send.mock.calls.filter(([message]) => message.type === 'DAPP_URI')).toHaveLength(0);
+      if (!releaseRestore) throw new Error('Wallet restore was not requested');
       releaseRestore();
       for (let i = 0; i < 20; i++) await Promise.resolve();
       const events = send.mock.calls.map(([message]) => message.type);
       expect(events.indexOf('RESTORE_SEED')).toBeGreaterThanOrEqual(0);
       expect(events.indexOf('DAPP_URI')).toBeGreaterThan(events.indexOf('RESTORE_SEED'));
     } finally {
-      NativeBridge.onWebAppReady(async () => undefined);
+      NativeBridge.onWebAppReady(() => Promise.resolve());
       send.mockRestore();
     }
   });
@@ -710,20 +709,18 @@ describe('NativeBridge hosted WebView boundaries', () => {
 
     NativeBridge.sendRestoreSeed(QIP55_ADDRESS, 'ciphertext', 'TEST_NET_V3', 1);
     expect(send).toHaveBeenCalledWith(
-      expect.objectContaining({ payload: expect.objectContaining({ address: QIP55_ADDRESS }) }),
+      expect.objectContaining<{ payload: unknown }>({ payload: expect.objectContaining({ address: QIP55_ADDRESS }) }),
     );
     send.mockRestore();
   });
 
   describe('sensitive clipboard payloads', () => {
-    const mockGetStringAsync = Clipboard.getStringAsync as jest.MockedFunction<
-      typeof Clipboard.getStringAsync
-    >;
+    const mockGetStringAsync = jest.mocked(Clipboard).getStringAsync;
     const seed = 'absent squirrel gallery pledge ancient scatter marble ribbon';
 
     beforeEach(() => {
       jest.useFakeTimers();
-      mockSetStringAsync.mockResolvedValue(undefined as never);
+      mockSetStringAsync.mockResolvedValue(malformed<boolean>(undefined));
       mockGetStringAsync.mockResolvedValue(seed);
     });
     afterEach(() => {
