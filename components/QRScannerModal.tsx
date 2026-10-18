@@ -7,6 +7,7 @@ import {
   StyleSheet,
   StatusBar,
   Platform,
+  Linking,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,10 +65,30 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
       return (
         <View style={styles.centeredContent}>
           <Ionicons name="camera-outline" size={64} color="#33ADE6" />
-          <Text style={styles.text}>Camera access is required to scan QR codes</Text>
-          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-            <Text style={styles.permissionButtonText}>Grant Permission</Text>
-          </TouchableOpacity>
+          {permission.canAskAgain ? (
+            <>
+              <Text style={styles.text}>
+                MyQRLWallet uses the camera only to scan QR codes. You can also paste an address.
+              </Text>
+              <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+                <Text style={styles.permissionButtonText}>Continue</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.text}>
+                Camera access is off for MyQRLWallet. To scan QR codes, turn it on in Settings.
+              </Text>
+              <TouchableOpacity
+                style={styles.permissionButton}
+                onPress={() => {
+                  void Linking.openSettings();
+                }}
+              >
+                <Text style={styles.permissionButtonText}>Open Settings</Text>
+              </TouchableOpacity>
+            </>
+          )}
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
