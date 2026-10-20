@@ -101,18 +101,22 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
       );
     }
 
-    // Permission granted - show camera
+    // Permission granted - show camera. CameraView does not support children:
+    // the native preview covers them once it starts, so the overlay and the
+    // close button are siblings drawn on top of the camera.
     return (
-      <CameraView
-        style={StyleSheet.absoluteFill}
-        facing="back"
-        barcodeScannerSettings={{
-          barcodeTypes: ['qr'],
-        }}
-        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-      >
+      <View style={StyleSheet.absoluteFill}>
+        <CameraView
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          barcodeScannerSettings={{
+            barcodeTypes: ['qr'],
+          }}
+          onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+        />
+
         {/* Scanner overlay */}
-        <View style={styles.overlay}>
+        <View style={styles.overlay} pointerEvents="none">
           {/* Top dark area */}
           <View style={styles.overlayRow} />
 
@@ -138,10 +142,15 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
         </View>
 
         {/* Close button */}
-        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+        <TouchableOpacity
+          style={styles.closeButton}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close scanner"
+        >
           <Ionicons name="close" size={32} color="#ffffff" />
         </TouchableOpacity>
-      </CameraView>
+      </View>
     );
   };
 
@@ -203,7 +212,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   overlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   overlayRow: {
     flex: 1,
