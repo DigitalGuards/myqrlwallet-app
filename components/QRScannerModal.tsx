@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import { useState, useEffect, useRef } from 'react';
 import {
   Modal,
@@ -23,6 +25,7 @@ interface QRScannerModalProps {
  * Used for scanning QRL wallet addresses on the Transfer page.
  */
 export default function QRScannerModal({ visible, onScan, onClose }: QRScannerModalProps) {
+  useNativeLanguage();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [wasVisible, setWasVisible] = useState(visible);
@@ -60,7 +63,7 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
     if (!permission) {
       return (
         <View style={styles.centeredContent}>
-          <Text style={styles.text}>Requesting camera permission...</Text>
+          <Text style={styles.text}>{t('scanner.requesting')}</Text>
         </View>
       );
     }
@@ -73,16 +76,16 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
           {permission.canAskAgain ? (
             <>
               <Text style={styles.text}>
-                MyQRLWallet uses the camera only to scan QR codes. You can also paste an address.
+                {t('scanner.prePermission')}
               </Text>
               <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-                <Text style={styles.permissionButtonText}>Continue</Text>
+                <Text style={styles.permissionButtonText}>{t('common.continue')}</Text>
               </TouchableOpacity>
             </>
           ) : (
             <>
               <Text style={styles.text}>
-                Camera access is off for MyQRLWallet. To scan QR codes, turn it on in Settings.
+                {t('scanner.permissionOff')}
               </Text>
               <TouchableOpacity
                 style={styles.permissionButton}
@@ -90,12 +93,12 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
                   void Linking.openSettings();
                 }}
               >
-                <Text style={styles.permissionButtonText}>Open Settings</Text>
+                <Text style={styles.permissionButtonText}>{t('common.openSettings')}</Text>
               </TouchableOpacity>
             </>
           )}
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+            <Text style={styles.cancelButtonText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
         </View>
       );
@@ -136,7 +139,7 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
           {/* Bottom dark area with instructions */}
           <View style={styles.overlayRow}>
             <Text style={styles.instructionText}>
-              Point camera at a QR code
+              {t('scanner.point')}
             </Text>
           </View>
         </View>
@@ -146,7 +149,7 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
           style={styles.closeButton}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Close scanner"
+          accessibilityLabel={t('scanner.close')}
         >
           <Ionicons name="close" size={32} color="#ffffff" />
         </TouchableOpacity>

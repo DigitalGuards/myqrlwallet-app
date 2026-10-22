@@ -1,3 +1,6 @@
+import { nativeMessage } from '../i18n/nativeMessage';
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, BackHandler, Linking, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
@@ -133,6 +136,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   onDocumentError,
   skipLoadingScreen = false
 }, ref) => {
+  useNativeLanguage();
   const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(true);
   const [showLoadingScreen, setShowLoadingScreen] = useState(!skipLoadingScreen);
@@ -883,9 +887,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       }]}>
         {documentErrorMessage !== null ? (
           <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{documentErrorMessage}</Text>
+            <Text style={styles.errorText}>{nativeMessage(documentErrorMessage)}</Text>
             <TouchableOpacity style={styles.retryButton} onPress={retryLoading}>
-              <Text style={styles.retryButtonText}>Retry</Text>
+              <Text style={styles.retryButtonText}>{t('common.retry')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -960,7 +964,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               allowsInlineMediaPlayback={true}
               mediaPlaybackRequiresUserAction={false}
               accessible={true}
-              accessibilityLabel="QRL Wallet web content"
+              accessibilityLabel={t('wallet.webContent')}
               nestedScrollEnabled={true}
             />
             ) : null}

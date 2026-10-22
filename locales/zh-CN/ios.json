@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "此应用需要访问相机以扫描钱包地址的二维码。",
+    "NSFaceIDUsageDescription": "允许 MyQRLWallet 使用 Face ID 保护钱包。"
+  }
+}

@@ -1,3 +1,6 @@
+import { nativeMessage, type NativeKey } from '../../i18n/nativeMessage';
+import { t } from '../../i18n';
+import { useNativeLanguage } from '../../i18n/useNativeLanguage';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
@@ -38,14 +41,15 @@ interface PendingUnlockPin {
 }
 
 export default function WalletScreen() {
+  useNativeLanguage();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
-  const [pinModalTitle, setPinModalTitle] = useState('Enter Your PIN');
-  const [pinModalMessage, setPinModalMessage] = useState('Enter your wallet PIN');
+  const [pinModalTitle, setPinModalTitle] = useState<NativeKey>('pin.title');
+  const [pinModalMessage, setPinModalMessage] = useState<NativeKey>('pin.enter');
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScanRequest, setQrScanRequest] = useState<NativeQrScanRequest | null>(null);
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
-  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
+  const [processingMessage, setProcessingMessage] = useState<NativeKey | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [isDeviceAuthenticating, setIsDeviceAuthenticating] = useState(false);
@@ -103,19 +107,19 @@ export default function WalletScreen() {
     const isIOS = Platform.OS === 'ios';
     const label =
       biometricType === 'fingerprint'
-        ? (isIOS ? 'Touch ID' : 'fingerprint unlock')
+        ? (isIOS ? 'Touch ID' : t('biometric.fingerprint'))
         : biometricType === 'iris'
-        ? 'iris unlock'
+        ? t('biometric.iris')
         : biometricType === 'face'
-        ? (isIOS ? 'Face ID' : 'face unlock')
-        : 'biometric unlock';
+        ? (isIOS ? 'Face ID' : t('biometric.face'))
+        : t('biometric.generic');
     InteractionManager.runAfterInteractions(() => {
       Alert.alert(
-        `${label} is turned off for MyQRLWallet`,
-        `Turn ${label} back on for MyQRLWallet in Settings to unlock with it. You can still unlock by entering your wallet PIN.`,
+        t('biometric.offTitle', { method: label }),
+        t('biometric.offHint', { method: label }),
         [
-          { text: 'Open Settings', onPress: () => { Linking.openSettings().catch(() => {}); } },
-          { text: 'Not Now', style: 'cancel' },
+          { text: t('common.openSettings'), onPress: () => { Linking.openSettings().catch(() => {}); } },
+          { text: t('common.notNow'), style: 'cancel' },
         ]
       );
     });
@@ -191,8 +195,8 @@ export default function WalletScreen() {
   // Show PIN modal with a callback
   const showPinModal = useCallback((
     action: (pin: string) => Promise<void>,
-    title = 'Enter Your PIN',
-    message = 'Enter your wallet PIN to enable Device Login',
+    title: NativeKey = 'pin.title',
+    message: NativeKey = 'settings.enableLoginPin',
   ) => {
     setPinModalTitle(title);
     setPinModalMessage(message);
@@ -208,11 +212,11 @@ export default function WalletScreen() {
   // Prompt user to enable Device Login
   const promptDeviceLoginSetup = useCallback(() => {
     Alert.alert(
-      'Enable Device Login?',
-      'Would you like to use Device Login to unlock your wallet? You won\'t need to enter your PIN each time.',
+      t('wallet.enableTitle'),
+      t('wallet.enableHint'),
       [
         {
-          text: 'Not Now',
+          text: t('common.notNow'),
           style: 'cancel',
           onPress: async () => {
             // Mark prompt as shown so we don't ask again
@@ -220,16 +224,16 @@ export default function WalletScreen() {
           },
         },
         {
-          text: 'Enable',
+          text: t('common.enable'),
           onPress: () => {
             // Show secure PIN modal
             showPinModal(async (pin: string) => {
               const setupResult = await BiometricService.setupDeviceLogin(pin);
               if (setupResult.success) {
                 await SeedStorageService.setBiometricPromptShown(true);
-                Alert.alert('Success', 'Device Login enabled!');
+                Alert.alert(t('common.success'), t('wallet.loginEnabled'));
               } else {
-                Alert.alert('Error', setupResult.error || 'Failed to enable Device Login');
+                Alert.alert(t('common.error'), setupResult.error ? nativeMessage(setupResult.error) : t('wallet.enableFailed'));
               }
             });
           },
@@ -549,8 +553,8 @@ export default function WalletScreen() {
           }
         }
       },
-      'Unlock Wallet',
-      'Enter your wallet PIN to unlock this app session.',
+      'wallet.unlock',
+      'wallet.unlockPin',
     );
   }, [showPinModal]);
 
@@ -686,13 +690,8 @@ export default function WalletScreen() {
         `Preserved ${legacyAddressBackupCount} pre-QIP-55 seed backup(s) pending seed-aware migration`,
       );
       Alert.alert(
-        'Earlier Wallet Backup Preserved',
-        [
-          'This device contains a preserved wallet backup with legacy address metadata.',
-          'Your earlier wallet data has not been changed. Keep this app installed and do not clear its data.',
-          'Use your original recovery phrase or seed to import a Testnet v3 account. Its address will be different.',
-          'Automatic conversion of the earlier encrypted backup is not available. Contact support before removing the app if you need help recovering it.',
-        ].join(' '),
+        t('wallet.legacyTitle'),
+        t('wallet.legacyHint'),
       );
     }
     if (backups.length > 0) {
@@ -738,15 +737,15 @@ export default function WalletScreen() {
 
       if (BiometricService.consumePinChangeDroppedByLock()) {
         Alert.alert(
-          'PIN Not Changed',
-          'The app locked before your PIN change ran, so your PIN was not changed. Start the change again from Settings.',
+          t('settings.pinNotChanged'),
+          t('wallet.pinChangeDropped'),
         );
       }
 
       // Check for pending Device Login setup
       if (BiometricService.hasPendingDeviceLoginSetup() && !deviceLoginSetupTriggered.current) {
         deviceLoginSetupTriggered.current = true;
-        setProcessingMessage('Enabling Device Login...');
+        setProcessingMessage('loading.enableLogin');
 
         InteractionManager.runAfterInteractions(async () => {
           Logger.debug('WalletScreen', 'Executing queued Device Login setup');
@@ -755,12 +754,12 @@ export default function WalletScreen() {
           setProcessingMessage(null);
 
           if (result.success) {
-            Alert.alert('Success', 'Device Login enabled!', [
-              { text: 'OK', onPress: () => router.push('/settings') }
+            Alert.alert(t('common.success'), t('wallet.loginEnabled'), [
+              { text: t('common.ok'), onPress: () => router.push('/settings') }
             ]);
           } else {
-            Alert.alert('Error', result.error || 'Failed to enable Device Login', [
-              { text: 'OK', onPress: () => router.push('/settings') }
+            Alert.alert(t('common.error'), result.error ? nativeMessage(result.error) : t('wallet.enableFailed'), [
+              { text: t('common.ok'), onPress: () => router.push('/settings') }
             ]);
           }
 
@@ -771,7 +770,7 @@ export default function WalletScreen() {
       // Check for pending PIN change
       if (BiometricService.hasPendingPinChange() && !pinChangeTriggered.current) {
         pinChangeTriggered.current = true;
-        setProcessingMessage('Changing PIN...');
+        setProcessingMessage('loading.changePin');
 
         InteractionManager.runAfterInteractions(async () => {
           Logger.debug('WalletScreen', 'Executing queued PIN change');
@@ -781,17 +780,17 @@ export default function WalletScreen() {
 
           if (result.success) {
             if (result.error) {
-              Alert.alert('Warning', result.error, [
-                { text: 'OK', onPress: () => router.push('/settings') }
+              Alert.alert(t('common.warning'), nativeMessage(result.error), [
+                { text: t('common.ok'), onPress: () => router.push('/settings') }
               ]);
             } else {
-              Alert.alert('Success', 'Your PIN has been changed successfully.', [
-                { text: 'OK', onPress: () => router.push('/settings') }
+              Alert.alert(t('common.success'), t('wallet.pinChanged'), [
+                { text: t('common.ok'), onPress: () => router.push('/settings') }
               ]);
             }
           } else {
-            Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.', [
-              { text: 'OK', onPress: () => router.push('/settings') }
+            Alert.alert(t('common.error'), result.error ? nativeMessage(result.error) : t('wallet.changePinFailed'), [
+              { text: t('common.ok'), onPress: () => router.push('/settings') }
             ]);
           }
 
@@ -868,11 +867,11 @@ export default function WalletScreen() {
           style={styles.lockOverlay}
           pointerEvents="auto"
           accessibilityViewIsModal
-          accessibilityLabel="Wallet locked"
+          accessibilityLabel={t('wallet.lockedLabel')}
         >
-          <Text style={styles.lockTitle}>Wallet Locked</Text>
+          <Text style={styles.lockTitle}>{t('wallet.locked')}</Text>
           <Text style={styles.lockMessage}>
-            {authError || 'Authenticate with Device Login to continue.'}
+            {authError ? nativeMessage(authError) : t('wallet.authenticate')}
           </Text>
           {isUnlocking ? <ActivityIndicator color="#33ADE6" size="small" /> : null}
           {!authError?.startsWith('Finishing wallet removal') ? (
@@ -883,7 +882,7 @@ export default function WalletScreen() {
                 disabled={isUnlocking || isDeviceAuthenticating}
                 accessibilityRole="button"
               >
-                <Text style={styles.lockButtonPrimaryText}>Try Device Login Again</Text>
+                <Text style={styles.lockButtonPrimaryText}>{t('wallet.tryLogin')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.lockButton, styles.lockButtonSecondary]}
@@ -891,7 +890,7 @@ export default function WalletScreen() {
                 disabled={isVerifyingPin}
                 accessibilityRole="button"
               >
-                <Text style={styles.lockButtonSecondaryText}>Use Wallet PIN</Text>
+                <Text style={styles.lockButtonSecondaryText}>{t('wallet.usePin')}</Text>
               </TouchableOpacity>
             </RNView>
           ) : null}
@@ -899,8 +898,8 @@ export default function WalletScreen() {
       )}
       <PinEntryModal
         visible={pinModalVisible}
-        title={pinModalTitle}
-        message={pinModalMessage}
+        title={t(pinModalTitle)}
+        message={t(pinModalMessage)}
         onSubmit={handlePinSubmit}
         onCancel={handlePinCancel}
       />
@@ -913,7 +912,7 @@ export default function WalletScreen() {
       {/* Processing overlay - shown during operations like PIN change */}
       <QuantumLoadingScreen
         visible={!!processingMessage}
-        customMessage={processingMessage || undefined}
+        customMessage={processingMessage ? t(processingMessage) : undefined}
       />
     </RNView>
   );

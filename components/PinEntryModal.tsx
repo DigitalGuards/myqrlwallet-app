@@ -1,3 +1,6 @@
+import type { NativeKey } from '../i18n/nativeMessage';
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Modal,
@@ -45,8 +48,9 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
   onSubmit,
   onCancel,
 }) => {
+  useNativeLanguage();
   const [pin, setPin] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NativeKey | null>(null);
   const inputRef = useRef<TextInput>(null);
   const [previousVisible, setPreviousVisible] = useState(visible);
 
@@ -68,7 +72,7 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
 
   const handleSubmit = () => {
     if (pin.length < PIN_MIN_LENGTH) {
-      setError(`PIN must be at least ${PIN_MIN_LENGTH} digits`);
+      setError('pin.minimum');
       return;
     }
     onSubmit(pin);
@@ -101,13 +105,13 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
               setPin(v);
               setError(null);
             }}
-            helper={`Enter your ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digit PIN`}
+            helper={t('pin.helper', { min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })}
             inputRef={inputRef}
-            accessibilityLabel="Wallet PIN"
+            accessibilityLabel={t('pin.walletPin')}
             onSubmitEditing={handleSubmit}
           />
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? <Text style={styles.error}>{t(error, { min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })}</Text> : null}
 
           <View style={styles.buttonRow}>
             <TouchableOpacity
@@ -115,7 +119,7 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
               onPress={handleCancel}
               activeOpacity={0.7}
             >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
+              <Text style={styles.cancelButtonText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -133,7 +137,7 @@ export const PinEntryModal: React.FC<PinEntryModalProps> = ({
                   pin.length < PIN_MIN_LENGTH && styles.submitButtonTextDisabled,
                 ]}
               >
-                Confirm
+                {t('common.confirm')}
               </Text>
             </TouchableOpacity>
           </View>

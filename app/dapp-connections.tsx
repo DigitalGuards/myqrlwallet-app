@@ -1,3 +1,5 @@
+import { i18n, t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import React, { useState, useCallback, useLayoutEffect } from 'react';
 import {
   StyleSheet,
@@ -40,23 +42,28 @@ function pad(n: number): string {
 
 function absoluteTime(ts: number): string {
   const d = new Date(ts);
+  if (!Number.isFinite(d.getTime())) return '-';
   const sameYear = d.getFullYear() === new Date().getFullYear();
-  const datePart = sameYear
+  const englishDate = sameYear
     ? `${MONTHS[d.getMonth()]} ${d.getDate()}`
     : `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-  return `${datePart} at ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const date = i18n.language === 'en' ? englishDate : new Intl.DateTimeFormat(i18n.language, {
+    day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }),
+  }).format(d);
+  return t('dapps.dateTime', { date, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` });
 }
 
 function relativeTime(ts: number, now: number): string {
+  if (!Number.isFinite(new Date(ts).getTime())) return '-';
   const diff = now - ts;
-  if (diff < 60_000) return 'just now';
+  if (diff < 60_000) return t('dapps.justNow');
   const minutes = Math.floor(diff / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return t('dapps.minutesAgo', { count: minutes });
   const hours = Math.floor(diff / 3_600_000);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t('dapps.hoursAgo', { count: hours });
   const days = Math.floor(diff / 86_400_000);
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
+  if (days === 1) return t('dapps.yesterday');
+  if (days < 7) return t('dapps.daysAgo', { count: days });
   return absoluteTime(ts);
 }
 
@@ -110,9 +117,9 @@ interface ConnectionRowProps {
 }
 
 function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
+  useNativeLanguage();
   const isActive = record.disconnectedAt === null;
   const ts = isActive ? record.connectedAt : (record.disconnectedAt ?? record.connectedAt);
-  const verb = isActive ? 'Connected' : 'Disconnected';
   const rel = relativeTime(ts, now);
   const abs = absoluteTime(ts);
   const tileColor = isActive ? C.green : C.gray;
@@ -120,14 +127,14 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
   const revealConnectedAccount = () => {
     if (!record.connectedAccount) return;
     const address = record.connectedAccount;
-    Alert.alert('Connected account', address, [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('dapps.account'), address, [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Copy address',
+        text: t('dapps.copyAddress'),
         onPress: () => {
           Clipboard.setStringAsync(address).catch((err: unknown) => {
             Logger.error('DAppConnections', 'Failed to copy connected account:', err);
-            Alert.alert('Error', 'Failed to copy the address. Please try again.');
+            Alert.alert(t('common.error'), t('dapps.copyFailed'));
           });
         },
       },
@@ -155,8 +162,8 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
             style={styles.accountButton}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
-            accessibilityLabel="Connected account"
-            accessibilityHint="Shows the full address and a copy action"
+            accessibilityLabel={t('dapps.account')}
+            accessibilityHint={t('dapps.accountHint')}
             onPress={revealConnectedAccount}
           >
             <Text style={styles.accountFingerprint} numberOfLines={2}>
@@ -164,8 +171,8 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
             </Text>
           </TouchableOpacity>
         ) : null}
-        <Text style={styles.timestamp} numberOfLines={1}>
-          {verb} {rel}
+        <Text style={styles.timestamp}>
+          {t(isActive ? 'dapps.connected' : 'dapps.disconnected', { time: rel })}
           {rel !== abs ? ` · ${abs}` : ''}
         </Text>
       </View>
@@ -175,7 +182,7 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
         onPress={() => onAction(record.channelId, isActive)}
       >
         <Text style={[styles.actionText, isActive ? styles.disconnectText : styles.removeText]}>
-          {isActive ? 'Disconnect' : 'Remove'}
+          {isActive ? t('common.disconnect') : t('common.remove')}
         </Text>
       </TouchableOpacity>
     </View>
@@ -201,6 +208,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function DAppConnectionsScreen() {
+  useNativeLanguage();
   const navigation = useNavigation();
   const [active, setActive] = useState<DAppConnectionRecord[]>([]);
   const [recent, setRecent] = useState<DAppConnectionRecord[]>([]);
@@ -237,12 +245,12 @@ export default function DAppConnectionsScreen() {
   const handleAction = (channelId: string, isActive: boolean) => {
     if (isActive) {
       Alert.alert(
-        'Disconnect dApp',
-        'This will end the connection. The dApp will need to reconnect.',
+        t('dapps.disconnectTitle'),
+        t('dapps.disconnectWarning'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Disconnect',
+            text: t('common.disconnect'),
             style: 'destructive',
             onPress: async () => {
               try {
@@ -253,7 +261,7 @@ export default function DAppConnectionsScreen() {
                 await loadConnections();
               } catch (err) {
                 Logger.error('DAppConnections', 'Failed to disconnect:', err);
-                Alert.alert('Error', 'Failed to disconnect. Please try again.');
+                Alert.alert(t('common.error'), t('dapps.disconnectFailed'));
               }
             },
           },
@@ -264,7 +272,7 @@ export default function DAppConnectionsScreen() {
         .then(() => loadConnections())
         .catch((err: unknown) => {
           Logger.error('DAppConnections', 'Failed to remove:', err);
-          Alert.alert('Error', 'Failed to remove connection. Please try again.');
+          Alert.alert(t('common.error'), t('dapps.removeFailed'));
         });
     }
   };
@@ -281,7 +289,7 @@ export default function DAppConnectionsScreen() {
         >
           <Ionicons name="chevron-back" size={28} color={C.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>dApp Connections</Text>
+        <Text style={styles.title}>{t('dapps.title')}</Text>
       </View>
 
       {isEmpty ? (
@@ -289,8 +297,8 @@ export default function DAppConnectionsScreen() {
           <View style={[styles.emptyTile, { backgroundColor: C.card }]}>
             <Ionicons name="link-outline" size={32} color={C.textSecondary} />
           </View>
-          <Text style={styles.emptyTitle}>No dApp Connections</Text>
-          <Text style={styles.emptyText}>Scan a QR code from a dApp to pair your wallet.</Text>
+          <Text style={styles.emptyTitle}>{t('dapps.empty')}</Text>
+          <Text style={styles.emptyText}>{t('dapps.pairHint')}</Text>
         </View>
       ) : (
         <ScrollView
@@ -298,12 +306,12 @@ export default function DAppConnectionsScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <Section title="Active">
+          <Section title={t('dapps.active')}>
             {active.map((r) => (
               <ConnectionRow key={r.channelId} record={r} now={now} onAction={handleAction} />
             ))}
           </Section>
-          <Section title="Recent">
+          <Section title={t('dapps.recent')}>
             {recent.map((r) => (
               <ConnectionRow key={r.channelId} record={r} now={now} onAction={handleAction} />
             ))}

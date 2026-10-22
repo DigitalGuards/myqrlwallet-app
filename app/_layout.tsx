@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import { useFonts } from 'expo-font';
 import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -16,6 +18,7 @@ import { SPACE_MONO_FONT } from '../constants/Assets';
 import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
 import { embeddedHashRouteForWalletUrl } from '../services/EmbeddedDeepLink';
 import EmbeddedRouteIntent from '../services/EmbeddedRouteIntent';
+import { restoreLanguagePreference } from '../i18n/preference';
 
 const APP_BACKGROUND = '#080C16';
 const APP_TEXT = '#F2F5F8';
@@ -70,6 +73,7 @@ function withBootTimeout(promise: Promise<unknown>, label: string): Promise<unkn
 }
 
 export default function RootLayout() {
+  useNativeLanguage();
   const [fontsLoaded, fontError] = useFonts({
     SpaceMono: SPACE_MONO_FONT,
   });
@@ -116,6 +120,12 @@ export default function RootLayout() {
         await SplashScreen.hideAsync();
       })();
     }
+  }, [bootReady]);
+
+  // Keep preference I/O independent of security initialization and splash release.
+  // Views start in the device language and subscribe to the restored preference.
+  useEffect(() => {
+    if (bootReady) void restoreLanguagePreference();
   }, [bootReady]);
 
   // Last-resort splash release, independent of the boot chain above.
@@ -213,7 +223,7 @@ export default function RootLayout() {
             name="settings"
             options={{
               headerShown: true,
-              title: 'Settings',
+              title: t('navigation.settings'),
               headerStyle: {
                 backgroundColor: APP_BACKGROUND,
               },
@@ -228,7 +238,7 @@ export default function RootLayout() {
             name="dapp-connections"
             options={{
               headerShown: true,
-              title: 'DApp Connections',
+              title: t('navigation.connections'),
               headerStyle: {
                 backgroundColor: APP_BACKGROUND,
               },

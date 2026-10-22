@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Приложению нужен доступ к камере для сканирования QR-кодов с адресами кошельков.",
+    "NSFaceIDUsageDescription": "Разрешите MyQRLWallet использовать Face ID для защиты кошелька."
+  }
+}
