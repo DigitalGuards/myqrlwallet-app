@@ -89,7 +89,6 @@ export default function RootLayout() {
   useEffect(() => {
     if (bootReady) {
       void (async () => {
-        await withBootTimeout(restoreLanguagePreference(), 'language preference');
         // Initialize screen security (screenshot prevention)
         try {
           await withBootTimeout(ScreenSecurityService.initialize(), 'screen security');
@@ -121,6 +120,12 @@ export default function RootLayout() {
         await SplashScreen.hideAsync();
       })();
     }
+  }, [bootReady]);
+
+  // Keep preference I/O independent of security initialization and splash release.
+  // Views start in the device language and subscribe to the restored preference.
+  useEffect(() => {
+    if (bootReady) void restoreLanguagePreference();
   }, [bootReady]);
 
   // Last-resort splash release, independent of the boot chain above.

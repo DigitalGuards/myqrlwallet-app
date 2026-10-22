@@ -42,6 +42,7 @@ function pad(n: number): string {
 
 function absoluteTime(ts: number): string {
   const d = new Date(ts);
+  if (!Number.isFinite(d.getTime())) return '-';
   const sameYear = d.getFullYear() === new Date().getFullYear();
   const englishDate = sameYear
     ? `${MONTHS[d.getMonth()]} ${d.getDate()}`
@@ -53,6 +54,7 @@ function absoluteTime(ts: number): string {
 }
 
 function relativeTime(ts: number, now: number): string {
+  if (!Number.isFinite(new Date(ts).getTime())) return '-';
   const diff = now - ts;
   if (diff < 60_000) return t('dapps.justNow');
   const minutes = Math.floor(diff / 60_000);
