@@ -3,6 +3,8 @@ import { BackHandler, Modal, TextInput, TouchableOpacity } from 'react-native';
 import { ChangePinOverlay } from '../../components/ChangePinOverlay';
 import { PinEntryModal } from '../../components/PinEntryModal';
 import { isRecord } from '../guards';
+import { i18n, resources } from '../../i18n';
+import { supportedLanguages } from '../../i18n/languages';
 
 interface TestInstance {
   type: unknown;
@@ -192,6 +194,34 @@ describe.each(['entry', 'change'])('%s PIN form lifecycle', (form) => {
     await act<undefined>(() => { callProp(input(submitLabel), 'onSubmitEditing'); });
     expect(onSubmit.mock.calls).toEqual(form === 'entry' ? [['1234']] : [['1234', '567890']]);
     expect(input(firstLabel).props.value).toBe('1234');
+  });
+
+  it('updates an open form and its validation error in every language while retaining PIN input', async () => {
+    screen = await nativeTestRenderer.create(element(true));
+    await enter(firstLabel, form === 'entry' ? '12' : '1234');
+    if (form === 'change') {
+      await enter('New PIN', '5678');
+      await enter('Confirm New PIN', '9999');
+    }
+    await act<undefined>(() => { callProp(input(submitLabel), 'onSubmitEditing'); });
+    try {
+      for (const language of supportedLanguages) {
+        await act(async () => { await i18n.changeLanguage(language); });
+        const catalog = resources[language].native;
+        const translatedError = form === 'entry'
+          ? catalog.pin.minimum.replace('{{min}}', '4')
+          : catalog.pin.mismatch;
+        expect(required(screen).root.findAllByProps({ children: translatedError }).length).toBeGreaterThan(0);
+        expect(required(screen).root.findAllByProps({ children: catalog.common.cancel }).length).toBeGreaterThan(0);
+        expect(required(screen).root.findAllByType(TextInput).map(node => node.props.value)).toEqual(
+          form === 'entry' ? ['12'] : ['1234', '5678', '9999'],
+        );
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(onCancel).not.toHaveBeenCalled();
+      }
+    } finally {
+      await act(async () => { await i18n.changeLanguage('en'); });
+    }
   });
 
   it('cancels once and resets entered PINs on reopening', async () => {

@@ -15,6 +15,8 @@ import { isQrlAddress } from './QrlAddress';
 import { isRecord } from './guards';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
+import { isLanguage } from '../i18n/languages';
+import { applyWebLanguage } from '../i18n/preference';
 
 export const NATIVE_PIN_COMMIT_ERROR = 'Native secure PIN commit failed';
 export const NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR = 'Native PIN change outcome is ambiguous';
@@ -144,6 +146,7 @@ export function parseDAppMetadataUrl(value: string): string | null {
  * Message types that can be received from the WebView
  */
 export type WebToNativeMessageType =
+  | 'LANGUAGE_CHANGED'
   | 'SCAN_QR'
   | 'COPY_TO_CLIPBOARD'
   | 'SHARE'
@@ -172,6 +175,7 @@ export type WebToNativeMessageType =
   | 'DAPP_RETURN'; // Bounce back to the dApp after approval (peer redirect)
 
 const LOCKED_ALLOWED_MESSAGE_TYPES: ReadonlySet<string> = new Set<WebToNativeMessageType>([
+  'LANGUAGE_CHANGED',
   'LOG',
   'WEB_APP_READY',
   'WEB_DOCUMENT_READY',
@@ -1012,6 +1016,15 @@ class NativeBridge {
     }
 
     switch (type) {
+      case 'LANGUAGE_CHANGED': {
+        if (!isLanguage(payload?.language)) {
+          Logger.warn('NativeBridge', 'LANGUAGE_CHANGED has an unsupported language');
+          return;
+        }
+        await applyWebLanguage(payload.language);
+        break;
+      }
+
       case 'SCAN_QR':
         this.handleScanQR();
         break;

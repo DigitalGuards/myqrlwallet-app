@@ -1,3 +1,6 @@
+import type { NativeKey } from '../i18n/nativeMessage';
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   BackHandler,
@@ -62,10 +65,11 @@ function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEdit
 // the Face ID sheet can be refused by UIKit without any error, which left
 // Change PIN with no dialog.
 export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onSubmit, onCancel }) => {
+  useNativeLanguage();
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NativeKey | null>(null);
   const currentPinRef = useRef<TextInput>(null);
   const newPinRef = useRef<TextInput>(null);
   const confirmPinRef = useRef<TextInput>(null);
@@ -115,22 +119,22 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
 
   const handleSubmit = () => {
     if (!isValidPin(currentPin)) {
-      setError(`Current PIN must be ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`);
+      setError('pin.currentFormat');
       currentPinRef.current?.focus();
       return;
     }
     if (!isValidPin(newPin)) {
-      setError(`New PIN must be ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`);
+      setError('pin.newFormat');
       newPinRef.current?.focus();
       return;
     }
     if (newPin !== confirmPin) {
-      setError('New PINs do not match');
+      setError('pin.mismatch');
       confirmPinRef.current?.focus();
       return;
     }
     if (newPin === currentPin) {
-      setError('New PIN must be different from current PIN');
+      setError('pin.different');
       newPinRef.current?.focus();
       return;
     }
@@ -152,14 +156,13 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
                 <Ionicons name="keypad" size={22} color={C.brandBlueForeground} />
               </View>
             </View>
-            <Text style={styles.title}>Change PIN</Text>
+            <Text style={styles.title}>{t('settings.changePin')}</Text>
             <Text style={styles.message}>
-              Enter your current PIN, then choose a new {PIN_MIN_LENGTH}-{PIN_MAX_LENGTH} digit
-              PIN. Your seed stays encrypted with this PIN.
+              {t('pin.changeHint', { min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })}
             </Text>
 
             <PinField
-              label="Current PIN"
+              label={t('pin.current')}
               value={currentPin}
               onChangeText={(t) => handlePinChange(t, setCurrentPin)}
               inputRef={currentPinRef}
@@ -168,7 +171,7 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
             />
 
             <PinField
-              label="New PIN"
+              label={t('pin.new')}
               value={newPin}
               onChangeText={(t) => handlePinChange(t, setNewPin)}
               inputRef={newPinRef}
@@ -177,14 +180,14 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
             />
 
             <PinField
-              label="Confirm New PIN"
+              label={t('pin.confirmNew')}
               value={confirmPin}
               onChangeText={(t) => handlePinChange(t, setConfirmPin)}
               inputRef={confirmPinRef}
               onSubmitEditing={handleSubmit}
             />
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            {error ? <Text style={styles.error}>{t(error, { min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })}</Text> : null}
 
             <View style={styles.buttonRow}>
               <TouchableOpacity
@@ -192,7 +195,7 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
                 onPress={onCancel}
                 activeOpacity={0.7}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -210,7 +213,7 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
                     !isFormValid() && styles.submitButtonTextDisabled,
                   ]}
                 >
-                  Change PIN
+                  {t('settings.changePin')}
                 </Text>
               </TouchableOpacity>
             </View>

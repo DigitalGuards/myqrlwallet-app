@@ -137,6 +137,7 @@ myqrlwallet-app/
 | Message | Payload | Description |
 |---------|---------|-------------|
 | `WEB_APP_READY` | - | Web app initialized, ready for data |
+| `LANGUAGE_CHANGED` | `{ language }` | At startup after the document handshake, and on each language change, synchronize native UI and persist the exact code: `en`, `de`, `es`, `ru`, or `zh-CN`. Uses the current `documentId` envelope; invalid values are ignored. |
 | `SCAN_QR` | - | Request native QR scanner |
 | `COPY_TO_CLIPBOARD` | `{ text }` | Copy text to clipboard |
 | `SHARE` | `{ title?, text?, url? }` | Open native share sheet |
@@ -165,6 +166,8 @@ myqrlwallet-app/
 | `CLIPBOARD_SUCCESS` | - | Clipboard operation succeeded |
 | `SHARE_SUCCESS` | - | Share completed |
 | `ERROR` | `{ message }` | Error occurred |
+
+Native screens support English, German, Spanish, Russian and Simplified Chinese. The device's primary locale selects the initial language; a saved web-reported choice takes priority on later launches. The authenticated web wallet controls subsequent changes, including while the native wallet is locked. All catalogs are bundled for offline use, with English fallback per key. See [native translation guidance](docs/I18N.md).
 
 ## Building for Production
 

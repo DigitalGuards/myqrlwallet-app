@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { AppState, Platform } from 'react-native';
 import SeedStorageService from './SeedStorageService';
@@ -271,7 +272,7 @@ class BiometricService {
    * @returns Authentication result
    */
   async authenticate(
-    promptMessage: string = 'Authenticate to access your wallet',
+    promptMessage: string = t('biometric.accessPrompt'),
     isCallerCurrent?: () => boolean,
   ): Promise<{
     success: boolean;
@@ -280,8 +281,8 @@ class BiometricService {
   }> {
     const options: LocalAuthentication.LocalAuthenticationOptions = {
       promptMessage,
-      fallbackLabel: 'Use passcode',
-      cancelLabel: 'Cancel',
+      fallbackLabel: t('biometric.passcode'),
+      cancelLabel: t('common.cancel'),
       disableDeviceFallback: false,
     };
     try {
@@ -308,7 +309,7 @@ class BiometricService {
    * @returns User-friendly device login name
    */
   getDeviceLoginName(): string {
-    return 'Device Login';
+    return t('settings.deviceLogin');
   }
 
   // ============================================================
@@ -420,8 +421,8 @@ class BiometricService {
       try {
         const probe = await this.authenticateInForeground(
           {
-            promptMessage: 'Unlock your wallet',
-            cancelLabel: 'Cancel',
+            promptMessage: t('biometric.unlockPrompt'),
+            cancelLabel: t('common.cancel'),
             disableDeviceFallback: true,
           },
           isCurrent
@@ -463,9 +464,9 @@ class BiometricService {
     try {
       authResult = await this.authenticateInForeground(
         {
-          promptMessage: 'Unlock your wallet',
-          fallbackLabel: 'Use passcode',
-          cancelLabel: 'Cancel',
+          promptMessage: t('biometric.unlockPrompt'),
+          fallbackLabel: t('biometric.passcode'),
+          cancelLabel: t('common.cancel'),
           disableDeviceFallback: false,
         },
         isCurrent
@@ -523,7 +524,7 @@ class BiometricService {
 
       // Authenticate before storing (confirm user identity)
       const authResult = await this.authenticate(
-        'Enable Device Login to unlock your wallet',
+        t('biometric.enablePrompt'),
         isCurrent,
       );
       if (!authResult.success) {

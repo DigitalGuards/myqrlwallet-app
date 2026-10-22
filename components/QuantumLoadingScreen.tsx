@@ -1,3 +1,6 @@
+import type { NativeKey } from '../i18n/nativeMessage';
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import { useEffect, useState } from 'react';
 import {
   View,
@@ -14,11 +17,11 @@ import { LOGO_IMAGE } from '../constants/Assets';
 const { width, height } = Dimensions.get('window');
 
 // Boot messages, cycled while no customMessage is set.
-const LOADING_MESSAGES = [
-  'Waking your wallet...',
-  'Establishing post-quantum encryption...',
-  'Connecting to the QRL network...',
-  'Loading your accounts...',
+const LOADING_MESSAGES: readonly NativeKey[] = [
+  'loading.waking',
+  'loading.encryption',
+  'loading.connecting',
+  'loading.accounts',
 ];
 
 // QRL Blue palette (mirrors the web wallet tokens).
@@ -113,6 +116,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
   customMessage,
   progress,
 }) => {
+  useNativeLanguage();
   const [fadeAnim] = useState(() => new Animated.Value(1));
   const [logoScale] = useState(() => new Animated.Value(0.9));
   const [logoOpacity] = useState(() => new Animated.Value(0));
@@ -277,7 +281,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
           />
         </Animated.View>
 
-        <Text style={styles.subtitle}>Post-Quantum Secure</Text>
+        <Text style={styles.subtitle}>{t('loading.secure')}</Text>
 
         <View style={styles.track}>
           {isDeterminate ? (
@@ -306,7 +310,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
           <Animated.Text
             style={[styles.loadingMessage, { opacity: messageOpacity }]}
           >
-            {customMessage || LOADING_MESSAGES[messageIndex]}
+            {customMessage || t(LOADING_MESSAGES[messageIndex] ?? 'loading.waking')}
           </Animated.Text>
         </View>
       </View>

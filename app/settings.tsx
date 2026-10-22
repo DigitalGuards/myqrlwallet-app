@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
@@ -89,12 +91,11 @@ function Row({ icon, tint, iconColor = '#ffffff', title, subtitle, right, onPres
       <View style={styles.rowText}>
         <Text
           style={[styles.rowTitle, destructive && { color: C.red }]}
-          numberOfLines={1}
         >
           {title}
         </Text>
         {subtitle ? (
-          <Text style={styles.rowSubtitle} numberOfLines={2}>
+          <Text style={styles.rowSubtitle}>
             {subtitle}
           </Text>
         ) : null}
@@ -136,6 +137,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function SettingsScreen() {
+  useNativeLanguage();
   const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
     notificationsEnabled: true,
@@ -157,8 +159,8 @@ export default function SettingsScreen() {
   }).mode;
   const walletBuildLabel =
     webSourceMode === 'embedded'
-      ? `Wallet build ${EMBEDDED_WALLET_BUILD_INFO.frontendCommitShort} (bundled)`
-      : 'Wallet build: development server';
+      ? t('settings.bundledBuild', { commit: EMBEDDED_WALLET_BUILD_INFO.frontendCommitShort })
+      : t('settings.devBuild');
   const mounted = useRef(true);
   const focused = useRef(true);
   const activeSecurityAction = useRef<SettingsSecurityAction | null>(null);
@@ -292,12 +294,12 @@ export default function SettingsScreen() {
       setDeviceLoginAction(action);
     } else {
       const authResult = await BiometricService.authenticate(
-        'Authenticate to disable Device Login',
+        t('settings.disablePrompt'),
         () => isSecurityActionBound(action),
       );
       if (!authResult.success) {
         if (!authResult.cancelled && mounted.current && focused.current) {
-          Alert.alert('Device Login Still On', 'Authentication did not complete. Please try again.');
+          Alert.alert(t('settings.loginStillOn'), t('settings.authIncomplete'));
         }
         return;
       }
@@ -307,13 +309,13 @@ export default function SettingsScreen() {
       } catch (error) {
         if (!isSecurityActionCurrent(action)) return;
         Logger.error('Settings', 'Failed to disable Device Login:', error);
-        Alert.alert('Error', 'Device Login could not be disabled. Please try again.');
+        Alert.alert(t('common.error'), t('settings.disableFailed'));
         return;
       }
       if (!isSecurityActionCurrent(action)) return;
       invalidateSecurityActions();
       setDeviceLoginEnabled(false);
-      Alert.alert('Disabled', 'Device Login has been disabled.');
+      Alert.alert(t('common.disabled'), t('settings.loginDisabled'));
     }
   };
 
@@ -331,12 +333,12 @@ export default function SettingsScreen() {
   const handleScreenshotPreventionToggle = async (newValue: boolean) => {
     if (!newValue) {
       Alert.alert(
-        'Security Warning',
-        'Disabling screenshot prevention allows screenshots and screen recordings of your wallet. This could expose sensitive information like your balance and addresses.\n\nAre you sure you want to disable this?',
+        t('settings.securityWarning'),
+        t('settings.screenshotWarning'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Disable Anyway',
+            text: t('settings.disableAnyway'),
             style: 'destructive',
             onPress: async () => {
               try {
@@ -344,7 +346,7 @@ export default function SettingsScreen() {
                 setPreventScreenshots(false);
               } catch (error) {
                 Logger.error('Settings', 'Failed to disable screenshot prevention:', error);
-                Alert.alert('Error', 'Could not disable screenshot prevention. Please try again.');
+                Alert.alert(t('common.error'), t('settings.screenshotDisableFailed'));
               }
             },
           },
@@ -356,7 +358,7 @@ export default function SettingsScreen() {
         setPreventScreenshots(true);
       } catch (error) {
         Logger.error('Settings', 'Failed to enable screenshot prevention:', error);
-        Alert.alert('Error', 'Could not enable screenshot prevention. Please try again.');
+        Alert.alert(t('common.error'), t('settings.screenshotEnableFailed'));
       }
     }
   };
@@ -365,21 +367,21 @@ export default function SettingsScreen() {
     const action = beginSecurityAction();
     if (!action) return;
     const authResult = await BiometricService.authenticate(
-      'Authenticate to change PIN',
+      t('settings.changePinPrompt'),
       () => isSecurityActionBound(action),
     );
     if (!authResult.success) {
       if (authResult.cancelled) return;
       Logger.error('Settings', 'Change PIN authentication did not complete');
       if (mounted.current && focused.current) {
-        Alert.alert('PIN Not Changed', 'Authentication did not complete. Please try again.');
+        Alert.alert(t('settings.pinNotChanged'), t('settings.authIncomplete'));
       }
       return;
     }
     if (!(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) {
       Logger.error('Settings', 'Change PIN stopped: the app did not return to the foreground in time');
       if (mounted.current && focused.current) {
-        Alert.alert('PIN Not Changed', 'The app did not return to the foreground. Please try again.');
+        Alert.alert(t('settings.pinNotChanged'), t('settings.foregroundFailed'));
       }
       return;
     }
@@ -395,8 +397,8 @@ export default function SettingsScreen() {
       Logger.error('Settings', 'Change PIN submit rejected: the authorized action is stale');
       if (mounted.current && focused.current) {
         Alert.alert(
-          'PIN Not Changed',
-          'Your session changed before the PIN could be updated. Please try again.',
+          t('settings.pinNotChanged'),
+          t('settings.sessionChanged'),
         );
       }
       return;
@@ -413,32 +415,32 @@ export default function SettingsScreen() {
       if (!(await authorizeWalletRemoval(() => isSecurityActionBound(action)))) return;
     } catch {
       if (!isSecurityActionCurrent(action)) return;
-      Alert.alert('Unable to Verify Wallet Protection', 'Please try again before removing wallets.');
+      Alert.alert(t('settings.protectionUnknown'), t('settings.retryRemoval'));
       return;
     }
     if (!(await waitForForegroundAuthorization(() => isSecurityActionBound(action)))) return;
 
     Alert.alert(
-      'Remove All Wallets',
-      'This will permanently delete ALL imported wallets from this device, including preserved earlier wallet backups. Device Login will be disabled and you will need to re-import each wallet to access them again.\n\nMake sure you have backed up your seed phrases before continuing!',
+      t('settings.removeAll'),
+      t('settings.removeWarning'),
       [
-        { text: 'Cancel', style: 'cancel', onPress: () => {
+        { text: t('common.cancel'), style: 'cancel', onPress: () => {
           if (isSecurityActionCurrent(action)) invalidateSecurityActions();
         } },
         {
-          text: 'Remove All',
+          text: t('settings.removeAllAction'),
           style: 'destructive',
           onPress: () => {
             if (!isSecurityActionCurrent(action)) return;
             Alert.alert(
-              'Delete All Wallets?',
-              'ALL wallet data will be permanently removed. This action cannot be undone.',
+              t('settings.deleteAllTitle'),
+              t('settings.deleteAllWarning'),
               [
-                { text: 'Cancel', style: 'cancel', onPress: () => {
+                { text: t('common.cancel'), style: 'cancel', onPress: () => {
                   if (isSecurityActionCurrent(action)) invalidateSecurityActions();
                 } },
                 {
-                  text: 'Yes, Delete All',
+                  text: t('settings.deleteAllAction'),
                   style: 'destructive',
                   onPress: async () => {
                     if (!isSecurityActionCurrent(action)) return;
@@ -449,14 +451,14 @@ export default function SettingsScreen() {
                       if (!mounted.current || !focused.current || AppState.currentState !== 'active') return;
                       setHasWallet(false);
                       setDeviceLoginEnabled(false);
-                      Alert.alert('Wallet Removed', 'Your wallet has been removed from this device.');
+                      Alert.alert(t('settings.removedTitle'), t('settings.removed'));
                     } catch (error) {
                       if (!mounted.current || !focused.current || AppState.currentState !== 'active') return;
                       Logger.error('Settings', 'Failed to remove wallet:', error);
                       Alert.alert(
-                        'Removal Incomplete',
-                        'Wallet removal has not reached all storage layers yet. Keep the app open and try again. The app will resume the wipe after restart.',
-                        [{ text: 'OK' }],
+                        t('settings.removalIncomplete'),
+                        t('settings.removalIncompleteHint'),
+                        [{ text: t('common.ok') }],
                       );
                     }
                   },
@@ -475,15 +477,15 @@ export default function SettingsScreen() {
   // wallet is served from the app bundle.
   const clearSessionData = () => {
     Alert.alert(
-      'Reset Session Data',
-      'This clears the saved session timestamp and cookie data this app keeps. Your wallet, seed, PIN and address book are not affected. Continue?',
+      t('settings.resetSession'),
+      t('settings.resetWarning'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Reset',
+          text: t('common.reset'),
           onPress: async () => {
             await WebViewService.clearSessionData();
-            Alert.alert('Session Data Reset', 'The saved session data has been cleared.');
+            Alert.alert(t('settings.sessionResetTitle'), t('settings.sessionReset'));
           },
         },
       ]
@@ -494,12 +496,12 @@ export default function SettingsScreen() {
   // events with PINs, seeds, keys, pairing links and payloads already redacted.
   const copyDiagnostics = () => {
     Alert.alert(
-      'Copy Diagnostics',
-      'Copies a short log of recent app events to the clipboard so you can paste it into a support message. It never contains your PIN, seed phrase, keys, pairing links or wallet data. Nothing is sent anywhere.',
+      t('settings.diagnostics'),
+      t('settings.diagnosticsWarning'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Copy',
+          text: t('common.copy'),
           onPress: async () => {
             try {
               await Clipboard.setStringAsync(
@@ -508,10 +510,10 @@ export default function SettingsScreen() {
                   walletBuildLabel,
                 ]),
               );
-              Alert.alert('Copied', 'Diagnostics copied to the clipboard.');
+              Alert.alert(t('common.copied'), t('settings.diagnosticsCopied'));
             } catch (error) {
               Logger.error('Settings', 'Failed to copy diagnostics:', error);
-              Alert.alert('Error', 'Could not copy diagnostics. Please try again.');
+              Alert.alert(t('common.error'), t('settings.diagnosticsFailed'));
             }
           },
         },
@@ -537,7 +539,7 @@ export default function SettingsScreen() {
         >
           <Ionicons name="chevron-back" size={28} color={C.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title}>Settings</Text>
+        <Text style={styles.title}>{t('navigation.settings')}</Text>
       </View>
 
       <ScrollView
@@ -546,12 +548,12 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* General */}
-        <Section title="General">
+        <Section title={t('settings.general')}>
           <Row
             icon="notifications"
             tint={C.red}
-            title="Notifications"
-            subtitle="Transaction alerts and app updates"
+            title={t('settings.notifications')}
+            subtitle={t('settings.notificationsHint')}
             right={
               <Switch
                 value={preferences.notificationsEnabled ?? true}
@@ -565,12 +567,12 @@ export default function SettingsScreen() {
         </Section>
 
         {/* Display */}
-        <Section title="Display">
+        <Section title={t('settings.display')}>
           <Row
             icon="pricetags"
             tint={C.green}
-            title="Show Tokens Card"
-            subtitle="Show the Tokens section on the Home screen"
+            title={t('settings.tokens')}
+            subtitle={t('settings.tokensHint')}
             right={
               <Switch
                 value={preferences.showTokensCard ?? true}
@@ -584,8 +586,8 @@ export default function SettingsScreen() {
           <Row
             icon="images"
             tint={C.teal}
-            title="Show NFTs Card"
-            subtitle="Show the NFT collection on the Home screen"
+            title={t('settings.nfts')}
+            subtitle={t('settings.nftsHint')}
             right={
               <Switch
                 value={preferences.showNftsCard ?? true}
@@ -599,23 +601,23 @@ export default function SettingsScreen() {
         </Section>
 
         {/* Security */}
-        <Section title="Security">
+        <Section title={t('settings.security')}>
           {!hasWallet && (
             <Row
               icon="lock-closed-outline"
               tint={C.gray}
-              title="Security options"
-              subtitle="Import or create a wallet to access security settings"
+              title={t('settings.securityOptions')}
+              subtitle={t('settings.importForSecurity')}
             />
           )}
           {hasWallet && isDeviceLoginAvailable && (
             <Row
               icon="finger-print"
               tint={C.blue}
-              title="Device Login"
+              title={t('settings.deviceLogin')}
               subtitle={Platform.select({
-                ios: 'Unlock with Face ID, Touch ID, or passcode',
-                default: 'Unlock with fingerprint, face, or screen lock',
+                ios: t('settings.unlockIOS'),
+                default: t('settings.unlockAndroid'),
               })}
               right={
                 <Switch
@@ -632,8 +634,8 @@ export default function SettingsScreen() {
             <Row
               icon="eye-off"
               tint={C.purple}
-              title="Prevent Screenshots"
-              subtitle="Block screen capture and recording"
+              title={t('settings.preventScreenshots')}
+              subtitle={t('settings.preventScreenshotsHint')}
               right={
                 <Switch
                   value={preventScreenshots}
@@ -650,21 +652,21 @@ export default function SettingsScreen() {
               icon="keypad"
               tint={C.pinBlue}
               iconColor={C.brandBlueForeground}
-              title="Change PIN"
-              subtitle="Update the PIN that encrypts your seed"
+              title={t('settings.changePin')}
+              subtitle={t('settings.changePinHint')}
               onPress={handleChangePinPress}
             />
           )}
         </Section>
 
         {/* Connections */}
-        <Section title="Connections">
+        <Section title={t('settings.connections')}>
           <Row
             icon="book"
             tint={C.brandBlue}
             iconColor={C.brandBlueForeground}
-            title="Address Book"
-            subtitle="Saved recipients for quick transfers"
+            title={t('settings.addressBook')}
+            subtitle={t('settings.addressBookHint')}
             onPress={() => {
               // The address book lives in the web wallet; queue the
               // navigation and return to the WebView tab (the queued
@@ -676,8 +678,8 @@ export default function SettingsScreen() {
           <Row
             icon="apps"
             tint={C.teal}
-            title="Connected dApps"
-            subtitle="Manage connections and view history"
+            title={t('settings.dapps')}
+            subtitle={t('settings.dappsHint')}
             onPress={() => router.push('/dapp-connections')}
             right={
               <View style={styles.rowRightInline}>
@@ -693,19 +695,19 @@ export default function SettingsScreen() {
         </Section>
 
         {/* Data */}
-        <Section title="Data">
+        <Section title={t('settings.data')}>
           <Row
             icon="refresh"
             tint={C.gray}
-            title="Reset Session Data"
-            subtitle="Clears the session data this app keeps. Your wallet is not affected."
+            title={t('settings.resetSession')}
+            subtitle={t('settings.resetSessionHint')}
             onPress={clearSessionData}
           />
           <Row
             icon="document-text"
             tint={C.gray}
-            title="Copy Diagnostics"
-            subtitle="Copy recent app events to share with support. Contains no PIN, seed or keys."
+            title={t('settings.diagnostics')}
+            subtitle={t('settings.diagnosticsHint')}
             onPress={copyDiagnostics}
           />
         </Section>
@@ -714,12 +716,12 @@ export default function SettingsScreen() {
             the wallet page can still hold wallets whose device credential is
             gone (an older install, a restore without the keychain), and its
             recovery steps send the user here. */}
-        <Section title="Wallet">
+        <Section title={t('settings.wallet')}>
           <Row
             icon="trash"
             tint={C.red}
-            title="Remove All Wallets"
-            subtitle="Permanently delete all wallets from this device"
+            title={t('settings.removeAll')}
+            subtitle={t('settings.removeAllHint')}
             onPress={removeWallet}
             destructive
           />
@@ -732,28 +734,27 @@ export default function SettingsScreen() {
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text style={styles.version}>Version {appVersion}</Text>
+          <Text style={styles.version}>{t('settings.version', { version: appVersion })}</Text>
           <Text style={styles.walletBuild} selectable>
             {walletBuildLabel}
           </Text>
           <Text style={styles.aboutParagraph}>
-            The Quantum Resistant Ledger (QRL) is a blockchain designed to be secure against
-            quantum computing attacks.
+            {t('settings.aboutQrl')}
           </Text>
         </View>
 
-        <Section title="About">
+        <Section title={t('settings.about')}>
           <Row
             icon="globe"
             tint={C.brandBlue}
             iconColor={C.brandBlueForeground}
-            title="QRL Website"
+            title={t('settings.website')}
             onPress={() => openLink('https://theqrl.org')}
           />
           <Row
             icon="book"
             tint={C.blue}
-            title="Documentation"
+            title={t('settings.documentation')}
             onPress={() => openLink('https://docs.theqrl.org')}
           />
           <Row
@@ -775,8 +776,8 @@ export default function SettingsScreen() {
 
       <PinEntryModal
         visible={deviceLoginAction !== null}
-        title="Enable Device Login"
-        message="Enter your wallet PIN to enable Device Login"
+        title={t('settings.enableLogin')}
+        message={t('settings.enableLoginPin')}
         onSubmit={(pin) => handleDeviceLoginPinSubmit(pin, deviceLoginAction)}
         onCancel={() => handleDeviceLoginPinCancel(deviceLoginAction)}
       />
