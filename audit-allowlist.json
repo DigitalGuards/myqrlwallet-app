@@ -9,7 +9,7 @@
     {
       "id": "GHSA-mrhx-c7xc-m3w5",
       "package": "zod",
-      "reason": "No patched zod 3 release exists and @expo/cli still requires zod ^3.25.76. The flagged copy is expo -> @expo/cli -> zod 3.25.76 (node_modules/expo/node_modules/zod), used by CLI dev-tools schemas. CLI code is excluded from the shipped app bundle: the Android and iOS Hermes bundles contain no zod. The embedded wallet HTML (assets/web/index.html) ships zod from the pinned web wallet build; that copy is fixed in the web wallet and reaches the app with the next embedded web sync. Recheck upstream before expiry.",
+      "reason": "No patched zod 3 release exists and @expo/cli still requires zod ^3.25.76. The flagged copy is expo -> @expo/cli -> zod 3.25.76 (node_modules/expo/node_modules/zod), used by CLI dev-tools schemas. CLI code is excluded from the shipped app bundle: the Android and iOS Hermes bundles contain no zod. The embedded wallet HTML (assets/web/index.html) ships zod from the pinned web wallet build; the web wallet fix for that copy is myqrlwallet-frontend #416, and the app picks it up with the next embedded web sync. Recheck upstream before expiry.",
       "expires": "2027-01-10"
     }
   ]
