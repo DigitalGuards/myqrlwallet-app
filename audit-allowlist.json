@@ -1,15 +1,15 @@
 {
   "exceptions": [
     {
-      "id": "GHSA-vfj7-8cjw-p6xm",
-      "package": "braces",
-      "reason": "No patched release is available. braces@3.0.3 arrives through micromatch on four build-host or test paths: expo -> @expo/cli -> @expo/metro-file-map; expo -> @expo/metro -> metro-file-map; react-native-worklets -> @react-native/metro-config -> metro -> metro-file-map; and react-native -> @react-native/jest-preset -> jest-haste-map and jest-message-util. An Android export with source maps contains no module from braces or micromatch, so wallet input cannot reach the parser. Recheck upstream before expiry.",
-      "expires": "2027-01-10"
-    },
-    {
       "id": "GHSA-86w9-cpqp-85rv",
       "package": "node-forge",
       "reason": "No patched release is available. expo -> @expo/cli uses node-forge for local iOS certificate handling and @expo/code-signing-certificates for development-server signing. CLI code is excluded from the shipped app bundle, so app users cannot reach the affected RSA verifier. Recheck upstream before expiry.",
+      "expires": "2027-01-10"
+    },
+    {
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "reason": "No patched zod 3 release exists and @expo/cli still requires zod ^3.25.76. The flagged copy is expo -> @expo/cli -> zod 3.25.76 (node_modules/expo/node_modules/zod), used by CLI dev-tools schemas. CLI code is excluded from the shipped app bundle: the Android and iOS Hermes bundles contain no zod. The embedded wallet HTML (assets/web/index.html) ships zod from the pinned web wallet build; the web wallet fix for that copy is myqrlwallet-frontend #416, and the app picks it up with the next embedded web sync. Recheck upstream before expiry.",
       "expires": "2027-01-10"
     }
   ]
