@@ -1,9 +1,9 @@
 {
   "comment": "Reviewed pin for the wallet document shipped in assets/web/index.html. A build verifies the file against this before it is packaged, so changing the wallet requires changing this file in a reviewed commit.",
-  "frontendCommit": "94459db623b866430010373ecf7167b48e30f150",
+  "frontendCommit": "d4395a164aceaad45c9000b5c9887875b226fffe",
   "frontendTag": "",
-  "frontendRef": "feat/hosted-without-native-bridge (stacked on PR 327). Re-pin to the embedded-v1.0.0 tag on frontend main once these PRs merge and dev is promoted: a squash merge makes this commit unreachable.",
+  "frontendRef": "dev at d4395a1 (#428 token form validation, #429 input limits). A squash merge keeps this commit reachable on dev.",
   "walletProfile": "v3-private",
-  "sha256": "cd63e66793a2984d5bb0d729e8e5d817317a1475e874d3ed519fb62cd16ce408",
-  "bytes": 3306434
+  "sha256": "ecec697a3317eaa05f4bba1b5410ff070f32219c839f45e5ada3fd704ff635b0",
+  "bytes": 4005481
 }
