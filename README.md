@@ -318,6 +318,8 @@ PIN rotation uses revision checks, storage read-back acknowledgements, and compe
 - **preview**: APK for testing (Android)
 - **production**: AAB/IPA for store submission
 
+Each profile sets `EXPO_PUBLIC_QRL_NETWORK_PROFILE=testnet`. A binary speaks one network, picked from `services/NativeNetworkProfiles.json`; the mainnet entry stays dormant until its chain ID and genesis hash are set. See [Network profiles](docs/EMBEDDED_WEB_WALLET.md#network-profiles).
+
 ### App Configuration (`app.json`)
 
 - Bundle ID: `com.chiefdg.myqrlwallet`

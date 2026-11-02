@@ -9,6 +9,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "APP_VARIANT": "embedded-dev"
       }
     },
@@ -16,6 +17,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "APP_VARIANT": "embedded-dev",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
       }
@@ -23,12 +25,14 @@
     "preview": {
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
       }
     },
     "preview-embedded": {
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "APP_VARIANT": "embedded-dev",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded",
         "RCT_USE_PREBUILT_RNCORE": "0",
@@ -38,6 +42,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
+        "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "RCT_USE_PREBUILT_RNCORE": "0",
         "RCT_USE_RN_DEP": "0",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"

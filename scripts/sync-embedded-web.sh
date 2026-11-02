@@ -15,6 +15,9 @@
 # Environment:
 #   FRONTEND_DIR   frontend checkout to build from (default: ../myqrlwallet-frontend)
 #   SKIP_INSTALL   set to 1 to skip `npm ci` in the frontend checkout
+#   EXPO_PUBLIC_QRL_NETWORK_PROFILE
+#                  network the app build is for: testnet (default) or mainnet.
+#                  Use the value the EAS build profile sets.
 #
 # The git ref is optional. Given one, the frontend checkout is moved to it
 # first; without one, whatever is checked out there is built. The resolved
@@ -33,6 +36,14 @@ fail() {
   echo "sync-embedded-web: $*" >&2
   exit 1
 }
+
+# The network this app build is for, from services/NativeNetworkProfiles.json.
+# Resolved before anything is built, so a network without a pinned chain id and
+# genesis hash (the mainnet until it launches) stops the sync here.
+PROFILE_HELPER="$APP_DIR/scripts/native-network-profile.js"
+WALLET_PROFILE="$(node "$PROFILE_HELPER" profile)" ||
+  fail "no usable network profile for this build (see the message above)"
+echo "sync-embedded-web: network profile $WALLET_PROFILE"
 
 [ -d "$FRONTEND_DIR" ] || fail "frontend checkout not found at $FRONTEND_DIR (set FRONTEND_DIR)"
 FRONTEND_DIR="$(cd "$FRONTEND_DIR" && pwd)"
@@ -99,26 +110,15 @@ reject_pattern '<link[^>]+href[[:space:]]*=[[:space:]]*"[^"]+\.(js|css)"' 'a js 
 reject_pattern '(src|href)[[:space:]]*=[[:space:]]*"/assets/' 'a /assets/ path'
 reject_pattern '"/assets/|'"'"'/assets/' 'a /assets/ path in script or style content'
 
-# Network profile. A build made without VITE_WALLET_PROFILE=v3-private comes up
-# on the old v2 network and looks fine until the first privileged bridge call
-# fails, so it is refused here. The markers are the v3 chain id, genesis hash
-# and storage prefix, which the frontend compares at runtime and a minifier
-# therefore cannot remove. Keep them in step with
-# services/EmbeddedWalletProfile.ts.
-WALLET_PROFILE="v3-private"
-MISSING_MARKERS=""
-while IFS='=' read -r marker_name marker_literal; do
-  grep -qF -- "$marker_literal" "$BUILT_HTML" ||
-    MISSING_MARKERS="$MISSING_MARKERS${MISSING_MARKERS:+, }$marker_name"
-done <<'MARKERS'
-chain id=0x301825
-genesis hash=0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4
-v3 storage prefix=qrlwallet:v3:
-MARKERS
-if [ -n "$MISSING_MARKERS" ]; then
-  WALLET_PROFILE="unknown"
-  fail "the built document was not built for the v3 network (missing: $MISSING_MARKERS). Build the frontend with VITE_WALLET_PROFILE=v3-private and its VITE_V3_* settings."
-fi
+# Network profile. A document built for another network, or without the v3
+# profile at all, looks fine until the first privileged bridge call fails, so
+# it is refused here. The markers are the chain id, genesis hash and storage
+# prefix of the selected network in services/NativeNetworkProfiles.json. The
+# frontend compares the first two at runtime, so a minifier cannot remove them.
+# services/EmbeddedWalletProfile.ts applies the same markers when the app
+# loads the document.
+node "$PROFILE_HELPER" check "$BUILT_HTML" >/dev/null ||
+  fail "the built document was not built for the $WALLET_PROFILE network. Build the frontend with VITE_WALLET_PROFILE=v3-private and its VITE_V3_* settings (a mainnet app also needs VITE_V3_NATIVE_NETWORK=mainnet and the VITE_MAINNET_* pins)."
 
 BYTES="$(wc -c <"$BUILT_HTML" | tr -d ' ')"
 SHA256="$(sha256sum "$BUILT_HTML" | cut -d' ' -f1)"

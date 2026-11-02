@@ -12,6 +12,7 @@ import Logger from '../services/Logger';
 import { envString } from '../services/guards';
 import { parseBridgeMessage } from '../services/BridgeMessage';
 import {
+  NATIVE_NETWORK_ERROR,
   NATIVE_WEBVIEW_CAPABILITY_SCRIPT,
   NATIVE_WEBVIEW_INJECTED_OBJECT,
 } from '../services/NativeWalletProfile';
@@ -354,7 +355,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   // Tell the screen whenever the document cannot be shown, so it can get its
   // lock overlay out of the way of this component's error and Retry.
-  const documentErrorMessage = error ?? (bridgeUnbound ? BRIDGE_UNBOUND_MESSAGE : null);
+  // A build without a usable network (an unknown selector, or the mainnet
+  // before its identity is pinned) shows its reason and loads no document in
+  // any web source mode.
+  const documentErrorMessage =
+    NATIVE_NETWORK_ERROR ?? error ?? (bridgeUnbound ? BRIDGE_UNBOUND_MESSAGE : null);
   useEffect(() => {
     onDocumentError?.(documentErrorMessage);
   }, [documentErrorMessage, onDocumentError]);

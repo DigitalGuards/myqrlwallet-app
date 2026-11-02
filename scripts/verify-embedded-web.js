@@ -14,23 +14,34 @@
  *
  * It refuses a document that does not match the pin, a build recorded from a
  * dirty frontend checkout, and a profile that is not the one the native bridge
- * speaks.
+ * speaks. That profile is the network EXPO_PUBLIC_QRL_NETWORK_PROFILE selects
+ * in services/NativeNetworkProfiles.json (testnet when unset), so a build for
+ * a network without a pinned chain id and genesis hash fails here too.
  */
 const { createHash } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const { resolve } = require('node:path');
+const { missingMarkers, resolveNativeNetworkProfile } = require('./native-network-profile.js');
 
 const projectRoot = resolve(__dirname, '..');
 const documentPath = resolve(projectRoot, 'assets/web/index.html');
 const pinPath = resolve(projectRoot, 'assets/web/PIN.json');
 const buildInfoPath = resolve(projectRoot, 'assets/web/BUILD_INFO.json');
 
-const EXPECTED_PROFILE = 'v3-private';
-
 function fail(message) {
   console.error(`verify-embedded-web: ${message}`);
   process.exit(1);
 }
+
+let selection;
+try {
+  selection = resolveNativeNetworkProfile(process.env.EXPO_PUBLIC_QRL_NETWORK_PROFILE);
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+}
+if (!selection.ok) fail(selection.error);
+const { network } = selection;
+const EXPECTED_PROFILE = network.networkProfile;
 
 function readJson(path, label) {
   try {
@@ -78,11 +89,15 @@ if (buildInfo.frontendDirty !== false) {
 if (buildInfo.walletProfile !== EXPECTED_PROFILE || pin.walletProfile !== EXPECTED_PROFILE) {
   fail(`the wallet document is not the ${EXPECTED_PROFILE} build`);
 }
+const missing = missingMarkers(bytes.toString('utf8'), network);
+if (missing.length > 0) {
+  fail(`the wallet document lacks the ${EXPECTED_PROFILE} markers (missing: ${missing.join(', ')})`);
+}
 
 console.log(
   `verify-embedded-web: ok\n` +
     `  frontend ${pin.frontendCommit}\n` +
     `  sha256   ${pin.sha256}\n` +
     `  bytes    ${pin.bytes}\n` +
-    `  profile  ${pin.walletProfile}`,
+    `  profile  ${pin.walletProfile} (${network.name})`,
 );
