@@ -1,4 +1,9 @@
-import { NATIVE_WALLET_BLOCKCHAIN, NATIVE_WALLET_CAPABILITIES } from './NativeWalletProfile';
+import {
+  NATIVE_NETWORK,
+  type NativeNetworkSelection,
+  type NativeWalletNetworkProfile,
+  type PinnedNativeNetwork,
+} from './NativeWalletProfile';
 
 /**
  * Check that the wallet shipped in the app bundle was built for the network
@@ -18,62 +23,97 @@ import { NATIVE_WALLET_BLOCKCHAIN, NATIVE_WALLET_CAPABILITIES } from './NativeWa
  *
  * ## What it looks for
  *
- * The frontend selects the profile with `VITE_WALLET_PROFILE=v3-private`,
- * which makes its Vite config define `__QRL_NATIVE_NETWORK__` as the v3 chain
- * id and genesis hash. Both literals are compared at runtime by the frontend's
- * own native-context check, so a minifier cannot fold them away, and a build
- * without the profile defines that constant as null and contains neither.
- * The profile also switches every storage key to the "qrlwallet:v3:" prefix,
- * which survives minification as a string literal for the same reason.
+ * The markers of the network this build selected in
+ * services/NativeNetworkProfiles.json: its chain id, its genesis hash, its
+ * storage prefix and its capability profile. The frontend selects the profile
+ * with `VITE_WALLET_PROFILE=v3-private`, which makes its Vite config define
+ * `__QRL_NATIVE_NETWORK__` as the native network's identity. The frontend's
+ * own native-context check compares the chain id, genesis hash and capability
+ * profile with the record the app injects, so a minifier cannot fold those
+ * literals away. A build without the profile defines that constant as null
+ * and carries neither pin. The profile also switches every storage key to the
+ * "qrlwallet:v3:" prefix, which survives minification as a string literal for
+ * the same reason.
  *
- * These are content markers, not a signature. They answer "was this document
- * built for the right network", which is a build accident, and they are not a
- * defence against a tampered bundle. That property comes from the document
- * being inside the signed app binary.
+ * The capability profile (`v3-private` or `v3-mainnet`) is the marker that
+ * tells the networks apart. Every v3 frontend build inlines the testnet chain
+ * id and genesis hash, and a build with the mainnet pins configured carries
+ * those as well, so a document can hold both identities. The frontend's Vite
+ * config resolves the capability profile of its native network at build time,
+ * so a document carries exactly one of the two profile literals.
+ *
+ * A build whose network has no pinned chain id and genesis hash (the mainnet
+ * until it launches) accepts no document at all.
+ *
+ * These are content markers. They answer "was this document built for the
+ * right network", which is a build accident. Protection against a tampered
+ * bundle comes from the document being inside the signed app binary.
+ *
+ * scripts/native-network-profile.js applies the same markers in the sync and
+ * verify scripts; a unit test keeps the two in step.
  */
-
-export const V3_STORAGE_PREFIX = 'qrlwallet:v3:';
 
 export interface EmbeddedProfileMarker {
   /** Short name used in the failure message and in tests. */
   name: string;
-  /** Literal that a v3 build must contain. */
+  /** Literal that a document built for the network must contain. */
   literal: string;
 }
 
-export const EMBEDDED_V3_MARKERS: readonly EmbeddedProfileMarker[] = [
-  { name: 'chain id', literal: NATIVE_WALLET_CAPABILITIES.chainId },
-  { name: 'genesis hash', literal: NATIVE_WALLET_CAPABILITIES.genesisHash },
-  { name: 'v3 storage prefix', literal: V3_STORAGE_PREFIX },
-];
+export const EMBEDDED_MARKER_NAMES: readonly string[] = Object.freeze([
+  'chain id',
+  'genesis hash',
+  'v3 storage prefix',
+  'network profile',
+]);
+
+/** The literals a document built for this network carries. */
+export function embeddedMarkersFor(network: PinnedNativeNetwork): readonly EmbeddedProfileMarker[] {
+  return [
+    { name: 'chain id', literal: network.chainId },
+    { name: 'genesis hash', literal: network.genesisHash },
+    { name: 'v3 storage prefix', literal: network.storagePrefix },
+    { name: 'network profile', literal: network.networkProfile },
+  ];
+}
 
 export type EmbeddedProfileVerdict =
-  | { profile: 'v3-private'; missing: readonly [] }
+  | { profile: NativeWalletNetworkProfile; missing: readonly [] }
   | { profile: 'unknown'; missing: readonly string[] };
 
 /** Which network profile the bundled document was built for. */
-export function detectEmbeddedWalletProfile(html: string): EmbeddedProfileVerdict {
+export function detectEmbeddedWalletProfile(
+  html: string,
+  selection: NativeNetworkSelection = NATIVE_NETWORK,
+): EmbeddedProfileVerdict {
+  if (!selection.ok) return { profile: 'unknown', missing: EMBEDDED_MARKER_NAMES };
+  const markers = embeddedMarkersFor(selection.network);
   if (typeof html !== 'string' || html.length === 0) {
-    return { profile: 'unknown', missing: EMBEDDED_V3_MARKERS.map((marker) => marker.name) };
+    return { profile: 'unknown', missing: markers.map((marker) => marker.name) };
   }
-  const missing = EMBEDDED_V3_MARKERS.filter(
+  const missing = markers.filter(
     (marker) => !html.includes(marker.literal),
   ).map((marker) => marker.name);
   return missing.length === 0
-    ? { profile: 'v3-private', missing: [] }
+    ? { profile: selection.network.networkProfile, missing: [] }
     : { profile: 'unknown', missing };
 }
 
 /**
  * The message to show instead of starting the wallet, or null when the
  * document is the right one. Names the network the app speaks so a tester can
- * tell a wrong build from a broken one.
+ * tell a wrong build from a broken one. A build without a usable network gets
+ * the reason it has none.
  */
-export function embeddedProfileErrorMessage(verdict: EmbeddedProfileVerdict): string | null {
-  if (verdict.profile === 'v3-private') return null;
+export function embeddedProfileErrorMessage(
+  verdict: EmbeddedProfileVerdict,
+  selection: NativeNetworkSelection = NATIVE_NETWORK,
+): string | null {
+  if (!selection.ok) return selection.error;
+  if (verdict.profile === selection.network.networkProfile) return null;
   return (
     `This app build ships a wallet for the wrong network. It needs ` +
-    `${NATIVE_WALLET_BLOCKCHAIN} and the bundled wallet does not declare it ` +
+    `${selection.network.blockchain} and the bundled wallet does not declare it ` +
     `(missing: ${verdict.missing.join(', ')}). Install a build whose wallet was ` +
     `synced with scripts/sync-embedded-web.sh from a v3 frontend build.`
   );

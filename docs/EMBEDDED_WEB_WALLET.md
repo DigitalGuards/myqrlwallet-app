@@ -160,24 +160,95 @@ blockchain `TEST_NET` while `NativeBridge` requires `TEST_NET_V3`, the message
 is refused as an invalid request, and the user sees "Native secure seed backup
 failed" only after importing a seed and setting a PIN.
 
-Two gates close that:
+Three gates close that:
 
 - `scripts/sync-embedded-web.sh` refuses to copy a document that does not carry
-  the v3 markers, and records the verdict as `walletProfile` in
-  `BUILD_INFO.json`.
-- `services/EmbeddedWalletProfile.ts` re-checks the document at load time, and
-  `QRLWebView` shows a native error naming the expected network instead of
-  starting a wallet that will fail later.
+  the markers of the network this build is for, and records that network's
+  capability profile as `walletProfile` in `BUILD_INFO.json` and `PIN.json`.
+- `scripts/verify-embedded-web.js` (CI, `npm run verify:embedded-web` and the
+  `eas-build-post-install` hook) re-checks the pinned document against the same
+  markers and refuses a `walletProfile` other than the selected network's.
+- `services/EmbeddedWalletProfile.ts` re-checks the document at load time.
+  On a mismatch `QRLWebView` shows a native error naming the expected network
+  and starts no wallet.
 
-The markers are the v3 chain id, the v3 genesis hash and the `qrlwallet:v3:`
-storage prefix. The frontend compares the first two at runtime and builds the
-third into every storage key, so a minifier cannot remove them, and a build
-without the profile contains none of them. They answer "was this built for the
-right network", which is a build accident. They are not a signature, and the
-integrity of the document comes from it being inside the signed app binary.
+The markers are the selected network's chain id, genesis hash, storage prefix
+(`qrlwallet:v3:` on the testnet) and capability profile (`v3-private` or
+`v3-mainnet`). The frontend compares the pins and the profile with the
+capability record at runtime and builds the prefix into every storage key, so
+a minifier cannot remove them, and a build without the profile carries neither
+pin. They answer "was this built for the right network", which is a build
+accident. The integrity of the document comes from it being inside the signed
+app binary.
 
-A unit test pins the bash markers in the sync script to the TypeScript ones so
-the two cannot drift.
+The capability profile is the marker that tells the networks apart. Every v3
+frontend build inlines the testnet chain id and genesis hash, and a build with
+the mainnet pins configured carries those too, so the pins alone match either
+network. The frontend resolves its native network's profile in its Vite config
+at build time, so a document holds `v3-private` or `v3-mainnet` and never both.
+The check relies on the frontend keeping it that way.
+
+All three read the markers from `services/NativeNetworkProfiles.json`. The
+scripts go through `scripts/native-network-profile.js`, and a unit test holds
+that helper and the TypeScript modules to the same answers.
+
+## Network profiles
+
+One binary speaks one network. `services/NativeNetworkProfiles.json` lists the
+networks the app can be built for, and `EXPO_PUBLIC_QRL_NETWORK_PROFILE` picks
+one at build time:
+
+| Selector | Capability `networkProfile` | Seed blockchain | Chain id and genesis hash |
+|---|---|---|---|
+| `testnet` (also when unset) | `v3-private` | `TEST_NET_V3` | `0x301825`, `0xd154...3ea4` |
+| `mainnet` | `v3-mainnet` | `MAIN_NET_V3` | unset until the network launches |
+
+Every EAS profile sets the selector to `testnet` explicitly. The testnet entry
+keeps the values every earlier release pinned, so its capability record and
+seed backup keys (`seed_backup_v3_TEST_NET_V3_<address>`) are unchanged, and
+the shipped testnet document carries all four markers.
+
+The scripts read the selector from the process environment only. Set it in the
+shell or in the `eas.json` build profile. Expo CLI also bakes `EXPO_PUBLIC_*`
+values from `.env` and `.env*.local` files into the app bundle, and the sync
+and verify scripts read no `.env` file, so a selector kept only there gives a
+bundle for one network and a sync or verify run for another. EAS sets the
+selector in every profile, and a shell value wins over `.env`.
+
+Each network needs its own blockchain id. The v2 ids `TEST_NET` and `MAIN_NET`
+are refused in the table, because seed storage reads backups under them as
+legacy v2 backups.
+
+A network runs only with both its chain id and genesis hash set, in canonical
+lower-case form, and both must differ from the testnet's. Until then a build
+that selects it fails closed everywhere:
+
+- `scripts/sync-embedded-web.sh` stops before it builds anything,
+- `scripts/verify-embedded-web.js` fails, so an EAS build stops at
+  `eas-build-post-install` before it is signed,
+- the app shows the reason and loads no wallet document in any web source
+  mode, advertises null identity in its capability record, and its seed
+  storage accepts no blockchain.
+
+An unknown selector value is refused the same way. Neither case falls back to
+the testnet.
+
+Launching mainnet in the app means:
+
+1. In the frontend, add a mainnet variant of `src/config/embeddedProfile.ts`.
+   Its `build:embedded` takes the whole profile from that file and refuses any
+   `VITE_*` value from the environment, so `VITE_V3_NATIVE_NETWORK=mainnet` and
+   the `VITE_MAINNET_*` pins have to live there. Today the file builds the
+   testnet only.
+2. Give `scripts/reproduce-embedded-web.sh` a network input. It runs a plain
+   `npm run build:embedded` at the pinned commit, so today it can reproduce a
+   mainnet pin only if that frontend commit builds the mainnet by default.
+3. Set `chainId` and `genesisHash` of the `mainnet` entry in
+   `services/NativeNetworkProfiles.json`.
+4. Sync the mainnet document with `EXPO_PUBLIC_QRL_NETWORK_PROFILE=mainnet`
+   exported in the shell, and review the new `PIN.json` (`walletProfile`
+   `v3-mainnet`).
+5. Add an EAS profile that sets the selector to `mainnet`.
 
 ## Binding the bridge to the shipped document
 
@@ -398,7 +469,7 @@ Unknown paths are dropped.
 ## Refreshing the bundled wallet
 
 ```bash
-# builds ../myqrlwallet-frontend at its current checkout
+# builds ../myqrlwallet-frontend at its current checkout, for the testnet
 scripts/sync-embedded-web.sh
 
 # or a specific ref, from a specific checkout

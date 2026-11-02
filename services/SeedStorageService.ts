@@ -30,7 +30,10 @@ const CURRENT_PIN_ACCESSIBILITY_VERSION = 'v2';
 const DEVICE_CREDENTIAL_PATTERN = /^[0-9a-f]{64}$/;
 const CIPHERTEXT_HASH_PATTERN = /^[0-9a-f]{64}$/;
 const LEGACY_Q40_ADDRESS_PATTERN = /^Q[0-9a-fA-F]{40}$/;
-const SUPPORTED_BLOCKCHAINS = new Set<string>([NATIVE_WALLET_BLOCKCHAIN]);
+// One network per binary. A build without a usable network supports none.
+const SUPPORTED_BLOCKCHAINS = new Set<string>(
+  NATIVE_WALLET_BLOCKCHAIN === null ? [] : [NATIVE_WALLET_BLOCKCHAIN],
+);
 const LEGACY_BLOCKCHAINS = new Set(['TEST_NET', 'MAIN_NET']);
 const MAX_ENCRYPTED_SEED_LENGTH = 256 * 1024;
 const MAX_SEED_BACKUPS = 64;
