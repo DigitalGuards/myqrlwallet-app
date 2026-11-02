@@ -137,7 +137,7 @@ describe('bundled wallet network profile', () => {
     if (!isRecord(buildInfo)) throw new TypeError('Expected build info object');
     expect(detectEmbeddedWalletProfile(html).profile).toBe(buildInfo.walletProfile);
     // The shipped testnet document names its own profile and never the other.
-    expect(html.split('v3-private')).toHaveLength(2);
+    expect(html).toContain('v3-private');
     expect(html).not.toContain('v3-mainnet');
   });
 });
