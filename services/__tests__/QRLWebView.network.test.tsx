@@ -25,7 +25,7 @@ if (!isNativeTestRenderer(nativeTestRenderer)) throw new TypeError('Missing nati
 // A document with every testnet marker: the network gate must refuse it anyway.
 const TESTNET_HTML =
   '<!doctype html><html><head><script>var n={chainId:"0x301825",genesisHash:' +
-  '"0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4"};' +
+  '"0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4",networkProfile:"v3-private"};' +
   'var k="qrlwallet:v3:"+key;</script></head><body></body></html>';
 
 jest.mock('react-native-webview', () => {

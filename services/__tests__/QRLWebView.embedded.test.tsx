@@ -27,7 +27,7 @@ const mockWebViewNode = {
 // QRLWebView lets it through. EmbeddedWalletProfile.test.ts covers the gate.
 const V3_MARKERS =
   '<script>var n={chainId:"0x301825",genesisHash:' +
-  '"0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4"};' +
+  '"0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4",networkProfile:"v3-private"};' +
   'var k="qrlwallet:v3:"+key;</script>';
 const EMBEDDED_HTML =
   `<!doctype html><html lang="en"><head><title>wallet</title>${V3_MARKERS}</head><body></body></html>`;
