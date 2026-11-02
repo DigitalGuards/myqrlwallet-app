@@ -9,6 +9,10 @@
 #
 # It is the slow gate, so it runs on its own in CI and on demand locally.
 #
+# It builds the frontend's default embedded profile, which is the testnet.
+# Reproducing a mainnet pin needs a network input here (launch-day work, see
+# docs/EMBEDDED_WEB_WALLET.md, Network profiles).
+#
 # Environment:
 #   FRONTEND_REPO   default https://github.com/DigitalGuards/myqrlwallet-frontend.git
 #   ALLOW_UNREACHABLE_PIN=1

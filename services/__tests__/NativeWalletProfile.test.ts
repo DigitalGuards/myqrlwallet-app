@@ -301,6 +301,20 @@ describe('native network profile table', () => {
     expect(() => parseNativeNetworkTable(raw)).toThrow(TypeError);
   });
 
+  // Seed storage reads backups under the v2 ids as legacy v2 backups.
+  it.each([
+    ['mainnet', 'MAIN_NET', tableWithMainnet({ blockchain: 'MAIN_NET' })],
+    ['mainnet', 'TEST_NET', tableWithMainnet({ blockchain: 'TEST_NET' })],
+    ['testnet', 'TEST_NET', {
+      profiles: { ...NATIVE_NETWORK_TABLE, testnet: { ...NATIVE_NETWORK_TABLE.testnet, blockchain: 'TEST_NET' } },
+    }],
+  ])('rejects a %s entry on the legacy blockchain id %s', (name, id, raw) => {
+    expect(() => parseNativeNetworkTable(raw)).toThrow(new TypeError(
+      `services/NativeNetworkProfiles.json profiles.${name}.blockchain ${id} is a legacy v2 id ` +
+        'that seed storage reserves',
+    ));
+  });
+
   it('advertises networkProfile v3-private with the testnet pins in a default build', () => {
     expect(NATIVE_NETWORK).toEqual({ ok: true, network: NATIVE_NETWORK_TABLE.testnet });
     expect(NATIVE_NETWORK_ERROR).toBeNull();

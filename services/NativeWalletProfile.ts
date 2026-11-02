@@ -64,6 +64,9 @@ const SELECTOR = 'EXPO_PUBLIC_QRL_NETWORK_PROFILE';
 const CHAIN_ID_PATTERN = /^0x[1-9a-f][0-9a-f]*$/;
 const GENESIS_HASH_PATTERN = /^0x[0-9a-f]{64}$/;
 const BLOCKCHAIN_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+// The v2 ids. SeedStorageService reads backups under them as legacy v2
+// backups, so no network in the table may use one.
+const LEGACY_BLOCKCHAINS: readonly string[] = ['TEST_NET', 'MAIN_NET'];
 
 function tableEntry(name: NativeNetworkName, raw: unknown): NativeNetworkProfile {
   const where = `${TABLE_FILE} profiles.${name}`;
@@ -74,6 +77,9 @@ function tableEntry(name: NativeNetworkName, raw: unknown): NativeNetworkProfile
   }
   if (typeof blockchain !== 'string' || !BLOCKCHAIN_PATTERN.test(blockchain)) {
     throw new TypeError(`${where}.blockchain must be an upper-case network id`);
+  }
+  if (LEGACY_BLOCKCHAINS.includes(blockchain)) {
+    throw new TypeError(`${where}.blockchain ${blockchain} is a legacy v2 id that seed storage reserves`);
   }
   if (chainId !== null && typeof chainId !== 'string') {
     throw new TypeError(`${where}.chainId must be a string or null`);

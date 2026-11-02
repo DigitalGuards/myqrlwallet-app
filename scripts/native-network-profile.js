@@ -18,7 +18,11 @@
  * Environment:
  *   EXPO_PUBLIC_QRL_NETWORK_PROFILE   testnet (the default when unset) or
  *                                     mainnet, the same variable the app
- *                                     build reads.
+ *                                     build reads. Read from the process
+ *                                     environment only: set it in the shell
+ *                                     or in the eas.json build profile. A
+ *                                     value in a .env file reaches the Expo
+ *                                     bundle and is invisible to this script.
  *
  * Both commands exit 1 when the selection is unknown or the selected network
  * has no usable pinned chain ID and genesis hash.
@@ -33,6 +37,8 @@ const NETWORK_PROFILE_BY_NAME = { testnet: 'v3-private', mainnet: 'v3-mainnet' }
 const CHAIN_ID_PATTERN = /^0x[1-9a-f][0-9a-f]*$/;
 const GENESIS_HASH_PATTERN = /^0x[0-9a-f]{64}$/;
 const BLOCKCHAIN_PATTERN = /^[A-Z][A-Z0-9_]*$/;
+// The v2 ids. Seed storage reads backups under them as legacy v2 backups.
+const LEGACY_BLOCKCHAINS = ['TEST_NET', 'MAIN_NET'];
 
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -47,6 +53,9 @@ function tableEntry(name, raw) {
   }
   if (typeof blockchain !== 'string' || !BLOCKCHAIN_PATTERN.test(blockchain)) {
     throw new TypeError(`${where}.blockchain must be an upper-case network id`);
+  }
+  if (LEGACY_BLOCKCHAINS.includes(blockchain)) {
+    throw new TypeError(`${where}.blockchain ${blockchain} is a legacy v2 id that seed storage reserves`);
   }
   if (chainId !== null && typeof chainId !== 'string') {
     throw new TypeError(`${where}.chainId must be a string or null`);
@@ -135,6 +144,9 @@ function markersFor(network) {
     { name: 'chain id', literal: network.chainId },
     { name: 'genesis hash', literal: network.genesisHash },
     { name: 'v3 storage prefix', literal: network.storagePrefix },
+    // The literal that tells a testnet document from a mainnet one: every v3
+    // build carries the testnet pins, and one with mainnet pins carries both.
+    { name: 'network profile', literal: network.networkProfile },
   ];
 }
 

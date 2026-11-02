@@ -16,7 +16,9 @@
  * dirty frontend checkout, and a profile that is not the one the native bridge
  * speaks. That profile is the network EXPO_PUBLIC_QRL_NETWORK_PROFILE selects
  * in services/NativeNetworkProfiles.json (testnet when unset), so a build for
- * a network without a pinned chain id and genesis hash fails here too.
+ * a network without a pinned chain id and genesis hash fails here too. The
+ * selector comes from the process environment only (the shell or the eas.json
+ * build profile); this script reads no .env file.
  */
 const { createHash } = require('node:crypto');
 const { readFileSync } = require('node:fs');

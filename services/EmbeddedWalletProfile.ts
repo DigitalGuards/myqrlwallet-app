@@ -24,15 +24,23 @@ import {
  * ## What it looks for
  *
  * The markers of the network this build selected in
- * services/NativeNetworkProfiles.json: its chain id, its genesis hash and its
- * storage prefix. The frontend selects the profile with
- * `VITE_WALLET_PROFILE=v3-private`, which makes its Vite config define
- * `__QRL_NATIVE_NETWORK__` as the native network's chain id and genesis hash.
- * Both literals are compared at runtime by the frontend's own native-context
- * check, so a minifier cannot fold them away, and a build without the profile
- * defines that constant as null and contains neither. The profile also
- * switches every storage key to the "qrlwallet:v3:" prefix, which survives
- * minification as a string literal for the same reason.
+ * services/NativeNetworkProfiles.json: its chain id, its genesis hash, its
+ * storage prefix and its capability profile. The frontend selects the profile
+ * with `VITE_WALLET_PROFILE=v3-private`, which makes its Vite config define
+ * `__QRL_NATIVE_NETWORK__` as the native network's identity. The frontend's
+ * own native-context check compares the chain id, genesis hash and capability
+ * profile with the record the app injects, so a minifier cannot fold those
+ * literals away. A build without the profile defines that constant as null
+ * and carries neither pin. The profile also switches every storage key to the
+ * "qrlwallet:v3:" prefix, which survives minification as a string literal for
+ * the same reason.
+ *
+ * The capability profile (`v3-private` or `v3-mainnet`) is the marker that
+ * tells the networks apart. Every v3 frontend build inlines the testnet chain
+ * id and genesis hash, and a build with the mainnet pins configured carries
+ * those as well, so a document can hold both identities. The frontend's Vite
+ * config resolves the capability profile of its native network at build time,
+ * so a document carries exactly one of the two profile literals.
  *
  * A build whose network has no pinned chain id and genesis hash (the mainnet
  * until it launches) accepts no document at all.
@@ -56,6 +64,7 @@ export const EMBEDDED_MARKER_NAMES: readonly string[] = Object.freeze([
   'chain id',
   'genesis hash',
   'v3 storage prefix',
+  'network profile',
 ]);
 
 /** The literals a document built for this network carries. */
@@ -64,6 +73,7 @@ export function embeddedMarkersFor(network: PinnedNativeNetwork): readonly Embed
     { name: 'chain id', literal: network.chainId },
     { name: 'genesis hash', literal: network.genesisHash },
     { name: 'v3 storage prefix', literal: network.storagePrefix },
+    { name: 'network profile', literal: network.networkProfile },
   ];
 }
 

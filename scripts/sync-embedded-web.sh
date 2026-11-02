@@ -17,7 +17,9 @@
 #   SKIP_INSTALL   set to 1 to skip `npm ci` in the frontend checkout
 #   EXPO_PUBLIC_QRL_NETWORK_PROFILE
 #                  network the app build is for: testnet (default) or mainnet.
-#                  Use the value the EAS build profile sets.
+#                  Use the value the EAS build profile sets, exported in the
+#                  shell. This script reads no .env file, so a selector kept
+#                  only in .env reaches the Expo bundle and misses this sync.
 #
 # The git ref is optional. Given one, the frontend checkout is moved to it
 # first; without one, whatever is checked out there is built. The resolved
@@ -112,13 +114,15 @@ reject_pattern '"/assets/|'"'"'/assets/' 'a /assets/ path in script or style con
 
 # Network profile. A document built for another network, or without the v3
 # profile at all, looks fine until the first privileged bridge call fails, so
-# it is refused here. The markers are the chain id, genesis hash and storage
-# prefix of the selected network in services/NativeNetworkProfiles.json. The
-# frontend compares the first two at runtime, so a minifier cannot remove them.
+# it is refused here. The markers are the chain id, genesis hash, storage
+# prefix and capability profile of the selected network in
+# services/NativeNetworkProfiles.json. The frontend compares the pins and the
+# profile at runtime, so a minifier cannot remove them, and the profile is the
+# one that tells a testnet document from a mainnet one.
 # services/EmbeddedWalletProfile.ts applies the same markers when the app
 # loads the document.
 node "$PROFILE_HELPER" check "$BUILT_HTML" >/dev/null ||
-  fail "the built document was not built for the $WALLET_PROFILE network. Build the frontend with VITE_WALLET_PROFILE=v3-private and its VITE_V3_* settings (a mainnet app also needs VITE_V3_NATIVE_NETWORK=mainnet and the VITE_MAINNET_* pins)."
+  fail "the built document was not built for the $WALLET_PROFILE network. The frontend's build:embedded takes its whole profile from src/config/embeddedProfile.ts and refuses VITE_* overrides from the environment. That file builds the testnet; a mainnet app needs a mainnet variant of it in the frontend (launch-day work)."
 
 BYTES="$(wc -c <"$BUILT_HTML" | tr -d ' ')"
 SHA256="$(sha256sum "$BUILT_HTML" | cut -d' ' -f1)"

@@ -33,6 +33,7 @@ function helper(name: string): (...args: unknown[]) => unknown {
 
 const resolveInScript = helper('resolveNativeNetworkProfile');
 const markersInScript = helper('markersFor');
+const missingInScript = helper('missingMarkers');
 const parseInScript = helper('parseNativeNetworkTable');
 
 function committedTable(): Record<string, unknown> {
@@ -49,6 +50,14 @@ function withMainnet(mainnet: Record<string, unknown>): Record<string, unknown> 
     throw new TypeError('Expected a network table');
   }
   return { ...raw, profiles: { ...raw.profiles, mainnet: { ...raw.profiles.mainnet, ...mainnet } } };
+}
+
+function withTestnet(testnet: Record<string, unknown>): Record<string, unknown> {
+  const raw = committedTable();
+  if (!isRecord(raw.profiles) || !isRecord(raw.profiles.testnet)) {
+    throw new TypeError('Expected a network table');
+  }
+  return { ...raw, profiles: { ...raw.profiles, testnet: { ...raw.profiles.testnet, ...testnet } } };
 }
 
 const MAINNET_PINS = { chainId: '0xabc123', genesisHash: `0x${'7e'.repeat(32)}` };
@@ -90,6 +99,23 @@ describe('build scripts and the app read one network table', () => {
     }
   });
 
+  it('tell a testnet-native document from a mainnet-native one when both carry both identities', () => {
+    const table = parseNativeNetworkTable(withMainnet(MAINNET_PINS));
+    const testnet = selectNativeNetwork('testnet', table);
+    const mainnet = selectNativeNetwork('mainnet', table);
+    if (!testnet.ok || !mainnet.ok) throw new Error('Expected both networks pinned');
+    const both =
+      `VITE_V3_CHAIN_ID:"${testnet.network.chainId}",VITE_V3_GENESIS_HASH:"${testnet.network.genesisHash}",` +
+      `VITE_MAINNET_CHAIN_ID:"${mainnet.network.chainId}",VITE_MAINNET_GENESIS_HASH:"${mainnet.network.genesisHash}",` +
+      `k="${testnet.network.storagePrefix}"+key`;
+    const testnetNative = `${both},n={networkProfile:"v3-private"}`;
+    const mainnetNative = `${both},n={networkProfile:"v3-mainnet"}`;
+    expect(missingInScript(testnetNative, testnet.network)).toEqual([]);
+    expect(missingInScript(testnetNative, mainnet.network)).toEqual(['network profile']);
+    expect(missingInScript(mainnetNative, mainnet.network)).toEqual([]);
+    expect(missingInScript(mainnetNative, testnet.network)).toEqual(['network profile']);
+  });
+
   it.each([
     ['a missing profiles object', { comment: 'x' }],
     ['an unknown profile', { profiles: { ...NATIVE_NETWORK_TABLE, devnet: NATIVE_NETWORK_TABLE.testnet } }],
@@ -98,6 +124,17 @@ describe('build scripts and the app read one network table', () => {
   ])('reject a table with %s', (_label, raw) => {
     expect(() => parseNativeNetworkTable(raw)).toThrow(TypeError);
     expect(() => parseInScript(raw)).toThrow(TypeError);
+  });
+
+  it.each([
+    ['a mainnet', 'MAIN_NET', withMainnet({ blockchain: 'MAIN_NET' })],
+    ['a mainnet', 'TEST_NET', withMainnet({ blockchain: 'TEST_NET' })],
+    ['a testnet', 'TEST_NET', withTestnet({ blockchain: 'TEST_NET' })],
+    ['a testnet', 'MAIN_NET', withTestnet({ blockchain: 'MAIN_NET' })],
+  ])('reject %s on the legacy blockchain id %s', (_label, id, raw) => {
+    const reason = `blockchain ${id} is a legacy v2 id`;
+    expect(() => parseNativeNetworkTable(raw)).toThrow(reason);
+    expect(() => parseInScript(raw)).toThrow(reason);
   });
 
   it('keep no network literal of their own in the sync script', () => {
@@ -164,7 +201,7 @@ describe('native-network-profile.js command line', () => {
   it('refuses a document without the testnet markers', () => {
     const result = run(process.execPath, ['scripts/native-network-profile.js', 'check', 'package.json'], 'testnet');
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('missing: chain id, genesis hash, v3 storage prefix');
+    expect(result.stderr).toContain('missing: chain id, genesis hash, v3 storage prefix, network profile');
   });
 });
 

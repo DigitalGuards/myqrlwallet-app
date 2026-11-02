@@ -57,8 +57,19 @@ const PINNED_MAINNET = pinned(PINNED_MAINNET_SELECTION);
 
 const documentFor = (network: PinnedNativeNetwork) =>
   `<!doctype html><html><head><script>
-     var n={chainId:"${network.chainId}",genesisHash:"${network.genesisHash}"};
+     var n={chainId:"${network.chainId}",genesisHash:"${network.genesisHash}",networkProfile:"${network.networkProfile}"};
      var k="${network.storagePrefix}"+key;
+   </script></head><body></body></html>`;
+
+// What a real v3 frontend build looks like once the mainnet pins are
+// configured: the deployment block inlines both identities whichever network
+// is native, and only the native capability record names the profile.
+const dualIdentityDocumentFor = (native: PinnedNativeNetwork) =>
+  `<!doctype html><html><head><script>
+     var d={VITE_V3_CHAIN_ID:"${TESTNET.chainId}",VITE_V3_GENESIS_HASH:"${TESTNET.genesisHash}",` +
+  `VITE_MAINNET_CHAIN_ID:"${PINNED_MAINNET.chainId}",VITE_MAINNET_GENESIS_HASH:"${PINNED_MAINNET.genesisHash}"};
+     var n={chainId:"${native.chainId}",genesisHash:"${native.genesisHash}",networkProfile:"${native.networkProfile}"};
+     var k="${native.storagePrefix}"+key;
    </script></head><body></body></html>`;
 
 // A build made without VITE_WALLET_PROFILE=v3-private: the network constant is
@@ -82,17 +93,18 @@ describe('bundled wallet network profile', () => {
   it('rejects a document built without the v3 deployment profile', () => {
     const verdict = detectEmbeddedWalletProfile(v2Document());
     expect(verdict.profile).toBe('unknown');
-    expect(verdict.missing).toEqual(['chain id', 'genesis hash', 'v3 storage prefix']);
-    // The testnet message every earlier release showed, word for word.
+    expect(verdict.missing).toEqual(['chain id', 'genesis hash', 'v3 storage prefix', 'network profile']);
+    // The testnet message earlier releases showed, with the network profile
+    // marker added to the missing list.
     expect(embeddedProfileErrorMessage(verdict)).toBe(
       'This app build ships a wallet for the wrong network. It needs TEST_NET_V3 and the ' +
         'bundled wallet does not declare it (missing: chain id, genesis hash, v3 storage ' +
-        'prefix). Install a build whose wallet was synced with scripts/sync-embedded-web.sh ' +
-        'from a v3 frontend build.',
+        'prefix, network profile). Install a build whose wallet was synced with ' +
+        'scripts/sync-embedded-web.sh from a v3 frontend build.',
     );
   });
 
-  it('checks the testnet against the markers it always used', () => {
+  it('checks the testnet against the markers it always used and its capability profile', () => {
     expect(embeddedMarkersFor(TESTNET)).toEqual([
       { name: 'chain id', literal: '0x301825' },
       {
@@ -100,6 +112,7 @@ describe('bundled wallet network profile', () => {
         literal: '0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4',
       },
       { name: 'v3 storage prefix', literal: 'qrlwallet:v3:' },
+      { name: 'network profile', literal: 'v3-private' },
     ]);
     expect(embeddedMarkersFor(TESTNET).map((marker) => marker.name)).toEqual(EMBEDDED_MARKER_NAMES);
   });
@@ -123,6 +136,9 @@ describe('bundled wallet network profile', () => {
     );
     if (!isRecord(buildInfo)) throw new TypeError('Expected build info object');
     expect(detectEmbeddedWalletProfile(html).profile).toBe(buildInfo.walletProfile);
+    // The shipped testnet document names its own profile and never the other.
+    expect(html.split('v3-private')).toHaveLength(2);
+    expect(html).not.toContain('v3-mainnet');
   });
 });
 
@@ -149,7 +165,10 @@ describe('bundled wallet check on a mainnet build', () => {
     const shipped = readFileSync(resolve(projectRoot, 'assets/web/index.html'), 'utf8');
     for (const html of [shipped, documentFor(TESTNET)]) {
       const verdict = detectEmbeddedWalletProfile(html, PINNED_MAINNET_SELECTION);
-      expect(verdict).toEqual({ profile: 'unknown', missing: ['chain id', 'genesis hash'] });
+      expect(verdict).toEqual({
+        profile: 'unknown',
+        missing: ['chain id', 'genesis hash', 'network profile'],
+      });
       const message = embeddedProfileErrorMessage(verdict, PINNED_MAINNET_SELECTION);
       expect(message).toContain('wrong network');
       expect(message).toContain('MAIN_NET_V3');
@@ -158,7 +177,31 @@ describe('bundled wallet check on a mainnet build', () => {
 
   it('refuses a mainnet document on the testnet build', () => {
     const verdict = detectEmbeddedWalletProfile(documentFor(PINNED_MAINNET));
-    expect(verdict).toEqual({ profile: 'unknown', missing: ['chain id', 'genesis hash'] });
+    expect(verdict).toEqual({
+      profile: 'unknown',
+      missing: ['chain id', 'genesis hash', 'network profile'],
+    });
+    expect(embeddedProfileErrorMessage(verdict)).toContain('TEST_NET_V3');
+  });
+});
+
+describe('bundled wallet check on a document carrying both identities', () => {
+  it('passes a testnet-native document on the testnet build only', () => {
+    const html = dualIdentityDocumentFor(TESTNET);
+    expect(detectEmbeddedWalletProfile(html)).toEqual({ profile: 'v3-private', missing: [] });
+    const verdict = detectEmbeddedWalletProfile(html, PINNED_MAINNET_SELECTION);
+    expect(verdict).toEqual({ profile: 'unknown', missing: ['network profile'] });
+    expect(embeddedProfileErrorMessage(verdict, PINNED_MAINNET_SELECTION)).toContain('MAIN_NET_V3');
+  });
+
+  it('passes a mainnet-native document on the pinned mainnet build only', () => {
+    const html = dualIdentityDocumentFor(PINNED_MAINNET);
+    expect(detectEmbeddedWalletProfile(html, PINNED_MAINNET_SELECTION)).toEqual({
+      profile: 'v3-mainnet',
+      missing: [],
+    });
+    const verdict = detectEmbeddedWalletProfile(html);
+    expect(verdict).toEqual({ profile: 'unknown', missing: ['network profile'] });
     expect(embeddedProfileErrorMessage(verdict)).toContain('TEST_NET_V3');
   });
 });
