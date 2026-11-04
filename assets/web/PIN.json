@@ -1,9 +1,9 @@
 {
   "comment": "Reviewed pin for the wallet document shipped in assets/web/index.html. A build verifies the file against this before it is packaged, so changing the wallet requires changing this file in a reviewed commit.",
-  "frontendCommit": "d4395a164aceaad45c9000b5c9887875b226fffe",
+  "frontendCommit": "ae325f8c418e6134688465ae6adc8d3397bf9276",
   "frontendTag": "",
-  "frontendRef": "dev at d4395a1 (#428 token form validation, #429 input limits). A squash merge keeps this commit reachable on dev.",
+  "frontendRef": "main at ae325f8 (release #438: the Back control on sub-pages and @theqrl/web3 2.0.0), the build live on qrlwallet.com. A merge commit on main stays reachable.",
   "walletProfile": "v3-private",
-  "sha256": "ecec697a3317eaa05f4bba1b5410ff070f32219c839f45e5ada3fd704ff635b0",
-  "bytes": 4005481
+  "sha256": "1838b2009604c8592d82048fe131acc5a034d2df6a26230c403abc175cb46d42",
+  "bytes": 4051837
 }
