@@ -1,10 +1,12 @@
 name: CI
 
+# Each change is tested once, on its pull request. The weekly run surfaces drift
+# in the registry and the external pins.
 on:
-  push:
-    branches: [main, dev]
   pull_request:
     branches: [main, dev]
+  schedule:
+    - cron: "0 3 * * 1"
   workflow_dispatch:
     inputs:
       allow_unreachable_pin:
@@ -20,23 +22,34 @@ on:
 permissions:
   contents: read
 
+# The weekly run tests dev, where changes land first. Scheduled runs read this
+# file from main.
+env:
+  TEST_REF: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     strategy:
       matrix:
-        node-version: [20.x]
+        node-version: [22.x]
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.TEST_REF }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -44,33 +57,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit production dependencies
-        run: node scripts/audit-gate.mjs
-
       - name: Verify the bundled wallet document against its reviewed pin
         run: npm run verify:embedded-web
 
-      - name: Run lint
-        run: npm run lint
-
-      - name: Check lint ratchet
+      # lint:ratchet starts with the same ESLint command as npm run lint.
+      - name: Lint and check the lint ratchet
         env:
-          LINT_RATCHET_PR_BASE: ${{ github.event.pull_request.base.sha }}
-          LINT_RATCHET_PUSH_BASE: ${{ github.event.before }}
+          LINT_RATCHET_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          case "$GITHUB_EVENT_NAME" in
-            pull_request) LINT_RATCHET_BASE="$LINT_RATCHET_PR_BASE" ;;
-            push) LINT_RATCHET_BASE="$LINT_RATCHET_PUSH_BASE" ;;
-            *) LINT_RATCHET_BASE="" ;;
-          esac
-          if [ -z "$LINT_RATCHET_BASE" ] || [ "$LINT_RATCHET_BASE" = "0000000000000000000000000000000000000000" ]; then
+          if [ -n "$LINT_RATCHET_BASE" ]; then
+            git fetch --no-tags origin "$LINT_RATCHET_BASE"
+          else
             git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev
             LINT_RATCHET_BASE="$(git merge-base HEAD origin/dev)"
             if [ "$LINT_RATCHET_BASE" = "$(git rev-parse HEAD)" ]; then
               LINT_RATCHET_BASE="$(git rev-parse HEAD^1)"
             fi
-          else
-            git fetch --no-tags origin "$LINT_RATCHET_BASE"
           fi
           npm run lint:ratchet -- --base-ref "$LINT_RATCHET_BASE"
 
@@ -83,23 +85,40 @@ jobs:
       - name: Export iOS, Android, and web bundles
         run: npm run build
 
+      # Blocking when a pull request changes the dependencies or the Expo config,
+      # and on the weekly run. Otherwise a new Expo patch release would fail
+      # pull requests that changed neither, so it only warns.
       - name: Expo doctor
-        run: npx expo-doctor
-        continue-on-error: true
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$PR_BASE" ] && git diff --quiet "$PR_BASE" HEAD -- package.json package-lock.json app.json; then
+            npx expo-doctor || echo "::warning::Expo doctor found drift this pull request did not cause."
+          else
+            npx expo-doctor
+          fi
+
+      # Last, so a failing audit can never skip the checks above.
+      - name: Audit production dependencies
+        run: node scripts/audit-gate.mjs
 
   reproduce-embedded-wallet:
     # Proves the pinned digest corresponds to public frontend source, not just
-    # that the committed blob is unchanged. Slow, so it runs on its own.
+    # that the committed blob is unchanged. It runs on its own.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TEST_REF }}
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 20.x
+          node-version: 22.x
 
       - name: Rebuild the pinned wallet document and compare digests
         # Fails closed. The pinned frontend commit is public, so it is
