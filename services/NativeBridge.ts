@@ -15,9 +15,8 @@ import { isQrlAddress } from './QrlAddress';
 import { isRecord } from './guards';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
-import { i18n } from '../i18n';
 import { isLanguage, type Language } from '../i18n/languages';
-import { applyLanguage, restoreLanguagePreference } from '../i18n/preference';
+import { applyLanguage, restoreLanguagePreference, savedLanguagePreference } from '../i18n/preference';
 
 export const NATIVE_PIN_COMMIT_ERROR = 'Native secure PIN commit failed';
 export const NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR = 'Native PIN change outcome is ambiguous';
@@ -220,7 +219,8 @@ export type NativeToWebMessageType =
   | 'RESTORE_CONTACTS' // Send the backed-up address book to the web wallet
   | 'NAVIGATE' // Ask the web wallet to navigate to an in-app route
   | 'NATIVE_BACK' // Android hardware back: close a modal, go back, or answer at root
-  | 'SET_LANGUAGE'; // The app's language for the web wallet to follow
+  | 'SET_LANGUAGE' // The app's saved language for the web wallet to follow
+  | 'REQUEST_LANGUAGE'; // Nothing saved: the web wallet reports its language
 
 /**
  * A message from the WebView. `type` is wire input: `handle()` validates it and
@@ -326,6 +326,7 @@ class NativeBridge {
   private biometricUnlockCallback: BiometricUnlockCallback | null = null;
   private seedStoredCallback: SeedStoredCallback | null = null;
   private webAppReadyCallback: WebAppReadyCallback | null = null;
+  private languageAwaitingEcho: Language | null = null;
   private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
   private walletClearedCallback: WalletClearedCallback | null = null;
   private walletClearStartedCallback: WalletClearStartedCallback | null = null;
@@ -684,6 +685,7 @@ class NativeBridge {
     Logger.debug('NativeBridge', 'Resetting web app ready state');
     Diagnostics.event('NativeBridge', 'web document reset');
     this.isWebAppReady = false;
+    this.languageAwaitingEcho = null;
     this.nativeAuthorized = false;
     this.authorizedSyncDocumentGeneration = -1;
     this.activeDocumentId = null;
@@ -917,18 +919,21 @@ class NativeBridge {
    */
   setLanguage(language: Language): Promise<void> {
     const saved = applyLanguage(language);
-    this.sendToWeb({ type: 'SET_LANGUAGE', payload: { language } });
+    this.languageAwaitingEcho = this.sendToWeb({ type: 'SET_LANGUAGE', payload: { language } }) ? language : null;
     return saved;
   }
 
   /**
-   * The app's language leads the wallet's, as the Home card toggles do: the
-   * wallet can lose its storage or miss a choice made while it was not ready.
+   * A saved language leads the wallet's, as the Home card toggles do: the wallet
+   * can lose its storage or miss a choice made while it was not ready. With
+   * nothing saved the wallet's language counts, and its startup report can arrive
+   * before the handshake, so the bridge asks for it here.
    */
-  private async sendLanguageToDocument(documentId: string): Promise<void> {
+  private async syncLanguageWithDocument(documentId: string): Promise<void> {
     await restoreLanguagePreference();
-    if (this.activeDocumentId !== documentId || !isLanguage(i18n.language)) return;
-    this.sendToWeb({ type: 'SET_LANGUAGE', payload: { language: i18n.language } });
+    if (this.activeDocumentId !== documentId) return;
+    const language = savedLanguagePreference();
+    this.sendToWeb(language ? { type: 'SET_LANGUAGE', payload: { language } } : { type: 'REQUEST_LANGUAGE' });
   }
 
   /**
@@ -1041,6 +1046,12 @@ class NativeBridge {
       case 'LANGUAGE_CHANGED': {
         if (!isLanguage(payload?.language)) {
           Logger.warn('NativeBridge', 'LANGUAGE_CHANGED has an unsupported language');
+          return;
+        }
+        // While a Settings choice waits for its echo, any other report is a stale
+        // echo or the wallet's catalog fallback. Only the choice counts.
+        if (this.languageAwaitingEcho !== null) {
+          if (payload.language === this.languageAwaitingEcho) this.languageAwaitingEcho = null;
           return;
         }
         await applyLanguage(payload.language);
@@ -1394,7 +1405,6 @@ class NativeBridge {
         this.isWebAppReady = true;
         this.flushPendingDAppIntent();
         this.flushWebAppReadyResolvers('resolve');
-        void this.sendLanguageToDocument(documentId);
 
         if (pendingWipe) {
           try {
@@ -1405,6 +1415,7 @@ class NativeBridge {
           return;
         }
 
+        void this.syncLanguageWithDocument(documentId);
         await this.synchronizeAuthorizedDocument();
         break;
       }

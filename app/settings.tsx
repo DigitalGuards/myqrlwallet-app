@@ -81,9 +81,11 @@ type RowProps = {
   right?: React.ReactNode;
   onPress?: () => void;
   destructive?: boolean;
+  /** Set on a row that opens more rows in place. */
+  expanded?: boolean;
 };
 
-function Row({ icon, tint, iconColor = '#ffffff', title, subtitle, right, onPress, destructive }: RowProps) {
+function Row({ icon, tint, iconColor = '#ffffff', title, subtitle, right, onPress, destructive, expanded }: RowProps) {
   const content = (
     <View style={styles.row}>
       <View style={[styles.tile, { backgroundColor: tint }]}>
@@ -111,7 +113,11 @@ function Row({ icon, tint, iconColor = '#ffffff', title, subtitle, right, onPres
 
   if (onPress) {
     return (
-      <TouchableOpacity activeOpacity={0.6} onPress={onPress}>
+      <TouchableOpacity
+        activeOpacity={0.6}
+        onPress={onPress}
+        {...(expanded === undefined ? {} : { accessibilityRole: 'button' as const, accessibilityState: { expanded } })}
+      >
         {content}
       </TouchableOpacity>
     );
@@ -588,25 +594,30 @@ export default function SettingsScreen() {
               </View>
             }
             onPress={() => setLanguageListOpen((open) => !open)}
+            expanded={languageListOpen}
           />
-          {languageListOpen
-            ? supportedLanguages.map((language) => (
-                <TouchableOpacity
-                  key={language}
-                  activeOpacity={0.6}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: language === currentLanguage }}
-                  onPress={() => handleLanguageChoice(language)}
-                >
-                  <View style={styles.languageOption}>
-                    <Text style={styles.rowTitle}>{languageNames[language]}</Text>
-                    {language === currentLanguage ? (
-                      <Ionicons name="checkmark" size={20} color={C.brandBlue} />
-                    ) : null}
-                  </View>
-                </TouchableOpacity>
-              ))
-            : null}
+          {languageListOpen ? (
+            <View accessibilityRole="radiogroup">
+              {supportedLanguages.map((language, index) => (
+                <React.Fragment key={language}>
+                  {index > 0 ? <View style={styles.divider} /> : null}
+                  <TouchableOpacity
+                    activeOpacity={0.6}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: language === currentLanguage }}
+                    onPress={() => handleLanguageChoice(language)}
+                  >
+                    <View style={styles.languageOption}>
+                      <Text style={styles.rowTitle}>{languageNames[language]}</Text>
+                      {language === currentLanguage ? (
+                        <Ionicons name="checkmark" size={20} color={C.brandBlue} />
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                </React.Fragment>
+              ))}
+            </View>
+          ) : null}
         </Section>
 
         {/* Display */}

@@ -109,6 +109,20 @@ describe('Settings language row', () => {
     expect(shown.filter(isChecked).map(textOf)).toEqual(['Deutsch']);
   });
 
+  it('tells assistive technology the row expands and the options form a group', async () => {
+    const state = () => {
+      const props: Record<string, unknown> = row().findAll(
+        node => node.props.accessibilityRole === 'button',
+        { deep: false },
+      )[0]?.props ?? {};
+      return props.accessibilityState;
+    };
+    expect(state()).toEqual({ expanded: false });
+    await press(row());
+    expect(state()).toEqual({ expanded: true });
+    expect(screen.root.findAll(node => node.props.accessibilityRole === 'radiogroup', { deep: false })).toHaveLength(1);
+  });
+
   it('asks the bridge to change the language and closes the list', async () => {
     await press(row());
     await pressOption('Русский');
