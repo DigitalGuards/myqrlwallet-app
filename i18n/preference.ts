@@ -4,19 +4,19 @@ import { i18n } from './index';
 import { isLanguage } from './languages';
 
 export const LANGUAGE_STORAGE_KEY = 'native_wallet_language';
-let webRevision = 0;
+let liveRevision = 0;
 let restore: Promise<void> | undefined;
 let writes = Promise.resolve();
 
-/** A live web report wins over a storage read that started earlier. */
+/** A live change wins over a storage read that started earlier. */
 export function restoreLanguagePreference(): Promise<void> {
-  if (webRevision > 0) return Promise.resolve();
+  if (liveRevision > 0) return Promise.resolve();
   if (restore) return restore;
-  const revision = webRevision;
+  const revision = liveRevision;
   restore = (async () => {
     try {
       const stored = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY);
-      if (revision === webRevision && isLanguage(stored)) {
+      if (revision === liveRevision && isLanguage(stored)) {
         await i18n.changeLanguage(stored);
       }
     } catch {
@@ -26,10 +26,10 @@ export function restoreLanguagePreference(): Promise<void> {
   return restore;
 }
 
-/** Called only after the bridge authenticates its document and validates the payload. */
-export function applyWebLanguage(value: unknown): Promise<void> {
+/** The Settings screen's choice, or a report the bridge has authenticated and validated. */
+export function applyLanguage(value: unknown): Promise<void> {
   if (!isLanguage(value)) return Promise.resolve();
-  webRevision += 1;
+  liveRevision += 1;
   // Bundled resources make the visible change synchronous, independent of storage.
   void i18n.changeLanguage(value);
   writes = writes.then(async () => {

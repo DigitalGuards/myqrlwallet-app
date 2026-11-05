@@ -30,6 +30,8 @@
     "general": "General",
     "notifications": "Notifications",
     "notificationsHint": "Transaction alerts and app updates",
+    "language": "Language",
+    "languageHint": "Choose the language used by the wallet",
     "display": "Display",
     "tokens": "Show Tokens Card",
     "tokensHint": "Show the Tokens section on the Home screen",

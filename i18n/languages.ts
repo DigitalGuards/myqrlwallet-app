@@ -1,6 +1,15 @@
 export const supportedLanguages = ['en', 'de', 'es', 'ru', 'zh-CN'] as const;
 export type Language = (typeof supportedLanguages)[number];
 
+/** Each language under its own name, whatever language the screen is in. */
+export const languageNames: Record<Language, string> = {
+  en: 'English',
+  de: 'Deutsch',
+  es: 'Español',
+  ru: 'Русский',
+  'zh-CN': '简体中文',
+};
+
 export function isLanguage(value: unknown): value is Language {
   return supportedLanguages.some(language => language === value);
 }

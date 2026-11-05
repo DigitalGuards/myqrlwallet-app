@@ -43,8 +43,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NativeBridge from '../NativeBridge';
 import { parseBridgeMessage } from '../BridgeMessage';
 import { i18n } from '../../i18n';
+import * as preference from '../../i18n/preference';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/preference';
 import { supportedLanguages } from '../../i18n/languages';
+import type WebView from 'react-native-webview';
 
 const DOCUMENT_ID = 'de'.repeat(16);
 const storage = jest.mocked(AsyncStorage);
@@ -124,4 +126,105 @@ it('switches again without resetting document or authorization state', async () 
   expect(i18n.language).toBe('es');
   expect(NativeBridge.captureSecurityContext()).toEqual(context);
   expect(storage.setItem.mock.calls.map(call => call[1])).toEqual(['de', 'es']);
+});
+
+describe('the app language leads the wallet', () => {
+  const flush = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };
+  const sentLanguages = (send: jest.SpyInstance) =>
+    send.mock.calls
+      .map(([message]: [{ type: string; payload?: Record<string, unknown> }]) => message)
+      .filter(message => message.type === 'SET_LANGUAGE')
+      .map(message => message.payload?.language);
+
+  async function activate() {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockReturnValue(true);
+    await NativeBridge.handle({ type: 'WEB_APP_READY', payload: { documentId: DOCUMENT_ID } });
+    const challengeId = send.mock.calls.map(([message]) => message).find(
+      message => message.type === 'WEB_DOCUMENT_CHALLENGE',
+    )?.payload?.challengeId;
+    await NativeBridge.handle({ type: 'WEB_DOCUMENT_READY', payload: { documentId: DOCUMENT_ID, challengeId } });
+    return send;
+  }
+
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  it('changes native views, saves the choice and tells the current document', async () => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockReturnValue(true);
+    await NativeBridge.setLanguage('ru');
+    expect(i18n.language).toBe('ru');
+    expect(storage.setItem).toHaveBeenCalledWith(LANGUAGE_STORAGE_KEY, 'ru');
+    expect(sentLanguages(send)).toEqual(['ru']);
+  });
+
+  it('sends the real message with the document envelope', async () => {
+    const injectJavaScript = jest.fn((_script: string) => undefined);
+    const webView: WebView = {
+      injectJavaScript,
+      goBack: jest.fn(),
+      goForward: jest.fn(),
+      reload: jest.fn(),
+      stopLoading: jest.fn(),
+      requestFocus: jest.fn(),
+      postMessage: jest.fn(),
+      clearCache: jest.fn(),
+      props: {},
+      state: {},
+      context: undefined,
+      setState: jest.fn(),
+      forceUpdate: jest.fn(),
+      render: jest.fn(() => null),
+    };
+    NativeBridge.setWebViewRef({ current: webView });
+    await NativeBridge.setLanguage('de');
+    const script = injectJavaScript.mock.calls.at(-1)?.[0];
+    expect(script).toContain('SET_LANGUAGE');
+    expect(script).toContain(DOCUMENT_ID);
+    NativeBridge.setWebViewRef({ current: null });
+  });
+
+  it('keeps a choice made with no active document and delivers it on activation', async () => {
+    NativeBridge.resetWebAppReady();
+    await NativeBridge.setLanguage('es');
+    expect(i18n.language).toBe('es');
+    expect(storage.setItem).toHaveBeenCalledWith(LANGUAGE_STORAGE_KEY, 'es');
+    const send = await activate();
+    await flush();
+    expect(sentLanguages(send)).toEqual(['es']);
+  });
+
+  it('sends the language to every document that activates', async () => {
+    await i18n.changeLanguage('zh-CN');
+    NativeBridge.resetWebAppReady();
+    const send = await activate();
+    await flush();
+    expect(sentLanguages(send)).toEqual(['zh-CN']);
+  });
+
+  it('does not send to a document that was replaced before the language was ready', async () => {
+    let restored: () => void = () => undefined;
+    jest.spyOn(preference, 'restoreLanguagePreference').mockReturnValue(new Promise<void>(resolve => {
+      restored = resolve;
+    }));
+    NativeBridge.resetWebAppReady();
+    const send = await activate();
+    NativeBridge.resetWebAppReady();
+    restored();
+    await flush();
+    expect(sentLanguages(send)).toEqual([]);
+  });
+
+  it('waits for the saved language before telling a new document', async () => {
+    let restored: () => void = () => undefined;
+    jest.spyOn(preference, 'restoreLanguagePreference').mockReturnValue(new Promise<void>(resolve => {
+      restored = resolve;
+    }));
+    NativeBridge.resetWebAppReady();
+    const send = await activate();
+    await flush();
+    expect(sentLanguages(send)).toEqual([]);
+    await i18n.changeLanguage('ru');
+    restored();
+    await flush();
+    expect(sentLanguages(send)).toEqual(['ru']);
+  });
 });

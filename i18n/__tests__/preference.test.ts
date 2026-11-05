@@ -31,7 +31,7 @@ it('keeps a web report when a slow startup storage read completes', async () => 
   let finishRead: ((value: string) => void) | undefined;
   app.storage.getItem.mockReturnValue(new Promise(resolve => { finishRead = resolve; }));
   const restoring = app.restoreLanguagePreference();
-  await app.applyWebLanguage('zh-CN');
+  await app.applyLanguage('zh-CN');
   finishRead?.('ru');
   await restoring;
   expect(app.i18n.language).toBe('zh-CN');
@@ -41,7 +41,7 @@ it('keeps a web report when a slow startup storage read completes', async () => 
 it('keeps a web report received before restoration starts', async () => {
   const app = load();
   app.storage.getItem.mockResolvedValue('de');
-  await app.applyWebLanguage('ru');
+  await app.applyLanguage('ru');
   await app.restoreLanguagePreference();
   expect(app.i18n.language).toBe('ru');
   expect(app.storage.getItem).not.toHaveBeenCalled();
@@ -51,10 +51,10 @@ it('applies each report immediately and persists overlapping choices in order', 
   const app = load();
   let finishWrite: (() => void) | undefined;
   app.storage.setItem.mockImplementationOnce(() => new Promise(resolve => { finishWrite = resolve; }));
-  const first = app.applyWebLanguage('de');
+  const first = app.applyLanguage('de');
   expect(app.i18n.language).toBe('de');
   await Promise.resolve();
-  const second = app.applyWebLanguage('es');
+  const second = app.applyLanguage('es');
   expect(app.i18n.language).toBe('es');
   expect(app.storage.setItem).toHaveBeenCalledTimes(1);
   finishWrite?.();
@@ -69,18 +69,18 @@ it('retains live changes through storage failure and allows a later write', asyn
   app.storage.getItem.mockRejectedValueOnce(new Error('read failed'));
   await app.restoreLanguagePreference();
   app.storage.setItem.mockRejectedValueOnce(new Error('write failed'));
-  await app.applyWebLanguage('de');
+  await app.applyLanguage('de');
   expect(app.i18n.language).toBe('de');
-  await app.applyWebLanguage('es');
+  await app.applyLanguage('es');
   expect(app.storage.setItem).toHaveBeenLastCalledWith(app.LANGUAGE_STORAGE_KEY, 'es');
 });
 
 it('ignores invalid values without changing language or writing storage', async () => {
   const app = load();
-  await app.applyWebLanguage('ru');
+  await app.applyLanguage('ru');
   app.storage.setItem.mockClear();
   for (const value of [undefined, null, {}, [], 1, 'fr', 'zh-Hans', 'de-DE']) {
-    await app.applyWebLanguage(value);
+    await app.applyLanguage(value);
   }
   expect(app.i18n.language).toBe('ru');
   expect(app.storage.setItem).not.toHaveBeenCalled();

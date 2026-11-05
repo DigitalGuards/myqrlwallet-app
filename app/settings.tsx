@@ -1,4 +1,5 @@
-import { t } from '../i18n';
+import { i18n, t } from '../i18n';
+import { isLanguage, languageNames, supportedLanguages, type Language } from '../i18n/languages';
 import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -150,6 +151,8 @@ export default function SettingsScreen() {
   const [changePinAction, setChangePinAction] = useState<SettingsSecurityAction | null>(null);
   const [deviceLoginAction, setDeviceLoginAction] = useState<SettingsSecurityAction | null>(null);
   const [dappConnectionCount, setDappConnectionCount] = useState(0);
+  const [languageListOpen, setLanguageListOpen] = useState(false);
+  const currentLanguage: Language = isLanguage(i18n.language) ? i18n.language : 'en';
   const appVersion = Constants.expoConfig?.version || '1.0.0';
   // Which wallet the app is running and, when it ships one, which frontend
   // commit it was built from. Makes a device report say what code was on it.
@@ -285,6 +288,11 @@ export default function SettingsScreen() {
     setPreferences(updatedPreferences);
     await WebViewService.saveUserPreferences(updatedPreferences);
     NativeBridge.sendDisplayPrefs({ [key]: value });
+  };
+
+  const handleLanguageChoice = (language: Language) => {
+    setLanguageListOpen(false);
+    if (language !== currentLanguage) void NativeBridge.setLanguage(language);
   };
 
   const handleDeviceLoginToggle = async (newValue: boolean) => {
@@ -564,6 +572,41 @@ export default function SettingsScreen() {
               />
             }
           />
+          <Row
+            icon="language"
+            tint={C.blue}
+            title={t('settings.language')}
+            subtitle={t('settings.languageHint')}
+            right={
+              <View style={styles.rowRightInline}>
+                <Text style={styles.languageValue}>{languageNames[currentLanguage]}</Text>
+                <Ionicons
+                  name={languageListOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={C.chevron}
+                />
+              </View>
+            }
+            onPress={() => setLanguageListOpen((open) => !open)}
+          />
+          {languageListOpen
+            ? supportedLanguages.map((language) => (
+                <TouchableOpacity
+                  key={language}
+                  activeOpacity={0.6}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: language === currentLanguage }}
+                  onPress={() => handleLanguageChoice(language)}
+                >
+                  <View style={styles.languageOption}>
+                    <Text style={styles.rowTitle}>{languageNames[language]}</Text>
+                    {language === currentLanguage ? (
+                      <Ionicons name="checkmark" size={20} color={C.brandBlue} />
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              ))
+            : null}
         </Section>
 
         {/* Display */}
@@ -870,6 +913,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  languageValue: {
+    fontSize: 14,
+    color: C.textSecondary,
+  },
+  languageOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingLeft: 60,
+    paddingRight: 14,
+    minHeight: 48,
   },
   divider: {
     height: StyleSheet.hairlineWidth,

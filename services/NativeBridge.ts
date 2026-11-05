@@ -15,8 +15,9 @@ import { isQrlAddress } from './QrlAddress';
 import { isRecord } from './guards';
 import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
-import { isLanguage } from '../i18n/languages';
-import { applyWebLanguage } from '../i18n/preference';
+import { i18n } from '../i18n';
+import { isLanguage, type Language } from '../i18n/languages';
+import { applyLanguage, restoreLanguagePreference } from '../i18n/preference';
 
 export const NATIVE_PIN_COMMIT_ERROR = 'Native secure PIN commit failed';
 export const NATIVE_PIN_CHANGE_AMBIGUOUS_ERROR = 'Native PIN change outcome is ambiguous';
@@ -218,7 +219,8 @@ export type NativeToWebMessageType =
   | 'SET_DISPLAY_PREFS' // Set Home card visibility (showTokensCard / showNftsCard)
   | 'RESTORE_CONTACTS' // Send the backed-up address book to the web wallet
   | 'NAVIGATE' // Ask the web wallet to navigate to an in-app route
-  | 'NATIVE_BACK'; // Android hardware back: close a modal, go back, or answer at root
+  | 'NATIVE_BACK' // Android hardware back: close a modal, go back, or answer at root
+  | 'SET_LANGUAGE'; // The app's language for the web wallet to follow
 
 /**
  * A message from the WebView. `type` is wire input: `handle()` validates it and
@@ -910,6 +912,26 @@ class NativeBridge {
   }
 
   /**
+   * The Settings screen chose a language. Native views change at once and the
+   * web wallet follows. A document that is not ready gets it when it activates.
+   */
+  setLanguage(language: Language): Promise<void> {
+    const saved = applyLanguage(language);
+    this.sendToWeb({ type: 'SET_LANGUAGE', payload: { language } });
+    return saved;
+  }
+
+  /**
+   * The app's language leads the wallet's, as the Home card toggles do: the
+   * wallet can lose its storage or miss a choice made while it was not ready.
+   */
+  private async sendLanguageToDocument(documentId: string): Promise<void> {
+    await restoreLanguagePreference();
+    if (this.activeDocumentId !== documentId || !isLanguage(i18n.language)) return;
+    this.sendToWeb({ type: 'SET_LANGUAGE', payload: { language: i18n.language } });
+  }
+
+  /**
    * Unregister wallet cleared callback
    */
   offWalletCleared() {
@@ -1021,7 +1043,7 @@ class NativeBridge {
           Logger.warn('NativeBridge', 'LANGUAGE_CHANGED has an unsupported language');
           return;
         }
-        await applyWebLanguage(payload.language);
+        await applyLanguage(payload.language);
         break;
       }
 
@@ -1372,6 +1394,7 @@ class NativeBridge {
         this.isWebAppReady = true;
         this.flushPendingDAppIntent();
         this.flushWebAppReadyResolvers('resolve');
+        void this.sendLanguageToDocument(documentId);
 
         if (pendingWipe) {
           try {
