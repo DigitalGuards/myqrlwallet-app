@@ -12,10 +12,11 @@ import { resolve } from 'node:path';
 import BiometricService from '../BiometricService';
 import SeedStorageService from '../SeedStorageService';
 import { authorizeWalletRemoval } from '../WalletRemoval';
+import english from '../../locales/en/native.json';
 
 describe('wallet removal authorization', () => {
-  const required = jest.mocked(SeedStorageService.requiresWalletRemovalAuthentication);
-  const authenticate = jest.mocked(BiometricService.authenticate);
+  const required = jest.spyOn(SeedStorageService, 'requiresWalletRemovalAuthentication');
+  const authenticate = jest.spyOn(BiometricService, 'authenticate');
 
   beforeEach(() => jest.resetAllMocks());
 
@@ -45,9 +46,11 @@ describe('wallet removal authorization', () => {
   it('checks both-profile authorization before displaying destructive confirmation', () => {
     const source = readFileSync(resolve(__dirname, '../../app/settings.tsx'), 'utf8');
     const removal = source.slice(source.indexOf('const removeWallet = async'));
-    expect(removal.indexOf('await authorizeWalletRemoval()')).toBeLessThan(
-      removal.indexOf("'Remove All Wallets'")
-    );
-    expect(removal).toContain('including preserved earlier wallet backups');
+    const authorization = removal.indexOf('await authorizeWalletRemoval(');
+    const confirmation = removal.indexOf("t('settings.removeAll')");
+    expect(authorization).toBeGreaterThanOrEqual(0);
+    expect(confirmation).toBeGreaterThan(authorization);
+    expect(removal).toContain("t('settings.removeWarning')");
+    expect(english.settings.removeWarning).toContain('including preserved earlier wallet backups');
   });
 });

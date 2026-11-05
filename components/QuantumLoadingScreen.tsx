@@ -1,4 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import type { NativeKey } from '../i18n/nativeMessage';
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,15 +12,16 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LOGO_IMAGE } from '../constants/Assets';
 
 const { width, height } = Dimensions.get('window');
 
 // Boot messages, cycled while no customMessage is set.
-const LOADING_MESSAGES = [
-  'Waking your wallet...',
-  'Establishing post-quantum encryption...',
-  'Connecting to the QRL network...',
-  'Loading your accounts...',
+const LOADING_MESSAGES: readonly NativeKey[] = [
+  'loading.waking',
+  'loading.encryption',
+  'loading.connecting',
+  'loading.accounts',
 ];
 
 // QRL Blue palette (mirrors the web wallet tokens).
@@ -45,7 +49,7 @@ type EmberSpec = {
  * on the native driver.
  */
 const Ember: React.FC<{ spec: EmberSpec }> = ({ spec }) => {
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     let loop: Animated.CompositeAnimation | null = null;
@@ -99,7 +103,7 @@ const Ember: React.FC<{ spec: EmberSpec }> = ({ spec }) => {
 
 interface QuantumLoadingScreenProps {
   visible: boolean;
-  customMessage?: string; // When set, display this instead of cycling messages
+  customMessage?: string | undefined; // When set, display this instead of cycling messages
   /**
    * Real load fraction (0..1). When provided the bar is determinate;
    * without it an indeterminate sky-blue beam sweeps the track.
@@ -112,12 +116,13 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
   customMessage,
   progress,
 }) => {
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const logoScale = useRef(new Animated.Value(0.9)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const messageOpacity = useRef(new Animated.Value(1)).current;
-  const beamPosition = useRef(new Animated.Value(0)).current;
-  const fillScale = useRef(new Animated.Value(0)).current;
+  useNativeLanguage();
+  const [fadeAnim] = useState(() => new Animated.Value(1));
+  const [logoScale] = useState(() => new Animated.Value(0.9));
+  const [logoOpacity] = useState(() => new Animated.Value(0));
+  const [messageOpacity] = useState(() => new Animated.Value(1));
+  const [beamPosition] = useState(() => new Animated.Value(0));
+  const [fillScale] = useState(() => new Animated.Value(0));
   const [messageIndex, setMessageIndex] = useState(0);
 
   const [embers] = useState<EmberSpec[]>(() =>
@@ -212,7 +217,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
   useEffect(() => {
     if (!isDeterminate) return;
     Animated.timing(fillScale, {
-      toValue: Math.min(Math.max(progress ?? 0, 0), 1),
+      toValue: Math.min(Math.max(progress, 0), 1),
       duration: 260,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
@@ -270,13 +275,13 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
           }}
         >
           <Image
-            source={require('../assets/images/myqrlwallet/mqrlwallet.png')}
+            source={LOGO_IMAGE}
             style={styles.logo}
             resizeMode="contain"
           />
         </Animated.View>
 
-        <Text style={styles.subtitle}>Post-Quantum Secure</Text>
+        <Text style={styles.subtitle}>{t('loading.secure')}</Text>
 
         <View style={styles.track}>
           {isDeterminate ? (
@@ -305,7 +310,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
           <Animated.Text
             style={[styles.loadingMessage, { opacity: messageOpacity }]}
           >
-            {customMessage || LOADING_MESSAGES[messageIndex]}
+            {customMessage || t(LOADING_MESSAGES[messageIndex] ?? 'loading.waking')}
           </Animated.Text>
         </View>
       </View>
@@ -315,7 +320,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: INK,
     justifyContent: 'center',
     alignItems: 'center',

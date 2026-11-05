@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "This app needs camera access to scan QR codes for wallet addresses.",
+    "NSFaceIDUsageDescription": "Allow MyQRLWallet to use Face ID to secure your wallet."
+  }
+}

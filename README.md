@@ -75,6 +75,8 @@ npm install
 npm start
 ```
 
+CI runs `node scripts/audit-gate.mjs` immediately after `npm ci` to check production dependencies for high and critical advisories. Exceptions in `audit-allowlist.json` require a reachability reason and an expiry within 90 days of review.
+
 ### Running the App
 
 ```bash
@@ -135,6 +137,7 @@ myqrlwallet-app/
 | Message | Payload | Description |
 |---------|---------|-------------|
 | `WEB_APP_READY` | - | Web app initialized, ready for data |
+| `LANGUAGE_CHANGED` | `{ language }` | On each language change, and in answer to `REQUEST_LANGUAGE`, synchronize native UI and persist the exact code: `en`, `de`, `es`, `ru`, or `zh-CN`. Uses the current `documentId` envelope; invalid values are ignored. |
 | `SCAN_QR` | - | Request native QR scanner |
 | `COPY_TO_CLIPBOARD` | `{ text }` | Copy text to clipboard |
 | `SHARE` | `{ title?, text?, url? }` | Open native share sheet |
@@ -160,9 +163,13 @@ myqrlwallet-app/
 | `DEVICE_CREDENTIAL_RESPONSE` | `{ requestId, credential?, error? }` | Return confirmed Keychain/Keystore factor state |
 | `BIOMETRIC_SUCCESS` | `{ authenticated }` | Auth result |
 | `APP_STATE` | `{ state }` | App foregrounded/backgrounded |
+| `SET_LANGUAGE` | `{ language }` | The language chosen in Settings, or the saved one when a document activates |
+| `REQUEST_LANGUAGE` | - | Nothing saved: the wallet answers with `LANGUAGE_CHANGED` |
 | `CLIPBOARD_SUCCESS` | - | Clipboard operation succeeded |
 | `SHARE_SUCCESS` | - | Share completed |
 | `ERROR` | `{ message }` | Error occurred |
+
+Native screens support English, German, Spanish, Russian and Simplified Chinese. The device's primary locale selects the initial language. Settings, General, Language chooses one, and a saved language takes priority on later launches and leads the web wallet's. With nothing saved, the app follows the language the web wallet reports, including while the native wallet is locked. All catalogs are bundled for offline use, with English fallback per key. See [native translation guidance](docs/I18N.md).
 
 ## Building for Production
 
@@ -270,6 +277,7 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 
 ## Security
 
+- **Wallet Shipped In The App**: A release build serves the web wallet from `assets/web/index.html` inside the signed bundle, under the `https://qrlwallet.com/` base URL, so a compromise of the web server cannot push wallet code to app users. See [docs/EMBEDDED_WEB_WALLET.md](docs/EMBEDDED_WEB_WALLET.md)
 - **Domain Restriction**: Production WebView navigation and bridge messages accept only the exact `https://qrlwallet.com` and `https://www.qrlwallet.com` origins on the default port
 - **HTTPS Only**: Production mixed-content loading is disabled
 - **Two-Factor Seed Storage**: PIN-encrypted seed backups live in AsyncStorage; their independent random v5 factor is device-only in Keychain/Keystore
@@ -279,7 +287,9 @@ cd ios && xcodebuild -workspace myqrlwallet.xcworkspace -scheme myqrlwallet
 
 ### Residual WebView Trust Boundary
 
-The hosted wallet document still receives raw PIN, device-factor, and decrypted-seed material while it performs signing. Exact-origin bridge checks prevent another origin from directly exercising that bridge, but they do not contain same-origin XSS, a compromised production bundle, or a compromised dependency served as part of `qrlwallet.com`. Such code can access wallet material in the JavaScript runtime and use the trusted bridge.
+The wallet document still receives raw PIN, device-factor, and decrypted-seed material while it performs signing. Exact-origin bridge checks prevent another origin from directly exercising that bridge, but they do not contain same-origin XSS or a compromised dependency that was built into the document. Such code can access wallet material in the JavaScript runtime and use the trusted bridge.
+
+Shipping the document in the app bundle removes one of these sources: the served bundle is no longer chosen by the web server at load time, so it can only change through a reviewed app release. A dependency compromise that reaches the frontend build still reaches the app.
 
 The long-term mitigation is to move key custody, decryption, and signing into an isolated native signer and expose only narrowly typed signing requests to the hosted document. That architectural redesign is intentionally outside this hardening pass.
 
@@ -292,8 +302,8 @@ PIN rotation uses revision checks, storage read-back acknowledgements, and compe
 
 | Category | Technology |
 |----------|------------|
-| Framework | React Native + Expo SDK 54 |
-| Navigation | Expo Router v4 |
+| Framework | React Native + Expo SDK 57 |
+| Navigation | Expo Router |
 | WebView | react-native-webview |
 | Storage | @react-native-async-storage/async-storage |
 | Biometrics | expo-local-authentication |
@@ -309,6 +319,8 @@ PIN rotation uses revision checks, storage read-back acknowledgements, and compe
 - **development**: Debug build with dev client
 - **preview**: APK for testing (Android)
 - **production**: AAB/IPA for store submission
+
+Each profile sets `EXPO_PUBLIC_QRL_NETWORK_PROFILE=testnet`. A binary speaks one network, picked from `services/NativeNetworkProfiles.json`; the mainnet entry stays dormant until its chain ID and genesis hash are set. See [Network profiles](docs/EMBEDDED_WEB_WALLET.md#network-profiles).
 
 ### App Configuration (`app.json`)
 

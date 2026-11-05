@@ -33,17 +33,19 @@ describe('Device Login with biometric hardware but no enrolled biometric', () =>
     jest.resetAllMocks();
     AppState.currentState = 'active';
     jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: jest.fn() });
-    jest.mocked(SeedStorageService.getWalletGeneration).mockReturnValue(7);
-    jest.mocked(SeedStorageService.isWalletGenerationCurrent).mockReturnValue(true);
-    jest.mocked(SeedStorageService.isBiometricEnabled).mockResolvedValue(true);
-    jest.mocked(SeedStorageService.hasPinStored).mockResolvedValue(true);
-    jest.mocked(SeedStorageService.getStoredPin).mockResolvedValue('482913');
-    jest.mocked(SeedStorageService.needsPinAccessibilityMigration).mockResolvedValue(false);
+    jest.mocked(SeedStorageService).getWalletGeneration.mockReturnValue(7);
+    jest.mocked(SeedStorageService).isWalletGenerationCurrent.mockReturnValue(true);
+    jest.mocked(SeedStorageService).isBiometricEnabled.mockResolvedValue(true);
+    jest.mocked(SeedStorageService).hasPinStored.mockResolvedValue(true);
+    jest.mocked(SeedStorageService).getStoredPin.mockResolvedValue('482913');
+    jest.mocked(SeedStorageService).needsPinAccessibilityMigration.mockResolvedValue(false);
     // Fingerprint hardware, only a screen lock enrolled.
     jest
       .mocked(LocalAuthentication.getEnrolledLevelAsync)
       .mockResolvedValue(LocalAuthentication.SecurityLevel.SECRET);
-    jest.mocked(LocalAuthentication.supportedAuthenticationTypesAsync).mockResolvedValue([1]);
+    jest.mocked(LocalAuthentication.supportedAuthenticationTypesAsync).mockResolvedValue([
+      LocalAuthentication.AuthenticationType.FINGERPRINT,
+    ]);
     jest
       .mocked(LocalAuthentication.authenticateAsync)
       .mockResolvedValueOnce({ success: false, error: 'not_available' })

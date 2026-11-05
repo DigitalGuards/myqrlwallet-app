@@ -11,6 +11,7 @@ export async function waitForForegroundAuthorization(
 
   return new Promise((resolve) => {
     let settled = false;
+    const isSettled = (): boolean => settled;
     let subscription: ReturnType<typeof AppState.addEventListener> | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let freshnessTimer: ReturnType<typeof setInterval> | undefined;
@@ -28,7 +29,7 @@ export async function waitForForegroundAuthorization(
       else if (state === 'background') finish(false);
     });
     // Recheck after subscribing so a foreground change during registration is safe.
-    if (settled) subscription.remove();
+    if (isSettled()) subscription.remove();
     else if (!isCurrent() || AppState.currentState === 'background') finish(false);
     else if (AppState.currentState === 'active') finish(true);
     else {

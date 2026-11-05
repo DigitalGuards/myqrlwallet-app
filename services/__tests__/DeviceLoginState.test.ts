@@ -14,6 +14,7 @@ jest.mock('../SeedStorageService', () => ({
 
 import DeviceLoginState from '../DeviceLoginState';
 import SeedStorageService from '../SeedStorageService';
+import { runAsPromise } from '../runAsPromise';
 
 const storage = jest.mocked(SeedStorageService);
 let pin: string | null;
@@ -27,17 +28,17 @@ beforeEach(() => {
   generation += 1;
   storage.getWalletGeneration.mockImplementation(() => generation);
   storage.isWalletGenerationCurrent.mockImplementation((value) => value === generation);
-  storage.isBiometricEnabled.mockImplementation(async () => enabled);
-  storage.getStoredPin.mockImplementation(async () => pin);
-  storage.storePinSecurely.mockImplementation(async (value) => {
+  storage.isBiometricEnabled.mockImplementation(() => runAsPromise(() => enabled));
+  storage.getStoredPin.mockImplementation(() => runAsPromise(() => pin));
+  storage.storePinSecurely.mockImplementation((value) => runAsPromise(() => {
     pin = value;
-  });
-  storage.clearStoredPin.mockImplementation(async () => {
+  }));
+  storage.clearStoredPin.mockImplementation(() => runAsPromise(() => {
     pin = null;
-  });
-  storage.setBiometricEnabled.mockImplementation(async (value) => {
+  }));
+  storage.setBiometricEnabled.mockImplementation((value) => runAsPromise(() => {
     enabled = value;
-  });
+  }));
   storage.migratePinAccessibility.mockResolvedValue(true);
 });
 
@@ -55,11 +56,11 @@ it('retains a rotated PIN only while Device Login is enabled', async () => {
 it.each([false, true])(
   'rolls back setup when the enable preference rejects (committed: %s)',
   async (committed) => {
-    storage.setBiometricEnabled.mockImplementationOnce(async (value) => {
+    storage.setBiometricEnabled.mockImplementationOnce((value) => runAsPromise(() => {
       if (committed) enabled = value;
       throw new Error('Preference unavailable');
-    });
-    await expect(DeviceLoginState.enable('1234', () => true)).rejects.toThrow();
+    }));
+    await expect(DeviceLoginState.enable('1234', () => true)).rejects.toThrow('Preference unavailable');
     expect(enabled).toBe(false);
     expect(pin).toBeNull();
   }
@@ -72,11 +73,13 @@ it('clears the optional PIN even when preference rollback also fails', async () 
 });
 
 it('clears a setup PIN that was committed before SecureStore rejected', async () => {
-  storage.storePinSecurely.mockImplementationOnce(async (value) => {
+  storage.storePinSecurely.mockImplementationOnce((value) => runAsPromise(() => {
     pin = value;
     throw new Error('Write acknowledgement unavailable');
-  });
-  await expect(DeviceLoginState.enable('1234', () => true)).rejects.toThrow();
+  }));
+  await expect(DeviceLoginState.enable('1234', () => true)).rejects.toThrow(
+    'Write acknowledgement unavailable'
+  );
   expect(enabled).toBe(false);
   expect(pin).toBeNull();
 });
@@ -92,10 +95,10 @@ it('restores an already enabled prior PIN after setup fails', async () => {
 
 it('removes a new optional PIN when authorization is invalidated during its write', async () => {
   let authorized = true;
-  storage.storePinSecurely.mockImplementationOnce(async (value) => {
+  storage.storePinSecurely.mockImplementationOnce((value) => runAsPromise(() => {
     pin = value;
     authorized = false;
-  });
+  }));
   await expect(DeviceLoginState.enable('1234', () => authorized)).rejects.toThrow(
     'Wallet state changed'
   );
@@ -104,21 +107,21 @@ it('removes a new optional PIN when authorization is invalidated during its writ
 });
 
 it('does not clean up or resurrect credentials after the wallet generation changes', async () => {
-  storage.storePinSecurely.mockImplementationOnce(async () => {
+  storage.storePinSecurely.mockImplementationOnce(() => runAsPromise(() => {
     generation += 1;
     pin = '9012';
     enabled = true;
-  });
+  }));
   await expect(DeviceLoginState.enable('1234', () => true)).rejects.toThrow('Wallet state changed');
   expect(pin).toBe('9012');
   expect(enabled).toBe(true);
-  expect(storage.clearStoredPin).not.toHaveBeenCalled();
+  expect(storage.clearStoredPin.mock.calls).toHaveLength(0);
 });
 
 it('serializes disabling after an in-flight PIN rotation', async () => {
   enabled = true;
   pin = '1234';
-  let releaseWrite!: () => void;
+  let releaseWrite: (() => void) | undefined;
   storage.storePinSecurely.mockImplementationOnce(
     (value) =>
       new Promise<void>((resolve) => {
@@ -131,7 +134,8 @@ it('serializes disabling after an in-flight PIN rotation', async () => {
   const rotation = DeviceLoginState.commitRotatedPin('5678');
   const disable = DeviceLoginState.disable();
   for (let i = 0; i < 20 && !releaseWrite; i++) await Promise.resolve();
-  expect(storage.setBiometricEnabled).not.toHaveBeenCalled();
+  expect(storage.setBiometricEnabled.mock.calls).toHaveLength(0);
+  if (!releaseWrite) throw new Error('PIN write was not reached');
   releaseWrite();
   await Promise.all([rotation, disable]);
   expect(enabled).toBe(false);
@@ -150,7 +154,7 @@ it('rejects a stale disable guard before the queued mutation begins', async () =
   enabled = true;
   pin = '1234';
   await expect(DeviceLoginState.disable(() => false)).rejects.toThrow('authorization changed');
-  expect(storage.setBiometricEnabled).not.toHaveBeenCalled();
+  expect(storage.setBiometricEnabled.mock.calls).toHaveLength(0);
   expect(pin).toBe('1234');
 });
 
@@ -159,11 +163,11 @@ it.each([false, true])(
   async (committed) => {
     enabled = true;
     pin = '1234';
-    storage.setBiometricEnabled.mockImplementationOnce(async (value) => {
+    storage.setBiometricEnabled.mockImplementationOnce((value) => runAsPromise(() => {
       if (committed) enabled = value;
       throw new Error('Preference unavailable');
-    });
-    await expect(DeviceLoginState.disable()).rejects.toThrow();
+    }));
+    await expect(DeviceLoginState.disable()).rejects.toThrow('Preference unavailable');
     expect(enabled).toBe(!committed);
     expect(pin).toBe(committed ? null : '1234');
   }
@@ -174,11 +178,11 @@ it('prevents an old authentication migration from restoring a disabled or rotate
   pin = '1234';
   await DeviceLoginState.commitRotatedPin('5678');
   expect(await DeviceLoginState.migratePinAccessibility('1234')).toBe(false);
-  expect(storage.migratePinAccessibility).not.toHaveBeenCalled();
+  expect(storage.migratePinAccessibility.mock.calls).toHaveLength(0);
   expect(await DeviceLoginState.migratePinAccessibility('5678')).toBe(true);
   await DeviceLoginState.disable();
   storage.migratePinAccessibility.mockClear();
   expect(await DeviceLoginState.migratePinAccessibility('5678')).toBe(false);
-  expect(storage.migratePinAccessibility).not.toHaveBeenCalled();
+  expect(storage.migratePinAccessibility.mock.calls).toHaveLength(0);
   expect(pin).toBeNull();
 });

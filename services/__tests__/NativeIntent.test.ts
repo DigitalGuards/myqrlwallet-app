@@ -20,4 +20,22 @@ describe('native deep-link routing boundary', () => {
     expect(redirectSystemPath({ path: '/settings', initial: false })).toBe('/settings');
     expect(redirectSystemPath({ path: 'https://qrlwallet.com/connect?q=%FF', initial: false })).toBe('/');
   });
+
+  it('lands every wallet universal link on the WebView tab', () => {
+    for (const path of [
+      'https://qrlwallet.com',
+      'https://qrlwallet.com/',
+      'https://qrlwallet.com/transfer',
+      'https://qrlwallet.com:443/tx-history',
+      'https://qrlwallet.com/?ref=email',
+      'https://QRLWALLET.com/settings',
+    ]) {
+      expect(redirectSystemPath({ path, initial: true })).toBe('/');
+    }
+  });
+
+  it('leaves links for other hosts alone', () => {
+    expect(redirectSystemPath({ path: 'https://qrlwallet.com.attacker.invalid/transfer', initial: true }))
+      .toBe('https://qrlwallet.com.attacker.invalid/transfer');
+  });
 });

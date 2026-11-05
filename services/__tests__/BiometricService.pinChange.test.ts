@@ -22,9 +22,7 @@ import NativeBridge, {
   NATIVE_PIN_COMMIT_ERROR,
 } from '../NativeBridge';
 
-const mockChangePin = NativeBridge.changePin as jest.MockedFunction<
-  typeof NativeBridge.changePin
->;
+const mockChangePin = jest.spyOn(NativeBridge, 'changePin');
 
 describe('BiometricService PIN change recovery', () => {
   beforeEach(() => {

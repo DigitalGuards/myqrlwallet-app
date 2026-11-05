@@ -1,11 +1,12 @@
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
-import { View, InteractionManager, Platform, Settings } from 'react-native';
+import { View, InteractionManager } from 'react-native';
 import * as Linking from 'expo-linking';
 
 import ScreenSecurityService from '../services/ScreenSecurityService';
@@ -13,7 +14,11 @@ import DAppConnectionStore from '../services/DAppConnectionStore';
 import SeedStorageService from '../services/SeedStorageService';
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
+import { SPACE_MONO_FONT } from '../constants/Assets';
 import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
+import { embeddedHashRouteForWalletUrl } from '../services/EmbeddedDeepLink';
+import EmbeddedRouteIntent from '../services/EmbeddedRouteIntent';
+import { restoreLanguagePreference } from '../i18n/preference';
 
 const APP_BACKGROUND = '#080C16';
 const APP_TEXT = '#F2F5F8';
@@ -24,7 +29,7 @@ const HEADER_TITLE_STYLE = {
 };
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync();
 
 // Boot resilience: the iOS 26 cold-start NSException is suppressed instead of
 // crashing (see patches/react-native), but the native module that threw can
@@ -68,8 +73,9 @@ function withBootTimeout(promise: Promise<unknown>, label: string): Promise<unkn
 }
 
 export default function RootLayout() {
+  useNativeLanguage();
   const [fontsLoaded, fontError] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+    SpaceMono: SPACE_MONO_FONT,
   });
   // Font loading is a native round-trip too; if it neither resolves nor
   // rejects within the timeout, render with system fonts rather than never.
@@ -82,7 +88,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (bootReady) {
-      (async () => {
+      void (async () => {
         // Initialize screen security (screenshot prevention)
         try {
           await withBootTimeout(ScreenSecurityService.initialize(), 'screen security');
@@ -94,24 +100,9 @@ export default function RootLayout() {
         // reads/writes were part of the concurrent first-150ms storm inside
         // the fragile TurboModule-init window (iOS 26 cold-start SIGABRT).
         InteractionManager.runAfterInteractions(() => {
-          DAppConnectionStore.load().catch((err) => {
+          DAppConnectionStore.load().catch((err: unknown) => {
             Logger.error('RootLayout', 'Failed to load dApp connections:', err);
           });
-          // Surface any fatal native exception recorded by the
-          // RCTTurboModule patch on a previous launch (iOS only; written to
-          // NSUserDefaults just before the process died).
-          if (Platform.OS === 'ios') {
-            try {
-              const record = Settings.get('MyQRLWalletLastFatalNSException');
-              if (record) {
-                Logger.error('RootLayout', 'Previous launch fatal native exception:', record);
-                // One-shot: clear it so healthy launches stop re-logging.
-                Settings.set({ MyQRLWalletLastFatalNSException: null });
-              }
-            } catch {
-              // Settings unavailable; nothing to surface.
-            }
-          }
         });
         // One-shot: mirror the legacy-install keychain PIN into the
         // AsyncStorage existence marker so hasPinStored() never needs to hit
@@ -120,7 +111,7 @@ export default function RootLayout() {
         // 1.2.1 upgraders can race into the redundant Device Login setup
         // prompt even though they already have it enabled.
         await withBootTimeout(
-          SeedStorageService.repairPinExistsMarker().catch((err) => {
+          SeedStorageService.repairPinExistsMarker().catch((err: unknown) => {
             Logger.error('RootLayout', 'Failed pin_exists marker repair:', err);
           }),
           'pin_exists marker repair',
@@ -129,6 +120,12 @@ export default function RootLayout() {
         await SplashScreen.hideAsync();
       })();
     }
+  }, [bootReady]);
+
+  // Keep preference I/O independent of security initialization and splash release.
+  // Views start in the device language and subscribe to the restored preference.
+  useEffect(() => {
+    if (bootReady) void restoreLanguagePreference();
   }, [bootReady]);
 
   // Last-resort splash release, independent of the boot chain above.
@@ -151,6 +148,15 @@ export default function RootLayout() {
       const normalizedUrl = normalizeQrlConnectDeepLink(url);
       if (normalizedUrl) {
         NativeBridge.queueDAppURI(normalizedUrl);
+        return;
+      }
+      // Any other qrlwallet.com link. With the wallet served from the app
+      // bundle its paths cannot be loaded as documents, so a known path is
+      // turned into a route inside the running wallet and applied once the
+      // app is unlocked. Unknown paths are ignored.
+      const route = embeddedHashRouteForWalletUrl(url);
+      if (route) {
+        EmbeddedRouteIntent.queue(route);
       }
     };
 
@@ -169,7 +175,7 @@ export default function RootLayout() {
         .then((url) => {
           if (url && !receivedLiveUrl && !disposed) handleDeepLink({ url });
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           Logger.error('RootLayout', 'Failed to get initial URL:', err);
         });
     });
@@ -205,7 +211,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={appTheme}>
       <View style={{ flex: 1, backgroundColor: APP_BACKGROUND }}>
-        <StatusBar style="light" backgroundColor={APP_BACKGROUND} />
+        <StatusBar style="light" />
         <Stack screenOptions={{
           headerShown: false,
           contentStyle: {
@@ -217,7 +223,7 @@ export default function RootLayout() {
             name="settings"
             options={{
               headerShown: true,
-              title: 'Settings',
+              title: t('navigation.settings'),
               headerStyle: {
                 backgroundColor: APP_BACKGROUND,
               },
@@ -232,7 +238,7 @@ export default function RootLayout() {
             name="dapp-connections"
             options={{
               headerShown: true,
-              title: 'DApp Connections',
+              title: t('navigation.connections'),
               headerStyle: {
                 backgroundColor: APP_BACKGROUND,
               },

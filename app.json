@@ -2,14 +2,13 @@
   "expo": {
     "name": "MyQRLWallet",
     "slug": "myqrlwallet",
-    "version": "1.4.2",
+    "version": "1.5.3",
     "orientation": "portrait",
     "icon": "./assets/images/myqrlwallet/applogo.png",
     "scheme": [
       "qrlconnect"
     ],
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chiefdg.myqrlwallet",
@@ -97,6 +96,34 @@
         {
           "faceIDPermission": "Allow MyQRLWallet to use Face ID to secure your wallet."
         }
+      ],
+      [
+        "expo-dev-client",
+        {
+          "addGeneratedScheme": false
+        }
+      ],
+      "./plugins/withBackgroundOnBack",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": [
+              "en",
+              "de",
+              "es",
+              "ru",
+              "zh-Hans"
+            ],
+            "android": [
+              "en",
+              "de",
+              "es",
+              "ru",
+              "zh-CN"
+            ]
+          }
+        }
       ]
     ],
     "experiments": {
@@ -109,6 +136,13 @@
       "eas": {
         "projectId": "26be16de-5d6b-4ec7-96f5-b661524704b7"
       }
+    },
+    "locales": {
+      "en": "./locales/en/ios.json",
+      "de": "./locales/de/ios.json",
+      "es": "./locales/es/ios.json",
+      "ru": "./locales/ru/ios.json",
+      "zh-Hans": "./locales/zh-CN/ios.json"
     }
   }
 }

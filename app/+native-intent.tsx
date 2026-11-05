@@ -21,9 +21,16 @@ export function redirectSystemPath({ path }: { path: string; initial: boolean })
     // Rejected payloads must also bypass the router's legacy query decoder.
     if (typeof path !== 'string' || path.length > 4096) return '/';
     if (
-      /^qrlconnect:/i.test(path) ||
+      /^qrlconnect(?:-embedded)?:/i.test(path) ||
       /^https:\/\/qrlwallet\.com(?::443)?\/connect(?:[?#]|$)/i.test(path)
     ) {
+      return '/';
+    }
+    // Every other qrlwallet.com universal link also belongs on the WebView
+    // tab. Its path is a web wallet route, which has no native screen: the
+    // router would land on +not-found. app/_layout.tsx records the matching
+    // in-document route separately and the wallet applies it after unlock.
+    if (/^https:\/\/qrlwallet\.com(?::443)?(?:[/?#]|$)/i.test(path)) {
       return '/';
     }
     return path;

@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Esta app necesita acceso a la cámara para escanear códigos QR de direcciones de billeteras.",
+    "NSFaceIDUsageDescription": "Permite que MyQRLWallet use Face ID para proteger tu billetera."
+  }
+}

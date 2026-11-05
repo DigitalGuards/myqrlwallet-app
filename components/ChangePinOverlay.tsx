@@ -1,9 +1,12 @@
+import type { NativeKey } from '../i18n/nativeMessage';
+import { t } from '../i18n';
+import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Modal,
+  BackHandler,
   View,
   Text,
-  TextInput,
+  type TextInput,
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
@@ -27,7 +30,7 @@ const C = {
   red: '#E56161',
 };
 
-interface ChangePinModalProps {
+interface ChangePinOverlayProps {
   visible: boolean;
   onSubmit: (currentPin: string, newPin: string) => void;
   onCancel: () => void;
@@ -58,25 +61,46 @@ function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEdit
   );
 }
 
-export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmit, onCancel }) => {
+// Rendered inside the screen that owns it. A Fabric Modal presented right after
+// the Face ID sheet can be refused by UIKit without any error, which left
+// Change PIN with no dialog.
+export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onSubmit, onCancel }) => {
+  useNativeLanguage();
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NativeKey | null>(null);
   const currentPinRef = useRef<TextInput>(null);
   const newPinRef = useRef<TextInput>(null);
   const confirmPinRef = useRef<TextInput>(null);
+  const [previousVisible, setPreviousVisible] = useState(visible);
 
-  useEffect(() => {
+  if (visible !== previousVisible) {
+    setPreviousVisible(visible);
     if (visible) {
       setCurrentPin('');
       setNewPin('');
       setConfirmPin('');
       setError(null);
+    }
+  }
+
+  useEffect(() => {
+    if (visible) {
       const timerId = setTimeout(() => currentPinRef.current?.focus(), 120);
       return () => clearTimeout(timerId);
     }
+    return undefined;
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      onCancel();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [visible, onCancel]);
 
   const isValidPin = (pin: string): boolean =>
     pin.length >= PIN_MIN_LENGTH && pin.length <= PIN_MAX_LENGTH && /^\d+$/.test(pin);
@@ -95,30 +119,32 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
 
   const handleSubmit = () => {
     if (!isValidPin(currentPin)) {
-      setError(`Current PIN must be ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`);
+      setError('pin.currentFormat');
       currentPinRef.current?.focus();
       return;
     }
     if (!isValidPin(newPin)) {
-      setError(`New PIN must be ${PIN_MIN_LENGTH}-${PIN_MAX_LENGTH} digits`);
+      setError('pin.newFormat');
       newPinRef.current?.focus();
       return;
     }
     if (newPin !== confirmPin) {
-      setError('New PINs do not match');
+      setError('pin.mismatch');
       confirmPinRef.current?.focus();
       return;
     }
     if (newPin === currentPin) {
-      setError('New PIN must be different from current PIN');
+      setError('pin.different');
       newPinRef.current?.focus();
       return;
     }
     onSubmit(currentPin, newPin);
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <View style={styles.root}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
@@ -130,14 +156,13 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
                 <Ionicons name="keypad" size={22} color={C.brandBlueForeground} />
               </View>
             </View>
-            <Text style={styles.title}>Change PIN</Text>
+            <Text style={styles.title}>{t('settings.changePin')}</Text>
             <Text style={styles.message}>
-              Enter your current PIN, then choose a new {PIN_MIN_LENGTH}-{PIN_MAX_LENGTH} digit
-              PIN. Your seed stays encrypted with this PIN.
+              {t('pin.changeHint', { min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })}
             </Text>
 
             <PinField
-              label="Current PIN"
+              label={t('pin.current')}
               value={currentPin}
               onChangeText={(t) => handlePinChange(t, setCurrentPin)}
               inputRef={currentPinRef}
@@ -146,7 +171,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
             />
 
             <PinField
-              label="New PIN"
+              label={t('pin.new')}
               value={newPin}
               onChangeText={(t) => handlePinChange(t, setNewPin)}
               inputRef={newPinRef}
@@ -155,14 +180,14 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
             />
 
             <PinField
-              label="Confirm New PIN"
+              label={t('pin.confirmNew')}
               value={confirmPin}
               onChangeText={(t) => handlePinChange(t, setConfirmPin)}
               inputRef={confirmPinRef}
               onSubmitEditing={handleSubmit}
             />
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            {error ? <Text style={styles.error}>{t(error, { min: PIN_MIN_LENGTH, max: PIN_MAX_LENGTH })}</Text> : null}
 
             <View style={styles.buttonRow}>
               <TouchableOpacity
@@ -170,7 +195,7 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
                 onPress={onCancel}
                 activeOpacity={0.7}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
@@ -188,18 +213,23 @@ export const ChangePinModal: React.FC<ChangePinModalProps> = ({ visible, onSubmi
                     !isFormValid() && styles.submitButtonTextDisabled,
                   ]}
                 >
-                  Change PIN
+                  {t('settings.changePin')}
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </Modal>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  root: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 1000,
+    elevation: 1000,
+  },
   overlay: {
     flex: 1,
     backgroundColor: C.overlay,
@@ -297,4 +327,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ChangePinModal;
+export default ChangePinOverlay;

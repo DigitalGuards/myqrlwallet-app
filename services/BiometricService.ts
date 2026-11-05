@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { AppState, Platform } from 'react-native';
 import SeedStorageService from './SeedStorageService';
@@ -26,6 +27,7 @@ interface PinChangeRequest {
 class BiometricService {
   // In-memory queue for PIN change (used during navigation from Settings to WebView tab)
   private pendingPinChange: PinChangeRequest | null = null;
+  private pinChangeDroppedByLock = false;
   // In-memory queue for Device Login setup (used during navigation from Settings to WebView tab)
   private pendingDeviceLoginPin: string | null = null;
   private securityOperationGeneration = 0;
@@ -96,8 +98,14 @@ class BiometricService {
     }
   }
 
-  clearPendingSecurityOperations(): void {
+  clearPendingSecurityOperations(reason?: 'lock'): void {
     this.securityOperationGeneration += 1;
+    if (reason === 'lock' && this.pendingPinChange) {
+      // The user queued a change that the lock discarded. Remember it so the
+      // wallet screen can say the PIN was not changed once it is unlocked.
+      this.pinChangeDroppedByLock = true;
+      Logger.error('BiometricService', 'Queued PIN change dropped by a wallet lock');
+    }
     this.pendingPinChange = null;
     this.pendingDeviceLoginPin = null;
   }
@@ -264,7 +272,7 @@ class BiometricService {
    * @returns Authentication result
    */
   async authenticate(
-    promptMessage: string = 'Authenticate to access your wallet',
+    promptMessage: string = t('biometric.accessPrompt'),
     isCallerCurrent?: () => boolean,
   ): Promise<{
     success: boolean;
@@ -273,8 +281,8 @@ class BiometricService {
   }> {
     const options: LocalAuthentication.LocalAuthenticationOptions = {
       promptMessage,
-      fallbackLabel: 'Use passcode',
-      cancelLabel: 'Cancel',
+      fallbackLabel: t('biometric.passcode'),
+      cancelLabel: t('common.cancel'),
       disableDeviceFallback: false,
     };
     try {
@@ -301,7 +309,7 @@ class BiometricService {
    * @returns User-friendly device login name
    */
   getDeviceLoginName(): string {
-    return 'Device Login';
+    return t('settings.deviceLogin');
   }
 
   // ============================================================
@@ -413,14 +421,14 @@ class BiometricService {
       try {
         const probe = await this.authenticateInForeground(
           {
-            promptMessage: 'Unlock your wallet',
-            cancelLabel: 'Cancel',
+            promptMessage: t('biometric.unlockPrompt'),
+            cancelLabel: t('common.cancel'),
             disableDeviceFallback: true,
           },
           isCurrent
         );
         if (probe.success) {
-          return this.retrieveStoredPinAfterAuth(walletGeneration, isCurrent);
+          return await this.retrieveStoredPinAfterAuth(walletGeneration, isCurrent);
         }
         if (probe.error === 'not_available') {
           return {
@@ -456,9 +464,9 @@ class BiometricService {
     try {
       authResult = await this.authenticateInForeground(
         {
-          promptMessage: 'Unlock your wallet',
-          fallbackLabel: 'Use passcode',
-          cancelLabel: 'Cancel',
+          promptMessage: t('biometric.unlockPrompt'),
+          fallbackLabel: t('biometric.passcode'),
+          cancelLabel: t('common.cancel'),
           disableDeviceFallback: false,
         },
         isCurrent
@@ -516,7 +524,7 @@ class BiometricService {
 
       // Authenticate before storing (confirm user identity)
       const authResult = await this.authenticate(
-        'Enable Device Login to unlock your wallet',
+        t('biometric.enablePrompt'),
         isCurrent,
       );
       if (!authResult.success) {
@@ -599,6 +607,15 @@ class BiometricService {
     this.pendingPinChange = null; // Clear immediately to prevent re-execution
 
     return this.changePin(oldPin, newPin);
+  }
+
+  /**
+   * True once after a lock discarded a queued PIN change. Reading it clears it.
+   */
+  consumePinChangeDroppedByLock(): boolean {
+    const dropped = this.pinChangeDroppedByLock;
+    this.pinChangeDroppedByLock = false;
+    return dropped;
   }
 
   /**

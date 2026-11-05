@@ -1,90 +1,198 @@
+const { createRequire } = require('node:module');
 const js = require('@eslint/js');
 const tseslint = require('typescript-eslint');
 const reactPlugin = require('eslint-plugin-react');
-const reactHooksPlugin = require('eslint-plugin-react-hooks');
 const globals = require('globals');
 
-module.exports = [
-  // Base JS/TS configuration
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
-  
-  // Global ignores
+// Expo already locks React Hooks 7, including the reference compiler checks.
+// Resolve its declared dependency without changing the dependency graph.
+const expoRequire = createRequire(require.resolve('eslint-config-expo'));
+const reactHooksPlugin = expoRequire('eslint-plugin-react-hooks');
+const strictFiles = ['**/*.{ts,tsx}'];
+const testFiles = ['**/__tests__/**/*.{ts,tsx}', '**/*.{test,spec}.{ts,tsx}'];
+const toolingFiles = [
+  '**/*.config.{js,cjs,mjs,ts}',
+  'scripts/**/*.{js,cjs,mjs,ts}',
+  'plugins/**/*.{js,ts}',
+];
+
+const baseConfig = tseslint.config(
   {
     ignores: ['dist/**', 'node_modules/**', '.expo/**', 'android/**', 'ios/**'],
   },
-  
-  // Main configuration for all files
+  { linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: 'error' } },
+  js.configs.recommended,
+  ...tseslint.configs.strictTypeChecked,
   {
-    files: ['**/*.{js,jsx,ts,tsx}'],
+    files: ['**/*.{js,cjs,mjs,jsx,ts,tsx}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
       parser: tseslint.parser,
       parserOptions: {
-        ecmaFeatures: {
-          jsx: true,
-        },
+        projectService: true,
+        tsconfigRootDir: __dirname,
+        ecmaFeatures: { jsx: true },
       },
-      globals: {
-        ...globals.browser,
-        ...globals.node,
-        ...globals.es2021,
-        __DEV__: 'readonly',
-      },
+      globals: globals.es2021,
     },
     plugins: {
       '@typescript-eslint': tseslint.plugin,
-      'react': reactPlugin,
+      react: reactPlugin,
       'react-hooks': reactHooksPlugin,
     },
+    settings: { react: { version: 'detect' } },
     rules: {
-      // TypeScript rules
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // Preserve the existing unused-binding options, which are stricter than
+      // the reference's allowances for underscore-prefixed local bindings.
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
+      '@typescript-eslint/ban-ts-comment': [
+        'error',
+        { 'ts-ignore': true, 'ts-nocheck': true, 'ts-expect-error': true },
+      ],
+      // TypeScript applies @ts-nocheck in any letter case and after extra
+      // slashes, while ban-ts-comment matches only the lower-case form.
+      'no-warning-comments': [
+        'error',
+        { terms: ['@ts-nocheck'], location: 'start', decoration: ['/'] },
+      ],
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
       '@typescript-eslint/explicit-module-boundary-types': 'off',
-      '@typescript-eslint/no-require-imports': ['error', { 
-        allow: ['\\.png$', '\\.jpg$', '\\.jpeg$', '\\.gif$', '\\.svg$', '\\.ttf$', '\\.otf$', '\\.woff$', '\\.woff2$'] 
-      }],
-      
-      // React rules
-      'react/prop-types': 'off', // TypeScript handles this
-      'react/react-in-jsx-scope': 'off', // Not needed in React 17+
+      '@typescript-eslint/no-require-imports': [
+        'error',
+        {
+          allow: [
+            '\\.png$', '\\.jpg$', '\\.jpeg$', '\\.gif$', '\\.svg$',
+            '\\.ttf$', '\\.otf$', '\\.woff$', '\\.woff2$',
+          ],
+        },
+      ],
+      'react/prop-types': 'off',
+      'react/react-in-jsx-scope': 'off',
       'react/jsx-uses-react': 'error',
       'react/jsx-uses-vars': 'error',
-      
-      // React Hooks rules
       'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
-      
-      // General rules
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
-      'no-debugger': 'warn',
-      'prefer-const': 'warn',
+      'react-hooks/exhaustive-deps': 'error',
+      'no-console': 'error',
+      'no-debugger': 'error',
+      'prefer-const': 'error',
       'no-var': 'error',
     },
-    settings: {
-      react: {
-        version: 'detect',
-      },
+  },
+  {
+    files: strictFiles,
+    rules: {
+      ...reactHooksPlugin.configs.recommended.rules,
+      'react-hooks/exhaustive-deps': 'error',
+      // Expo Router and Metro own module exports and refresh behavior.
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { prefer: 'type-imports', fixStyle: 'separate-type-imports', disallowTypeAnnotations: false },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSAsExpression > TSAsExpression',
+          message: 'Double type assertions are banned. Narrow unknown input with a guard.',
+        },
+      ],
     },
   },
-  
-  // Test files specific config
   {
-    files: ['**/*.test.{js,jsx,ts,tsx}', '**/*.spec.{js,jsx,ts,tsx}'],
+    files: ['**/*.{ts,tsx,jsx}'],
+    ignores: toolingFiles,
     languageOptions: {
+      // React Native supplies these globals; Node tooling has its own block.
       globals: {
-        ...globals.jest,
+        ...globals['shared-node-browser'],
+        __DEV__: 'readonly',
+        global: 'readonly',
+        require: 'readonly',
+        window: 'readonly',
+        navigator: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+        requestIdleCallback: 'readonly',
+        cancelIdleCallback: 'readonly',
+        setImmediate: 'readonly',
+        clearImmediate: 'readonly',
+        alert: 'readonly',
+        XMLHttpRequest: 'readonly',
       },
     },
   },
-  
-  // Config files - allow CommonJS require()
   {
-    files: ['eslint.config.js', 'metro.config.js', '**/*.config.js', '**/*.config.ts'],
+    files: strictFiles,
+    ignores: testFiles,
+    rules: {
+      // Retain the current native callback options: stricter options create
+      // source findings under already enforced rules. Those findings cannot
+      // enter the ratchet. Tests receive the full strict preset defaults.
+      '@typescript-eslint/no-confusing-void-expression': ['error', { ignoreArrowShorthand: true }],
+      '@typescript-eslint/no-misused-promises': [
+        'error',
+        { checksVoidReturn: { attributes: false, properties: false } },
+      ],
+    },
+  },
+  {
+    files: ['**/*.{js,cjs,mjs,jsx}'],
+    ...tseslint.configs.disableTypeChecked,
+  },
+  {
+    files: [...toolingFiles, 'jest.setup.js'],
+    languageOptions: { globals: globals.node },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
+    files: [
+      '**/*.config.{js,cjs}', 'scripts/**/*.{js,cjs}', 'plugins/**/*.js', 'jest.setup.js',
+    ],
+    languageOptions: { sourceType: 'commonjs' },
+  },
+  {
+    files: toolingFiles,
+    rules: { 'no-console': 'off' },
+  },
+  {
+    files: [...testFiles, '**/*.{test,spec}.{js,jsx}', 'jest.setup.js'],
+    languageOptions: { globals: { ...globals.node, ...globals.jest } },
+  },
+  // The logger is the existing console boundary.
+  { files: ['services/Logger.ts'], rules: { 'no-console': 'off' } },
+  {
+    files: ['test-utils/malformed.ts'],
+    rules: {
+      // Malformed test fixtures use this single assertion boundary.
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'as' }],
+    },
+  },
+  {
+    // Metro types bundled asset requires as any. Callers use typed constants.
+    files: ['constants/Assets.ts'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
     },
   },
-];
+  {
+    // Cold-start sequencing depends on InteractionManager timing. Preserve
+    // the existing exception until its replacement has device validation.
+    files: ['app/_layout.tsx', 'app/(tabs)/index.tsx'],
+    rules: { '@typescript-eslint/no-deprecated': 'off' },
+  },
+);
+
+// Existing lint debt, including tests. Entries may only be removed.
+// Regenerate with npm run lint:ratchet:update after fixing a file/rule pair.
+// BEGIN LINT RATCHET
+const lintRatchet = [];
+// END LINT RATCHET
+
+module.exports = [...baseConfig, ...lintRatchet];
+module.exports.baseConfig = baseConfig;
+module.exports.lintRatchet = lintRatchet;
+module.exports.strictFiles = strictFiles;

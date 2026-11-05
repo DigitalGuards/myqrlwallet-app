@@ -1,0 +1,19 @@
+{
+  "comment": "The networks this app can be built for, one per binary. EXPO_PUBLIC_QRL_NETWORK_PROFILE selects the entry at build time (testnet when unset). services/NativeWalletProfile.ts, scripts/sync-embedded-web.sh and scripts/verify-embedded-web.js all read this file. An entry runs only once its chainId and genesisHash are both set; mainnet stays dormant until its identity is published.",
+  "profiles": {
+    "testnet": {
+      "networkProfile": "v3-private",
+      "blockchain": "TEST_NET_V3",
+      "chainId": "0x301825",
+      "genesisHash": "0xd15407991193e6c23b733dc6bf9c628deaff8f9b6e252aa0d60030952b3e3ea4",
+      "storagePrefix": "qrlwallet:v3:"
+    },
+    "mainnet": {
+      "networkProfile": "v3-mainnet",
+      "blockchain": "MAIN_NET_V3",
+      "chainId": null,
+      "genesisHash": null,
+      "storagePrefix": "qrlwallet:v3:"
+    }
+  }
+}

@@ -28,10 +28,12 @@ describe('actual OS authentication prompt lifetime', () => {
       const first = BiometricService.authenticate();
       const second = BiometricService.authenticate();
       expect(BiometricService.isAuthenticationPromptActive()).toBe(true);
+      if (!resolvers[0]) throw new Error('First prompt resolver was not registered');
       resolvers[0]({ success: false, error: 'user_cancel' });
       await first;
       expect(BiometricService.isAuthenticationPromptActive()).toBe(true);
       expect(settled).not.toHaveBeenCalled();
+      if (!resolvers[1]) throw new Error('Second prompt resolver was not registered');
       resolvers[1]({ success: true });
       await second;
       expect(BiometricService.isAuthenticationPromptActive()).toBe(false);

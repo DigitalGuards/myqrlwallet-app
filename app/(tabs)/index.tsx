@@ -1,9 +1,12 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { nativeMessage, type NativeKey } from '../../i18n/nativeMessage';
+import { t } from '../../i18n';
+import { useNativeLanguage } from '../../i18n/useNativeLanguage';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
   AppState,
-  AppStateStatus,
+  type AppStateStatus,
   BackHandler,
   InteractionManager,
   Linking,
@@ -14,19 +17,20 @@ import {
   TouchableOpacity,
   View as RNView,
 } from 'react-native';
-import QRLWebView, { QRLWebViewRef } from '../../components/QRLWebView';
+import QRLWebView, { type QRLWebViewRef } from '../../components/QRLWebView';
 import PinEntryModal from '../../components/PinEntryModal';
 import QRScannerModal from '../../components/QRScannerModal';
 import QuantumLoadingScreen from '../../components/QuantumLoadingScreen';
 import WebViewService from '../../services/WebViewService';
 import BiometricService from '../../services/BiometricService';
 import SeedStorageService from '../../services/SeedStorageService';
-import NativeBridge, { NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
+import NativeBridge, { type NativeSecurityContext, type NativeQrScanRequest } from '../../services/NativeBridge';
 import Logger from '../../services/Logger';
+import Diagnostics from '../../services/Diagnostics';
 import { createBackgroundLock } from '../../services/BackgroundLock';
+import EmbeddedRouteIntent from '../../services/EmbeddedRouteIntent';
 import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
-import { useIsFocused, useFocusEffect } from '@react-navigation/native';
-import { router, usePathname } from 'expo-router';
+import { router, useFocusEffect, useIsFocused, usePathname } from 'expo-router';
 
 // Time threshold for showing loading screen (5 minutes in ms)
 const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;
@@ -37,19 +41,26 @@ interface PendingUnlockPin {
 }
 
 export default function WalletScreen() {
+  useNativeLanguage();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
-  const [pinModalTitle, setPinModalTitle] = useState('Enter Your PIN');
-  const [pinModalMessage, setPinModalMessage] = useState('Enter your wallet PIN');
+  const [pinModalTitle, setPinModalTitle] = useState<NativeKey>('pin.title');
+  const [pinModalMessage, setPinModalMessage] = useState<NativeKey>('pin.enter');
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [qrScanRequest, setQrScanRequest] = useState<NativeQrScanRequest | null>(null);
   const [skipLoadingScreen, setSkipLoadingScreen] = useState(false);
-  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
+  const [processingMessage, setProcessingMessage] = useState<NativeKey | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [isDeviceAuthenticating, setIsDeviceAuthenticating] = useState(false);
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
   const [authCheckNonce, setAuthCheckNonce] = useState(0);
+  const [webViewDocumentLoaded, setWebViewDocumentLoaded] = useState(false);
+  // Set when the WebView cannot show a document at all. A failure raised
+  // before the first load start leaves initialDocumentStarted false, so the
+  // authorization effect never runs and the lock overlay would sit on top of
+  // the only working way out, which is the WebView's own Retry.
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const isFocused = useIsFocused();
   const pathname = usePathname();
   const appState = useRef(AppState.currentState);
@@ -96,19 +107,19 @@ export default function WalletScreen() {
     const isIOS = Platform.OS === 'ios';
     const label =
       biometricType === 'fingerprint'
-        ? (isIOS ? 'Touch ID' : 'fingerprint unlock')
+        ? (isIOS ? 'Touch ID' : t('biometric.fingerprint'))
         : biometricType === 'iris'
-        ? 'iris unlock'
+        ? t('biometric.iris')
         : biometricType === 'face'
-        ? (isIOS ? 'Face ID' : 'face unlock')
-        : 'biometric unlock';
+        ? (isIOS ? 'Face ID' : t('biometric.face'))
+        : t('biometric.generic');
     InteractionManager.runAfterInteractions(() => {
       Alert.alert(
-        `${label} is turned off for MyQRLWallet`,
-        `Turn ${label} back on for MyQRLWallet in Settings to unlock with it. You can still unlock by entering your wallet PIN.`,
+        t('biometric.offTitle', { method: label }),
+        t('biometric.offHint', { method: label }),
         [
-          { text: 'Open Settings', onPress: () => { Linking.openSettings().catch(() => {}); } },
-          { text: 'Not Now', style: 'cancel' },
+          { text: t('common.openSettings'), onPress: () => { Linking.openSettings().catch(() => {}); } },
+          { text: t('common.notNow'), style: 'cancel' },
         ]
       );
     });
@@ -184,8 +195,8 @@ export default function WalletScreen() {
   // Show PIN modal with a callback
   const showPinModal = useCallback((
     action: (pin: string) => Promise<void>,
-    title = 'Enter Your PIN',
-    message = 'Enter your wallet PIN to enable Device Login',
+    title: NativeKey = 'pin.title',
+    message: NativeKey = 'settings.enableLoginPin',
   ) => {
     setPinModalTitle(title);
     setPinModalMessage(message);
@@ -194,18 +205,18 @@ export default function WalletScreen() {
   }, []);
 
   // Handle seed stored event - Device Login prompt shown on next launch
-  const handleSeedStored = useCallback(async (_address: string) => {
+  const handleSeedStored = useCallback((_address: string) => {
     // Device Login setup prompt is shown on app reopen, not immediately during import
   }, []);
 
   // Prompt user to enable Device Login
   const promptDeviceLoginSetup = useCallback(() => {
     Alert.alert(
-      'Enable Device Login?',
-      'Would you like to use Device Login to unlock your wallet? You won\'t need to enter your PIN each time.',
+      t('wallet.enableTitle'),
+      t('wallet.enableHint'),
       [
         {
-          text: 'Not Now',
+          text: t('common.notNow'),
           style: 'cancel',
           onPress: async () => {
             // Mark prompt as shown so we don't ask again
@@ -213,16 +224,16 @@ export default function WalletScreen() {
           },
         },
         {
-          text: 'Enable',
+          text: t('common.enable'),
           onPress: () => {
             // Show secure PIN modal
             showPinModal(async (pin: string) => {
               const setupResult = await BiometricService.setupDeviceLogin(pin);
               if (setupResult.success) {
                 await SeedStorageService.setBiometricPromptShown(true);
-                Alert.alert('Success', 'Device Login enabled!');
+                Alert.alert(t('common.success'), t('wallet.loginEnabled'));
               } else {
-                Alert.alert('Error', setupResult.error || 'Failed to enable Device Login');
+                Alert.alert(t('common.error'), setupResult.error ? nativeMessage(setupResult.error) : t('wallet.enableFailed'));
               }
             });
           },
@@ -457,7 +468,7 @@ export default function WalletScreen() {
       }
     };
 
-    authCheck();
+    void authCheck();
     return () => {
       cancelled = true;
       if (mounted.current && attemptGeneration === authAttemptGeneration.current) {
@@ -542,14 +553,15 @@ export default function WalletScreen() {
           }
         }
       },
-      'Unlock Wallet',
-      'Enter your wallet PIN to unlock this app session.',
+      'wallet.unlock',
+      'wallet.unlockPin',
     );
   }, [showPinModal]);
 
   // Helper to mark app as needing re-auth
   const markForReauth = useCallback(() => {
     Logger.debug('WalletScreen', 'App backgrounded, marking for re-auth');
+    Diagnostics.event('WalletScreen', 'app backgrounded, re-auth required');
     manualRetryRequired.current =
       manualRetryRequired.current ||
       isAuthenticating.current ||
@@ -561,8 +573,9 @@ export default function WalletScreen() {
       setAuthError('Login was interrupted. Try again or use your wallet PIN.');
     }
     authAttemptGeneration.current += 1;
-    NativeBridge.invalidateAuthorization();
-    BiometricService.clearPendingSecurityOperations();
+    // A pairing link waiting for unlock survives the lock and keeps its expiry.
+    NativeBridge.invalidateAuthorization({ preservePendingDAppIntent: true });
+    BiometricService.clearPendingSecurityOperations('lock');
     hasRestoredSeeds.current = false;
     // Drop any PIN held between a successful biometric unlock and WEB_APP_READY.
     // A later authorized attempt must repopulate it.
@@ -597,7 +610,7 @@ export default function WalletScreen() {
       }
 
       // Notify WebView of every app state transition (single source of truth)
-      NativeBridge.sendAppState(nextAppState as 'active' | 'background' | 'inactive');
+      NativeBridge.sendAppState(nextAppState);
       appState.current = nextAppState;
     });
 
@@ -612,6 +625,7 @@ export default function WalletScreen() {
   // Device Login auth is already handled in authCheck effect, which stores PIN in pendingUnlockPin
   const handleWebViewLoad = useCallback(() => {
     // WebView content loaded - web app will signal WEB_APP_READY when fully initialized
+    setWebViewDocumentLoaded(true);
   }, []);
 
   const handleDocumentLoadStart = useCallback(() => {
@@ -619,6 +633,7 @@ export default function WalletScreen() {
     // Start initial auth in that context without waiting for authorized-only
     // WEB_APP_READY delivery. Later loads still invalidate every old attempt.
     initialDocumentStarted.current = true;
+    setWebViewDocumentLoaded(false);
     manualRetryRequired.current =
       manualRetryRequired.current ||
       isAuthenticating.current ||
@@ -675,13 +690,8 @@ export default function WalletScreen() {
         `Preserved ${legacyAddressBackupCount} pre-QIP-55 seed backup(s) pending seed-aware migration`,
       );
       Alert.alert(
-        'Earlier Wallet Backup Preserved',
-        [
-          'This device contains a preserved wallet backup with legacy address metadata.',
-          'Your earlier wallet data has not been changed. Keep this app installed and do not clear its data.',
-          'Use your original recovery phrase or seed to import a Testnet v3 account. Its address will be different.',
-          'Automatic conversion of the earlier encrypted backup is not available. Contact support before removing the app if you need help recovering it.',
-        ].join(' '),
+        t('wallet.legacyTitle'),
+        t('wallet.legacyHint'),
       );
     }
     if (backups.length > 0) {
@@ -725,10 +735,17 @@ export default function WalletScreen() {
     useCallback(() => {
       if (!isAuthorized) return;
 
+      if (BiometricService.consumePinChangeDroppedByLock()) {
+        Alert.alert(
+          t('settings.pinNotChanged'),
+          t('wallet.pinChangeDropped'),
+        );
+      }
+
       // Check for pending Device Login setup
       if (BiometricService.hasPendingDeviceLoginSetup() && !deviceLoginSetupTriggered.current) {
         deviceLoginSetupTriggered.current = true;
-        setProcessingMessage('Enabling Device Login...');
+        setProcessingMessage('loading.enableLogin');
 
         InteractionManager.runAfterInteractions(async () => {
           Logger.debug('WalletScreen', 'Executing queued Device Login setup');
@@ -737,12 +754,12 @@ export default function WalletScreen() {
           setProcessingMessage(null);
 
           if (result.success) {
-            Alert.alert('Success', 'Device Login enabled!', [
-              { text: 'OK', onPress: () => router.push('/settings') }
+            Alert.alert(t('common.success'), t('wallet.loginEnabled'), [
+              { text: t('common.ok'), onPress: () => router.push('/settings') }
             ]);
           } else {
-            Alert.alert('Error', result.error || 'Failed to enable Device Login', [
-              { text: 'OK', onPress: () => router.push('/settings') }
+            Alert.alert(t('common.error'), result.error ? nativeMessage(result.error) : t('wallet.enableFailed'), [
+              { text: t('common.ok'), onPress: () => router.push('/settings') }
             ]);
           }
 
@@ -753,7 +770,7 @@ export default function WalletScreen() {
       // Check for pending PIN change
       if (BiometricService.hasPendingPinChange() && !pinChangeTriggered.current) {
         pinChangeTriggered.current = true;
-        setProcessingMessage('Changing PIN...');
+        setProcessingMessage('loading.changePin');
 
         InteractionManager.runAfterInteractions(async () => {
           Logger.debug('WalletScreen', 'Executing queued PIN change');
@@ -763,17 +780,17 @@ export default function WalletScreen() {
 
           if (result.success) {
             if (result.error) {
-              Alert.alert('Warning', result.error, [
-                { text: 'OK', onPress: () => router.push('/settings') }
+              Alert.alert(t('common.warning'), nativeMessage(result.error), [
+                { text: t('common.ok'), onPress: () => router.push('/settings') }
               ]);
             } else {
-              Alert.alert('Success', 'Your PIN has been changed successfully.', [
-                { text: 'OK', onPress: () => router.push('/settings') }
+              Alert.alert(t('common.success'), t('wallet.pinChanged'), [
+                { text: t('common.ok'), onPress: () => router.push('/settings') }
               ]);
             }
           } else {
-            Alert.alert('Error', result.error || 'Failed to change PIN. Please try again.', [
-              { text: 'OK', onPress: () => router.push('/settings') }
+            Alert.alert(t('common.error'), result.error ? nativeMessage(result.error) : t('wallet.changePinFailed'), [
+              { text: t('common.ok'), onPress: () => router.push('/settings') }
             ]);
           }
 
@@ -786,9 +803,26 @@ export default function WalletScreen() {
   // Update session timestamp on screen focus
   useEffect(() => {
     if (isFocused && isAuthorized) {
-      WebViewService.updateLastSession();
+      void WebViewService.updateLastSession();
     }
   }, [isFocused, isAuthorized]);
+
+  // A qrlwallet.com link tapped outside the app cannot be loaded as a
+  // document any more, so app/_layout.tsx recorded the matching wallet route.
+  // Apply it only once the app is unlocked, and drop it while locked so a
+  // stale tap cannot steer the wallet later.
+  useEffect(() => {
+    if (!isAuthorized || !webViewDocumentLoaded) return;
+    const applyRoute = (route: string) => {
+      webViewRef.current?.navigateToEmbeddedRoute(route);
+    };
+    const pending = EmbeddedRouteIntent.consume();
+    if (pending) applyRoute(pending);
+    return EmbeddedRouteIntent.subscribe((route) => {
+      EmbeddedRouteIntent.clear();
+      applyRoute(route);
+    });
+  }, [isAuthorized, webViewDocumentLoaded]);
 
   // Log WebView visibility changes
   useEffect(() => {
@@ -819,21 +853,25 @@ export default function WalletScreen() {
           ref={webViewRef}
           onLoad={handleWebViewLoad}
           onDocumentLoadStart={handleDocumentLoadStart}
+          onDocumentError={setDocumentError}
           skipLoadingScreen={skipLoadingScreen}
         />
       </RNView>
       {/* Opaque lock cover: hides wallet content during re-auth and blocks
           touches to the WebView underneath, while letting its JS keep running. */}
-      {!isAuthorized && (
+      {/* While the document itself is unusable there is no wallet content to
+          cover, and the WebView is showing the error and its Retry button, so
+          the overlay stands aside rather than sealing the app. */}
+      {!isAuthorized && documentError === null && (
         <RNView
           style={styles.lockOverlay}
           pointerEvents="auto"
           accessibilityViewIsModal
-          accessibilityLabel="Wallet locked"
+          accessibilityLabel={t('wallet.lockedLabel')}
         >
-          <Text style={styles.lockTitle}>Wallet Locked</Text>
+          <Text style={styles.lockTitle}>{t('wallet.locked')}</Text>
           <Text style={styles.lockMessage}>
-            {authError || 'Authenticate with Device Login to continue.'}
+            {authError ? nativeMessage(authError) : t('wallet.authenticate')}
           </Text>
           {isUnlocking ? <ActivityIndicator color="#33ADE6" size="small" /> : null}
           {!authError?.startsWith('Finishing wallet removal') ? (
@@ -844,7 +882,7 @@ export default function WalletScreen() {
                 disabled={isUnlocking || isDeviceAuthenticating}
                 accessibilityRole="button"
               >
-                <Text style={styles.lockButtonPrimaryText}>Try Device Login Again</Text>
+                <Text style={styles.lockButtonPrimaryText}>{t('wallet.tryLogin')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.lockButton, styles.lockButtonSecondary]}
@@ -852,7 +890,7 @@ export default function WalletScreen() {
                 disabled={isVerifyingPin}
                 accessibilityRole="button"
               >
-                <Text style={styles.lockButtonSecondaryText}>Use Wallet PIN</Text>
+                <Text style={styles.lockButtonSecondaryText}>{t('wallet.usePin')}</Text>
               </TouchableOpacity>
             </RNView>
           ) : null}
@@ -860,8 +898,8 @@ export default function WalletScreen() {
       )}
       <PinEntryModal
         visible={pinModalVisible}
-        title={pinModalTitle}
-        message={pinModalMessage}
+        title={t(pinModalTitle)}
+        message={t(pinModalMessage)}
         onSubmit={handlePinSubmit}
         onCancel={handlePinCancel}
       />
@@ -874,7 +912,7 @@ export default function WalletScreen() {
       {/* Processing overlay - shown during operations like PIN change */}
       <QuantumLoadingScreen
         visible={!!processingMessage}
-        customMessage={processingMessage || undefined}
+        customMessage={processingMessage ? t(processingMessage) : undefined}
       />
     </RNView>
   );

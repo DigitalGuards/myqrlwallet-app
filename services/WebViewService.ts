@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isRecord, parseJson } from './guards';
 import Logger from './Logger';
 
 const STORAGE_KEYS = {
@@ -16,6 +17,21 @@ export interface UserPreferences {
   // Card settings; pushed to the WebView via SET_DISPLAY_PREFS).
   showTokensCard?: boolean;
   showNftsCard?: boolean;
+}
+
+/** Accepts only the boolean fields this app defines; a present field of any other type rejects the whole blob. */
+function parsePreferences(text: string): UserPreferences | null {
+  const parsed = parseJson(text);
+  if (!isRecord(parsed)) return null;
+  const { notificationsEnabled, showTokensCard, showNftsCard } = parsed;
+  for (const field of [notificationsEnabled, showTokensCard, showNftsCard]) {
+    if (field !== undefined && typeof field !== 'boolean') return null;
+  }
+  return {
+    ...(typeof notificationsEnabled === 'boolean' ? { notificationsEnabled } : {}),
+    ...(typeof showTokensCard === 'boolean' ? { showTokensCard } : {}),
+    ...(typeof showNftsCard === 'boolean' ? { showNftsCard } : {}),
+  };
 }
 
 /**
@@ -108,7 +124,8 @@ class WebViewService {
       const storedPreferences = await AsyncStorage.getItem(STORAGE_KEYS.USER_PREFERENCES);
 
       if (storedPreferences) {
-        return JSON.parse(storedPreferences);
+        const preferences = parsePreferences(storedPreferences);
+        if (preferences) return preferences;
       }
       
       // Default preferences
