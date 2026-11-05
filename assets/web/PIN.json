@@ -1,9 +1,9 @@
 {
   "comment": "Reviewed pin for the wallet document shipped in assets/web/index.html. A build verifies the file against this before it is packaged, so changing the wallet requires changing this file in a reviewed commit.",
-  "frontendCommit": "a9e6ff8cca86bc510076f55191d6309f9786495e",
+  "frontendCommit": "b04bfca533d09a48755d8758572950d7a2d201b3",
   "frontendTag": "",
-  "frontendRef": "main at a9e6ff8 (release #442: the app language message and the fee hint fix), the build live on qrlwallet.com. A merge commit on main stays reachable.",
+  "frontendRef": "main at b04bfca (release #445: the wallet answers the app's language request), the build live on qrlwallet.com. A merge commit on main stays reachable.",
   "walletProfile": "v3-private",
-  "sha256": "970465a0a3cdabe40b8d5c6828b45a68aba272c5fc273148882238fd845e1adb",
-  "bytes": 4052211
+  "sha256": "70bc4d4cb8e0308cf1782889c37b2199b22a2a531be8792ded0540ea7249a983",
+  "bytes": 4052317
 }
