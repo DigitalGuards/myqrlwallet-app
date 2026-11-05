@@ -41,6 +41,7 @@ jest.mock('../Logger', () => ({
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NativeBridge from '../NativeBridge';
+import SeedStorageService from '../SeedStorageService';
 import { parseBridgeMessage } from '../BridgeMessage';
 import { i18n } from '../../i18n';
 import * as preference from '../../i18n/preference';
@@ -128,12 +129,12 @@ it('switches again without resetting document or authorization state', async () 
   expect(storage.setItem.mock.calls.map(call => call[1])).toEqual(['de', 'es']);
 });
 
-describe('the app language leads the wallet', () => {
+describe('the saved language leads the wallet', () => {
   const flush = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };
-  const sentLanguages = (send: jest.SpyInstance) =>
+  const sent = (send: jest.SpyInstance, type: string) =>
     send.mock.calls
       .map(([message]: [{ type: string; payload?: Record<string, unknown> }]) => message)
-      .filter(message => message.type === 'SET_LANGUAGE')
+      .filter(message => message.type === type)
       .map(message => message.payload?.language);
 
   async function activate() {
@@ -145,6 +146,8 @@ describe('the app language leads the wallet', () => {
     await NativeBridge.handle({ type: 'WEB_DOCUMENT_READY', payload: { documentId: DOCUMENT_ID, challengeId } });
     return send;
   }
+  const report = (language: string) =>
+    NativeBridge.handle({ type: 'LANGUAGE_CHANGED', payload: { language, documentId: DOCUMENT_ID } });
 
   afterEach(() => { jest.restoreAllMocks(); });
 
@@ -153,7 +156,7 @@ describe('the app language leads the wallet', () => {
     await NativeBridge.setLanguage('ru');
     expect(i18n.language).toBe('ru');
     expect(storage.setItem).toHaveBeenCalledWith(LANGUAGE_STORAGE_KEY, 'ru');
-    expect(sentLanguages(send)).toEqual(['ru']);
+    expect(sent(send, 'SET_LANGUAGE')).toEqual(['ru']);
   });
 
   it('sends the real message with the document envelope', async () => {
@@ -189,18 +192,38 @@ describe('the app language leads the wallet', () => {
     expect(storage.setItem).toHaveBeenCalledWith(LANGUAGE_STORAGE_KEY, 'es');
     const send = await activate();
     await flush();
-    expect(sentLanguages(send)).toEqual(['es']);
+    expect(sent(send, 'SET_LANGUAGE')).toEqual(['es']);
+    expect(sent(send, 'REQUEST_LANGUAGE')).toEqual([]);
   });
 
-  it('sends the language to every document that activates', async () => {
+  it('asks the wallet when nothing is saved, and never sends a default', async () => {
+    jest.spyOn(preference, 'savedLanguagePreference').mockReturnValue(undefined);
     await i18n.changeLanguage('zh-CN');
     NativeBridge.resetWebAppReady();
     const send = await activate();
     await flush();
-    expect(sentLanguages(send)).toEqual(['zh-CN']);
+    expect(sent(send, 'SET_LANGUAGE')).toEqual([]);
+    expect(sent(send, 'REQUEST_LANGUAGE')).toHaveLength(1);
+    await report('ru');
+    expect(i18n.language).toBe('ru');
+    expect(storage.setItem).toHaveBeenCalledWith(LANGUAGE_STORAGE_KEY, 'ru');
   });
 
-  it('does not send to a document that was replaced before the language was ready', async () => {
+  it('does not sync a document with a pending wipe', async () => {
+    jest.spyOn(SeedStorageService, 'getPendingWalletWipe').mockResolvedValueOnce({
+      version: 1,
+      requestId: 'ab'.repeat(16),
+      startedAt: 1,
+    });
+    jest.spyOn(NativeBridge, 'clearWalletDurably').mockResolvedValue();
+    NativeBridge.resetWebAppReady();
+    const send = await activate();
+    await flush();
+    expect(sent(send, 'SET_LANGUAGE')).toEqual([]);
+    expect(sent(send, 'REQUEST_LANGUAGE')).toEqual([]);
+  });
+
+  it('does not sync a document that was replaced before the language was ready', async () => {
     let restored: () => void = () => undefined;
     jest.spyOn(preference, 'restoreLanguagePreference').mockReturnValue(new Promise<void>(resolve => {
       restored = resolve;
@@ -210,21 +233,61 @@ describe('the app language leads the wallet', () => {
     NativeBridge.resetWebAppReady();
     restored();
     await flush();
-    expect(sentLanguages(send)).toEqual([]);
+    expect(sent(send, 'SET_LANGUAGE')).toEqual([]);
+    expect(sent(send, 'REQUEST_LANGUAGE')).toEqual([]);
   });
 
-  it('waits for the saved language before telling a new document', async () => {
+  it('waits for restoration before it syncs a new document', async () => {
     let restored: () => void = () => undefined;
     jest.spyOn(preference, 'restoreLanguagePreference').mockReturnValue(new Promise<void>(resolve => {
       restored = resolve;
     }));
+    jest.spyOn(preference, 'savedLanguagePreference').mockReturnValue('ru');
     NativeBridge.resetWebAppReady();
     const send = await activate();
     await flush();
-    expect(sentLanguages(send)).toEqual([]);
-    await i18n.changeLanguage('ru');
+    expect(sent(send, 'SET_LANGUAGE')).toEqual([]);
     restored();
     await flush();
-    expect(sentLanguages(send)).toEqual(['ru']);
+    expect(sent(send, 'SET_LANGUAGE')).toEqual(['ru']);
+  });
+
+  describe('while a Settings choice waits for its echo', () => {
+    beforeEach(() => { jest.spyOn(NativeBridge, 'sendToWeb').mockReturnValue(true); });
+
+    it('ignores a stale echo of an earlier choice', async () => {
+      await NativeBridge.setLanguage('de');
+      await NativeBridge.setLanguage('es');
+      jest.mocked(storage.setItem).mockClear();
+      await report('de');
+      expect(i18n.language).toBe('es');
+      expect(storage.setItem).not.toHaveBeenCalled();
+    });
+
+    it('ignores the wallet falling back to English', async () => {
+      await NativeBridge.setLanguage('de');
+      await report('en');
+      expect(i18n.language).toBe('de');
+      expect(storage.setItem).not.toHaveBeenCalledWith(LANGUAGE_STORAGE_KEY, 'en');
+    });
+
+    it('takes the echo without a second save, then accepts later reports', async () => {
+      await NativeBridge.setLanguage('de');
+      jest.mocked(storage.setItem).mockClear();
+      await report('de');
+      expect(storage.setItem).not.toHaveBeenCalled();
+      await report('ru');
+      expect(i18n.language).toBe('ru');
+      expect(storage.setItem).toHaveBeenCalledWith(LANGUAGE_STORAGE_KEY, 'ru');
+    });
+
+    it('stops waiting when the document is replaced', async () => {
+      await NativeBridge.setLanguage('de');
+      NativeBridge.resetWebAppReady();
+      await activate();
+      await flush();
+      await report('ru');
+      expect(i18n.language).toBe('ru');
+    });
   });
 });

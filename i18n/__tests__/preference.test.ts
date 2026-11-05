@@ -85,3 +85,30 @@ it('ignores invalid values without changing language or writing storage', async 
   expect(app.i18n.language).toBe('ru');
   expect(app.storage.setItem).not.toHaveBeenCalled();
 });
+
+describe('the saved language', () => {
+  it('is empty until storage or a change provides one', async () => {
+    const app = load();
+    expect(app.savedLanguagePreference()).toBeUndefined();
+    app.storage.getItem.mockResolvedValue(null);
+    await app.restoreLanguagePreference();
+    expect(app.savedLanguagePreference()).toBeUndefined();
+    await app.applyLanguage('de');
+    expect(app.savedLanguagePreference()).toBe('de');
+  });
+
+  it('comes from storage', async () => {
+    const app = load();
+    app.storage.getItem.mockResolvedValue('ru');
+    await app.restoreLanguagePreference();
+    expect(app.savedLanguagePreference()).toBe('ru');
+  });
+
+  it('stays empty after a failed read, so no default counts as saved', async () => {
+    const app = load();
+    app.storage.getItem.mockRejectedValue(new Error('read failed'));
+    await app.restoreLanguagePreference();
+    expect(app.savedLanguagePreference()).toBeUndefined();
+  });
+});
+
