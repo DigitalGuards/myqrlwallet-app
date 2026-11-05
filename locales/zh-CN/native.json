@@ -30,6 +30,8 @@
     "general": "通用",
     "notifications": "通知",
     "notificationsHint": "交易提醒和应用更新",
+    "language": "语言",
+    "languageHint": "选择钱包使用的语言",
     "display": "显示",
     "tokens": "显示代币卡片",
     "tokensHint": "在主屏幕上显示代币部分",

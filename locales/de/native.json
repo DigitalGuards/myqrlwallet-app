@@ -30,6 +30,8 @@
     "general": "Allgemein",
     "notifications": "Benachrichtigungen",
     "notificationsHint": "Transaktionsmeldungen und App-Updates",
+    "language": "Sprache",
+    "languageHint": "Sprache der Wallet auswählen",
     "display": "Anzeige",
     "tokens": "Token-Karte anzeigen",
     "tokensHint": "Den Bereich „Token“ auf dem Startbildschirm anzeigen",

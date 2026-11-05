@@ -30,6 +30,8 @@
     "general": "General",
     "notifications": "Notificaciones",
     "notificationsHint": "Alertas de transacciones y actualizaciones de la app",
+    "language": "Idioma",
+    "languageHint": "Elige el idioma de la billetera",
     "display": "Pantalla",
     "tokens": "Mostrar tarjeta de tokens",
     "tokensHint": "Mostrar la sección de tokens en la pantalla de inicio",

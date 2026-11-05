@@ -2,7 +2,7 @@
   "expo": {
     "name": "MyQRLWallet",
     "slug": "myqrlwallet",
-    "version": "1.5.2",
+    "version": "1.5.3",
     "orientation": "portrait",
     "icon": "./assets/images/myqrlwallet/applogo.png",
     "scheme": [
