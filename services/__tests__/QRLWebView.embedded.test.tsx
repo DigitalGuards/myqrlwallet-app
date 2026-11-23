@@ -328,6 +328,8 @@ describe('embedded QRLWebView', () => {
   it('opens a foreign origin outside the app instead of loading it', async () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     const view = await renderEmbedded();
+    expect(callProp(view.props, 'onShouldStartLoadWithRequest', { url: 'https://shorscan.com/tx/0x1' })).toBe(false);
+    expect(openURL).toHaveBeenCalledWith('https://shorscan.com/tx/0x1');
     expect(callProp(view.props, 'onShouldStartLoadWithRequest', { url: 'https://zondscan.com/tx/0x1' })).toBe(false);
     expect(openURL).toHaveBeenCalledWith('https://zondscan.com/tx/0x1');
   });
