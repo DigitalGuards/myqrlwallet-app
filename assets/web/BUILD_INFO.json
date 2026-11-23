@@ -1,9 +1,9 @@
 {
-  "frontendCommit": "a6bfb94ebf5644a2e30ebda115eb2cc4921dcc9e",
-  "frontendCommitShort": "a6bfb94ebf56",
+  "frontendCommit": "a22117b41e67e259a2c03848ca1a6ea3730edc94",
+  "frontendCommitShort": "a22117b41e67",
   "frontendDirty": false,
   "walletProfile": "v3-private",
-  "builtAt": "2026-11-10T06:25:55.596Z",
-  "sha256": "9659600c68392ed42e831087d46ef79ec69e2e843aa3a3813ecf34aa745b61f2",
-  "bytes": 4053947
+  "builtAt": "2026-11-23T22:17:59.149Z",
+  "sha256": "a763ea8623754c33ce453a66cd4acef19f433aa23a78107b08aac35aa7f2dc91",
+  "bytes": 4057121
 }
