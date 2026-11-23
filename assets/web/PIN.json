@@ -2,7 +2,7 @@
   "comment": "Reviewed pin for the wallet document shipped in assets/web/index.html. A build verifies the file against this before it is packaged, so changing the wallet requires changing this file in a reviewed commit.",
   "frontendCommit": "a22117b41e67e259a2c03848ca1a6ea3730edc94",
   "frontendTag": "",
-  "frontendRef": "release/2026-11-rollout-prod at a22117b (#463: shorscan.com as the explorer host; #453: failed dApp requests answer with matching error codes; #456: connect SDK 5.2.1; the light theme stays off in this build). The branch is to merge to main with a merge commit, which keeps the commit reachable.",
+  "frontendRef": "release/2026-11-rollout-prod at a22117b (#463: shorscan.com as the explorer host; #453: failed dApp requests answer with matching error codes; #456: connect SDK 5.2.1; #461: Settings layout by screen width (the app opens its own settings screen); #459: page title and App Store notice; the light theme stays off in this build). The branch is to merge to main with a merge commit, which keeps the commit reachable.",
   "walletProfile": "v3-private",
   "sha256": "a763ea8623754c33ce453a66cd4acef19f433aa23a78107b08aac35aa7f2dc91",
   "bytes": 4057121
