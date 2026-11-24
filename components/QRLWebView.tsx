@@ -865,9 +865,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const { source: embeddedSource, epoch: renderEpoch, themeScript } = useMemo(
     () => {
       const epoch = documentEpoch;
-      // The theme the shell injects is read when the document for this epoch is
-      // built, never on a later render: a changed prop would not reach a document
-      // that is already running, and SET_THEME carries every later change.
+      // The theme the shell injects is read once, when the document for this
+      // epoch is built. A changed prop would not reach a document that is already
+      // running, and SET_THEME carries every later change.
       const shellTheme = getThemeSnapshot();
       const themeScript = shellThemeScript(shellTheme);
       if (!isEmbedded) return { epoch, themeScript, source: { uri: devUri } };

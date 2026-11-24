@@ -8,13 +8,15 @@
  * Using the same color variables as defined in the web app's CSS
  */
 
-// Light mode colors: the "Ink and blue" set of the web wallet (see constants/Theme.ts)
-const backgroundLight = '#F3F4F7';
-const foregroundLight = '#0F1729';
-const primaryLight = '#0967AE';
-const primaryForegroundLight = '#FFFFFF';
-const secondaryLight = '#0967AE';
-const secondaryForegroundLight = '#FFFFFF';
+import { NativeThemeLight } from './Theme';
+
+// Light mode colors: the "Ink and blue" set of the web wallet, from constants/Theme.ts
+const backgroundLight = NativeThemeLight.background;
+const foregroundLight = NativeThemeLight.foreground;
+const primaryLight = NativeThemeLight.primary;
+const primaryForegroundLight = NativeThemeLight.primaryForeground;
+const secondaryLight = NativeThemeLight.secondary;
+const secondaryForegroundLight = NativeThemeLight.primaryForeground;
 
 // Dark mode colors
 const backgroundDark = '#080C16'; // --background (QRL Blue)
@@ -29,7 +31,7 @@ export default {
     text: foregroundLight,
     background: backgroundLight,
     tint: secondaryLight,
-    tabIconDefault: '#606876',
+    tabIconDefault: NativeThemeLight.tertiary,
     tabIconSelected: secondaryLight,
     headerBackground: backgroundLight,
     headerText: foregroundLight,

@@ -8,7 +8,7 @@ import type AsyncStorage from '@react-native-async-storage/async-storage';
 type AppearanceListener = (preferences: { colorScheme: string | null }) => void;
 
 /** A stand-in for the platform: the OS appearance, the override the app sets and the app state. */
-function load(initialOs: 'dark' | 'light' = 'dark') {
+function load(initialOs: 'dark' | 'light' = 'dark', releaseIsAsync = false) {
   let os = initialOs;
   let override: string | null = null;
   let appearanceListener: AppearanceListener | undefined;
@@ -17,7 +17,8 @@ function load(initialOs: 'dark' | 'light' = 'dark') {
     appState: 'active',
     Appearance: {
       getColorScheme: jest.fn(() => (override && override !== 'unspecified' ? override : os)),
-      setColorScheme: jest.fn((value: string) => { override = value; }),
+      // Some platforms apply the release of the override later; a read in between sees the old override.
+      setColorScheme: jest.fn((value: string) => { if (!(releaseIsAsync && value === 'unspecified')) override = value; }),
       addChangeListener: jest.fn((listener: AppearanceListener) => { appearanceListener = listener; }),
     },
     AppState: {
@@ -38,6 +39,11 @@ function load(initialOs: 'dark' | 'light' = 'dark') {
     setOs(next: 'dark' | 'light') {
       os = next;
       appearanceListener?.({ colorScheme: override && override !== 'unspecified' ? override : next });
+    },
+    /** The platform finishes releasing the override and reports the OS appearance. */
+    finishRelease() {
+      override = null;
+      appearanceListener?.({ colorScheme: os });
     },
     setAppState(next: string) {
       platform.appState = next;
@@ -241,6 +247,20 @@ describe('system', () => {
     expect(app.getThemeSnapshot().resolved).toBe('dark');
     await app.applyTheme('system');
     expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
+  });
+
+  it('settles on the OS value when the platform releases the override late', async () => {
+    const app = load('dark', true);
+    await app.applyTheme('light');
+    const listener = jest.fn();
+    app.subscribeTheme(listener);
+    await app.applyTheme('system');
+    // The first read still sees the old override, so the stale value shows until the platform reports.
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
+    listener.mockClear();
+    app.finishRelease();
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'dark' });
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('ignores OS changes under a fixed choice', async () => {
