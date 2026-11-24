@@ -101,8 +101,9 @@ describe('embedded wallet document', () => {
       });
     }
 
-    // The flag script and the app bundle.
-    expect(executable).toHaveLength(2);
+    // The flag script, the theme boot script (reads the shell's theme before the first paint)
+    // and the app bundle.
+    expect(executable).toHaveLength(3);
     for (const script of executable) {
       expect(allowed).toContain(script.digest);
     }
