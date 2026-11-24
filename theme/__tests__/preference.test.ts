@@ -63,7 +63,7 @@ describe('with nothing chosen', () => {
     const app = load('light');
     app.storage.getItem.mockResolvedValue(null);
     await app.restoreThemePreference();
-    expect(app.getThemeSnapshot()).toEqual({ theme: 'dark', resolved: 'dark' });
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
     expect(app.savedThemePreference()).toBeUndefined();
     expect(app.storage.setItem).not.toHaveBeenCalled();
   });
@@ -72,7 +72,7 @@ describe('with nothing chosen', () => {
     const app = load();
     app.storage.getItem.mockResolvedValue(stored);
     await app.restoreThemePreference();
-    expect(app.getThemeSnapshot().theme).toBe('dark');
+    expect(app.getThemeSnapshot().theme).toBe('system');
     expect(app.savedThemePreference()).toBeUndefined();
     expect(app.storage.setItem).not.toHaveBeenCalled();
   });
@@ -82,7 +82,7 @@ describe('with nothing chosen', () => {
     app.storage.getItem.mockRejectedValueOnce(new Error('read failed'));
     await app.restoreThemePreference();
     expect(app.savedThemePreference()).toBeUndefined();
-    expect(app.getThemeSnapshot().theme).toBe('dark');
+    expect(app.getThemeSnapshot().theme).toBe('system');
     await app.applyTheme('light');
     expect(app.storage.setItem).toHaveBeenCalledWith(app.THEME_STORAGE_KEY, 'light');
   });
@@ -136,11 +136,11 @@ describe('restoring a saved choice', () => {
 describe('choosing', () => {
   it('saves a choice equal to the default once, so it pins against a later change of the default', async () => {
     const app = load();
-    await app.applyTheme('dark');
-    expect(app.storage.setItem).toHaveBeenCalledWith(app.THEME_STORAGE_KEY, 'dark');
-    expect(app.savedThemePreference()).toBe('dark');
+    await app.applyTheme('system');
+    expect(app.storage.setItem).toHaveBeenCalledWith(app.THEME_STORAGE_KEY, 'system');
+    expect(app.savedThemePreference()).toBe('system');
     app.storage.setItem.mockClear();
-    await app.applyTheme('dark');
+    await app.applyTheme('system');
     expect(app.storage.setItem).not.toHaveBeenCalled();
   });
 
@@ -201,11 +201,22 @@ describe('choosing', () => {
 });
 
 describe('the platform follows the choice', () => {
-  it('applies the default from the start while nothing is chosen, without writing it', () => {
-    const app = load('light');
-    expect(app.platform.Appearance.setColorScheme).toHaveBeenCalledWith('dark');
-    expect(app.systemUi.setBackgroundColorAsync).toHaveBeenCalledWith('#080C16');
+  it.each([['light', '#F3F4F7'], ['dark', '#080C16']] as const)('leaves the appearance to the OS from the start on a %s phone while nothing is chosen, without writing it', (os, background) => {
+    const app = load(os);
+    expect(app.platform.Appearance.setColorScheme).toHaveBeenCalledWith('unspecified');
+    expect(app.platform.Appearance.setColorScheme).not.toHaveBeenCalledWith('dark');
+    expect(app.platform.Appearance.setColorScheme).not.toHaveBeenCalledWith('light');
+    expect(app.systemUi.setBackgroundColorAsync).toHaveBeenCalledWith(background);
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: os });
     expect(app.storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it.each([['light'], ['dark']] as const)('a never-chosen cold start on a %s phone is in the OS theme before the stored read settles', os => {
+    const app = load(os, true, false);
+    app.storage.getItem.mockReturnValue(new Promise(() => undefined));
+    void app.restoreThemePreference();
+    app.startThemePlatform();
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: os });
   });
 
   it('keeps reading the real OS value for system after the start override', async () => {

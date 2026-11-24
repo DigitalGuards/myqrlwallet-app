@@ -129,9 +129,10 @@ export default function RootLayout() {
         }
         // The stored Theme is read before the splash goes, so the first frame the
         // user sees is already in their theme. The wallet document waits for the same
-        // read under the same deadline. The splash itself is the same dark launch
-        // screen for every theme (it is native config, painted before any JavaScript
-        // can read the choice).
+        // read under the same deadline. The splash itself follows the OS appearance
+        // (native config, painted before any JavaScript can read the choice), and the
+        // start above has already read the OS value, so a device that never chose is in
+        // the phone's appearance while the read is pending.
         await restoreThemeWithinDeadline();
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();

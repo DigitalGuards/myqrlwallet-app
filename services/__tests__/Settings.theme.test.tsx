@@ -99,7 +99,7 @@ describe('Settings theme row', () => {
   };
 
   it('sits in the Display section and shows the current choice with the list closed', () => {
-    expect(textOf(row())).toContain('Dark');
+    expect(textOf(row())).toContain('Same as the phone');
     expect(options()).toHaveLength(0);
   });
 
@@ -107,7 +107,7 @@ describe('Settings theme row', () => {
     await press(row());
     const shown = options();
     expect(shown.map(textOf)).toEqual(['Dark', 'Light', 'Same as the phone']);
-    expect(shown.filter(isChecked).map(textOf)).toEqual(['Dark']);
+    expect(shown.filter(isChecked).map(textOf)).toEqual(['Same as the phone']);
   });
 
   it('tells assistive technology the row expands and the options form a group', async () => {
@@ -154,16 +154,16 @@ describe('Settings theme row', () => {
   it('saves the default when it is picked while nothing is saved, so the choice sticks', async () => {
     expect(preference.savedThemePreference()).toBeUndefined();
     await press(row());
-    await pressOption('Dark');
-    expect(mockSetTheme).toHaveBeenCalledWith('dark');
-    expect(preference.savedThemePreference()).toBe('dark');
+    await pressOption('Same as the phone');
+    expect(mockSetTheme).toHaveBeenCalledWith('system');
+    expect(preference.savedThemePreference()).toBe('system');
   });
 
   it('follows a change made elsewhere while the screen is open', async () => {
     await act(async () => {
-      await preference.applyTheme('system');
+      await preference.applyTheme('dark');
     });
-    expect(textOf(row())).toContain('Same as the phone');
+    expect(textOf(row())).toContain('Dark');
   });
 
   it('shows the row in the language of the app', async () => {
@@ -172,6 +172,6 @@ describe('Settings theme row', () => {
     });
     const german = screen.root.findAllByProps({ title: 'Design' })[0];
     if (!german) throw new Error('Missing German theme row');
-    expect(textOf(german)).toContain('Dunkel');
+    expect(textOf(german)).toContain('Wie das Telefon');
   });
 });

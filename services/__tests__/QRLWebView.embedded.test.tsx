@@ -1,5 +1,5 @@
 import React, { act, createRef } from 'react';
-import { BackHandler, Linking, Platform } from 'react-native';
+import { Appearance, BackHandler, Linking, Platform } from 'react-native';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import QRLWebView, { type QRLWebViewRef } from '../../components/QRLWebView';
 import NativeBridge from '../NativeBridge';
@@ -278,7 +278,7 @@ describe('embedded QRLWebView', () => {
 
     it('is the default when nothing is saved, in the head script and the before-content hook', async () => {
       const view = await renderEmbedded();
-      const statement = 'window.__QRL_SHELL_THEME__ = {"theme":"dark","resolved":"dark"};';
+      const statement = 'window.__QRL_SHELL_THEME__ = {"theme":"system","resolved":"dark"};';
       expect(htmlOf(view)).toContain(statement);
       expect(htmlOf(view).indexOf('__QRL_SHELL_THEME__')).toBeLessThan(htmlOf(view).indexOf('<title>'));
       expect(view.props.injectedJavaScriptBeforeContentLoaded).toContain(statement);
@@ -320,7 +320,17 @@ describe('embedded QRLWebView', () => {
         await Promise.resolve();
       });
       const view = readWebView(screen.root.find(hasType('NativeWebView')));
-      expect(htmlOf(view)).toContain('"theme":"dark","resolved":"dark"');
+      expect(htmlOf(view)).toContain('"theme":"system","resolved":"dark"');
+    });
+
+    it.each([['light', '#F3F4F7'], ['dark', '#080C16']] as const)('starts a never-chosen device in the %s phone appearance, document and loading screen', async (os, background) => {
+      jest.spyOn(Appearance, 'getColorScheme').mockReturnValue(os);
+      jest.spyOn(Appearance, 'setColorScheme').mockImplementation(() => undefined);
+      themePreference.startThemePlatform();
+      const view = await renderEmbedded();
+      expect(htmlOf(view)).toContain(`window.__QRL_SHELL_THEME__ = {"theme":"system","resolved":"${os}"};`);
+      expect(view.props.injectedJavaScriptBeforeContentLoaded).toContain(`"theme":"system","resolved":"${os}"`);
+      expect(backgroundOf(view)).toBe(background);
     });
 
     it('gates the dev document on the stored choice as well, with the restored global', async () => {

@@ -118,7 +118,7 @@ describe('the shell leads at a document start', () => {
   it('sends the default and its resolved value when nothing is saved, without writing it', async () => {
     const send = await activate();
     await flush();
-    expect(themes(send)).toEqual([{ theme: 'dark', resolved: 'dark' }]);
+    expect(themes(send)).toEqual([{ theme: 'system', resolved: 'dark' }]);
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
@@ -167,7 +167,7 @@ describe('the shell leads at a document start', () => {
       expect(themes(send)).toEqual([]);
       jest.advanceTimersByTime(preference.THEME_RESTORE_DEADLINE_MS + 1);
       await flush();
-      expect(themes(send)).toEqual([{ theme: 'dark', resolved: 'dark' }]);
+      expect(themes(send)).toEqual([{ theme: 'system', resolved: 'dark' }]);
     } finally {
       jest.useRealTimers();
     }
@@ -182,7 +182,7 @@ describe('the shell leads at a document start', () => {
     jest.spyOn(NativeBridge, 'clearWalletDurably').mockResolvedValue();
     const send = await activate();
     await flush();
-    expect(themes(send)).toEqual([{ theme: 'dark', resolved: 'dark' }]);
+    expect(themes(send)).toEqual([{ theme: 'system', resolved: 'dark' }]);
   });
 });
 
@@ -219,11 +219,11 @@ describe('a change of the choice', () => {
       render: jest.fn(() => null),
     };
     NativeBridge.setWebViewRef({ current: webView });
-    await NativeBridge.setTheme('system');
+    await NativeBridge.setTheme('light');
     const script = injectJavaScript.mock.calls.at(-1)?.[0];
     expect(script).toContain('SET_THEME');
     expect(script).toContain(DOCUMENT_ID);
-    expect(script).toContain('system');
+    expect(script).toContain('light');
     NativeBridge.setWebViewRef({ current: null });
   });
 
@@ -286,14 +286,14 @@ describe('THEME_CHANGED from the wallet', () => {
   });
 
   it('answers a report equal to the effective default every time, and saves it once like Settings does', async () => {
-    await report('dark');
-    await report('dark');
+    await report('system');
+    await report('system');
     expect(storage.setItem).toHaveBeenCalledTimes(1);
-    expect(storage.setItem).toHaveBeenCalledWith(THEME_STORAGE_KEY, 'dark');
-    expect(preference.savedThemePreference()).toBe('dark');
+    expect(storage.setItem).toHaveBeenCalledWith(THEME_STORAGE_KEY, 'system');
+    expect(preference.savedThemePreference()).toBe('system');
     expect(themes(send)).toEqual([
-      { theme: 'dark', resolved: 'dark' },
-      { theme: 'dark', resolved: 'dark' },
+      { theme: 'system', resolved: 'dark' },
+      { theme: 'system', resolved: 'dark' },
     ]);
   });
 
@@ -312,14 +312,14 @@ describe('THEME_CHANGED from the wallet', () => {
     let now = 1_000_000;
     jest.spyOn(Date, 'now').mockImplementation(() => now);
     for (let i = 0; i < 40; i += 1) {
-      await report('dark');
+      await report('system');
       now += 10;
     }
     expect(themes(send)).toHaveLength(8);
     expect(warn.mock.calls.filter(call => typeof call[1] === 'string' && call[1].includes('echoing'))).toHaveLength(1);
     // Later, outside the window, the wallet is answered again.
     now += 6000;
-    await report('dark');
+    await report('system');
     expect(themes(send)).toHaveLength(9);
   });
 
@@ -358,27 +358,27 @@ describe('THEME_CHANGED from the wallet', () => {
     ),
   ])('ignores invalid payloads and unknown values: %s', async raw => {
     await receive(raw);
-    expect(preference.getThemeSnapshot().theme).toBe('dark');
+    expect(preference.getThemeSnapshot().theme).toBe('system');
     expect(storage.setItem).not.toHaveBeenCalled();
     expect(themes(send)).toEqual([]);
   });
 
   it.each([undefined, 'ff'.repeat(16)])('ignores reports without the current document ID: %s', async documentId => {
     await report('light', documentId);
-    expect(preference.getThemeSnapshot().theme).toBe('dark');
+    expect(preference.getThemeSnapshot().theme).toBe('system');
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
   it('ignores a stale report after the document was reset', async () => {
     NativeBridge.resetWebAppReady();
     await report('light');
-    expect(preference.getThemeSnapshot().theme).toBe('dark');
+    expect(preference.getThemeSnapshot().theme).toBe('system');
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
   it('does not take SET_THEME from the wallet as a request', async () => {
     await receive(JSON.stringify({ type: 'SET_THEME', payload: { theme: 'light', resolved: 'light', documentId: DOCUMENT_ID } }));
-    expect(preference.getThemeSnapshot().theme).toBe('dark');
+    expect(preference.getThemeSnapshot().theme).toBe('system');
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 

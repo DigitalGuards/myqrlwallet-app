@@ -155,7 +155,7 @@ describe('NativeBridge durable wallet wipe', () => {
     await expect(wipe).resolves.toBeUndefined();
     const after = themeMessages();
     expect(after.length).toBe(before + 1);
-    expect(after.at(-1)?.payload).toMatchObject({ theme: 'dark', resolved: 'dark' });
+    expect(after.at(-1)?.payload).toMatchObject({ theme: 'system', resolved: 'dark' });
     send.mockRestore();
   });
 
