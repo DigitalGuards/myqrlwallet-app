@@ -53,6 +53,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NativeBridge from '../NativeBridge';
 import SeedStorageService from '../SeedStorageService';
 import { parseBridgeMessage } from '../BridgeMessage';
+import Logger from '../Logger';
 import type WebView from 'react-native-webview';
 import * as preference from '../../theme/preference';
 import { THEME_STORAGE_KEY } from '../../theme/preference';
@@ -87,10 +88,20 @@ async function receive(raw: string) {
   if (message) await NativeBridge.handle(message);
 }
 
+/** A cold start on a phone whose OS appearance is `os`: the boot sequence reads it once. */
+function bootOn(os: 'dark' | 'light') {
+  preference.resetThemeForTests();
+  mockPlatform.os = os;
+  mockPlatform.override = null;
+  preference.startThemePlatform();
+}
+
 beforeEach(() => {
   preference.resetThemeForTests();
   mockPlatform.os = 'dark';
   mockPlatform.override = null;
+  // The boot sequence starts the platform side; the bridge tests run after it.
+  preference.startThemePlatform();
   storage.getItem.mockResolvedValue(null);
   NativeBridge.resetWebAppReady();
   NativeBridge.endWalletClear();
@@ -119,7 +130,7 @@ describe('the shell leads at a document start', () => {
   });
 
   it('resolves a saved system choice from the OS appearance', async () => {
-    mockPlatform.os = 'light';
+    bootOn('light');
     storage.getItem.mockResolvedValue('system');
     const send = await activate();
     await flush();
@@ -138,13 +149,28 @@ describe('the shell leads at a document start', () => {
   });
 
   it('does not tell a document that was replaced before the restore finished', async () => {
-    let restored: () => void = () => undefined;
-    jest.spyOn(preference, 'restoreThemePreference').mockReturnValue(new Promise<void>(resolve => { restored = resolve; }));
+    let finishRead: (value: string) => void = () => undefined;
+    storage.getItem.mockReturnValue(new Promise(resolve => { finishRead = resolve; }));
     const send = await activate();
     NativeBridge.resetWebAppReady();
-    restored();
+    finishRead('light');
     await flush();
     expect(themes(send)).toEqual([]);
+  });
+
+  it('sends the current snapshot when the stored read never settles, after the shared deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      storage.getItem.mockReturnValue(new Promise(() => undefined));
+      const send = await activate();
+      await flush();
+      expect(themes(send)).toEqual([]);
+      jest.advanceTimersByTime(preference.THEME_RESTORE_DEADLINE_MS + 1);
+      await flush();
+      expect(themes(send)).toEqual([{ theme: 'dark', resolved: 'dark' }]);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('tells a document that starts with a pending wipe too, because the wipe empties the wallet storage', async () => {
@@ -259,19 +285,46 @@ describe('THEME_CHANGED from the wallet', () => {
     expect(themes(send)).toEqual([{ theme, resolved: theme === 'system' ? 'dark' : theme }]);
   });
 
-  it('answers a report equal to the current choice with SET_THEME every time, and does not save it', async () => {
+  it('answers a report equal to the effective default every time, and saves it once like Settings does', async () => {
     await report('dark');
     await report('dark');
-    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(storage.setItem).toHaveBeenCalledWith(THEME_STORAGE_KEY, 'dark');
+    expect(preference.savedThemePreference()).toBe('dark');
     expect(themes(send)).toEqual([
       { theme: 'dark', resolved: 'dark' },
       { theme: 'dark', resolved: 'dark' },
     ]);
-    expect(preference.savedThemePreference()).toBeUndefined();
+  });
+
+  it('does not write a pick that is already saved', async () => {
+    await NativeBridge.setTheme('dark');
+    storage.setItem.mockClear();
+    send.mockClear();
+    await report('dark');
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(themes(send)).toEqual([{ theme: 'dark', resolved: 'dark' }]);
+  });
+
+  it('cannot be turned into a loop by a wallet that echoes every answer', async () => {
+    const warn = jest.mocked(Logger.warn);
+    warn.mockClear();
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    for (let i = 0; i < 40; i += 1) {
+      await report('dark');
+      now += 10;
+    }
+    expect(themes(send)).toHaveLength(8);
+    expect(warn.mock.calls.filter(call => String(call[1]).includes('echoing'))).toHaveLength(1);
+    // Later, outside the window, the wallet is answered again.
+    now += 6000;
+    await report('dark');
+    expect(themes(send)).toHaveLength(9);
   });
 
   it('gives a stale wallet the resolved value of system', async () => {
-    mockPlatform.os = 'light';
+    bootOn('light');
     await NativeBridge.setTheme('system');
     send.mockClear();
     storage.setItem.mockClear();

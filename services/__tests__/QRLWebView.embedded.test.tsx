@@ -8,7 +8,7 @@ import { isRecord } from '../guards';
 import { runAsPromise } from '../runAsPromise';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as themePreference from '../../theme/preference';
-import { THEME_RESTORE_DEADLINE_MS } from '../../components/QRLWebView';
+import { THEME_RESTORE_DEADLINE_MS } from '../../theme/preference';
 
 function isNativeTestRenderer(value: unknown): value is {
   create: (element: React.ReactElement) => Promise<ReactTestRenderer>;
@@ -321,6 +321,25 @@ describe('embedded QRLWebView', () => {
       });
       const view = readWebView(screen.root.find(hasType('NativeWebView')));
       expect(htmlOf(view)).toContain('"theme":"dark","resolved":"dark"');
+    });
+
+    it('gates the dev document on the stored choice as well, with the restored global', async () => {
+      let finishRead: (value: string) => void = () => undefined;
+      jest.mocked(AsyncStorage.getItem).mockReturnValue(new Promise(resolve => { finishRead = resolve; }));
+      await act(async () => {
+        screen = await nativeTestRenderer.create(<QRLWebView webSource="dev" />);
+      });
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.root.findAll(hasType('NativeWebView'))).toHaveLength(0);
+      await act(async () => {
+        finishRead('light');
+        await Promise.resolve();
+      });
+      const view = readWebView(screen.root.find(hasType('NativeWebView')));
+      expect(view.props.injectedJavaScriptBeforeContentLoaded).toContain('"theme":"light","resolved":"light"');
+      const source = view.props.source;
+      await act(async () => { await themePreference.applyTheme('dark'); });
+      expect(readWebView(screen.root.find(hasType('NativeWebView'))).props.source).toBe(source);
     });
 
     it('does not rebuild the document when the choice changes mid-session', async () => {

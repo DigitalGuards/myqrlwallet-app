@@ -19,7 +19,7 @@ import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
 import { embeddedHashRouteForWalletUrl } from '../services/EmbeddedDeepLink';
 import EmbeddedRouteIntent from '../services/EmbeddedRouteIntent';
 import { restoreLanguagePreference } from '../i18n/preference';
-import { restoreThemePreference } from '../theme/preference';
+import { restoreThemeWithinDeadline, startThemePlatform } from '../theme/preference';
 import { usePalette, useResolvedTheme } from '../theme/useAppTheme';
 
 const HEADER_TITLE_STYLE = {
@@ -120,11 +120,19 @@ export default function RootLayout() {
           }),
           'pin_exists marker repair',
         );
+        // The theme code makes its first native calls here, with the other boot steps and
+        // never while the bundle evaluates or during the first render.
+        try {
+          startThemePlatform();
+        } catch (error) {
+          Logger.error('RootLayout', 'Failed to start the theme platform:', error);
+        }
         // The stored Theme is read before the splash goes, so the first frame the
-        // user sees is already in their theme. The splash itself is the same
-        // dark launch screen for every theme (it is native config, painted
-        // before any JavaScript can read the choice).
-        await withBootTimeout(restoreThemePreference(), 'theme restore');
+        // user sees is already in their theme. The wallet document waits for the same
+        // read under the same deadline. The splash itself is the same dark launch
+        // screen for every theme (it is native config, painted before any JavaScript
+        // can read the choice).
+        await restoreThemeWithinDeadline();
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();
       })();
@@ -136,7 +144,6 @@ export default function RootLayout() {
   useEffect(() => {
     if (bootReady) {
       void restoreLanguagePreference();
-      void restoreThemePreference();
     }
   }, [bootReady]);
 

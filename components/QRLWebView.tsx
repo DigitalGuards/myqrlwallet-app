@@ -1,7 +1,7 @@
 import { nativeMessage } from '../i18n/nativeMessage';
 import { t } from '../i18n';
 import { useNativeLanguage } from '../i18n/useNativeLanguage';
-import { getThemeSnapshot, restoreThemePreference } from '../theme/preference';
+import { getThemeSnapshot, restoreThemeWithinDeadline } from '../theme/preference';
 import { createThemedStyles, usePalette, useResolvedTheme } from '../theme/useAppTheme';
 import { shellThemeScript } from '../services/ShellTheme';
 import { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
@@ -118,8 +118,6 @@ export interface QRLWebViewRef {
 // Long enough for the entrance animation to land, short enough that a
 // warm cache load is not artificially delayed (was 3000ms of forced wait).
 const MIN_LOADING_TIME = 1200;
-// How long the document waits for the stored Theme before it starts anyway.
-export const THEME_RESTORE_DEADLINE_MS = 1500;
 export const MAX_BRIDGE_MESSAGE_CHARS = 300 * 1024;
 // How long the shipped document has to send its first bridge message before
 // the binding is reported as broken. The wallet sends WEB_APP_READY as soon as
@@ -302,16 +300,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
 
   useEffect(() => {
     let cancelled = false;
-    const deadline = setTimeout(() => {
-      if (!cancelled) setThemeReady(true);
-    }, THEME_RESTORE_DEADLINE_MS);
-    void restoreThemePreference().finally(() => {
-      clearTimeout(deadline);
+    void restoreThemeWithinDeadline().then(() => {
       if (!cancelled) setThemeReady(true);
     });
     return () => {
       cancelled = true;
-      clearTimeout(deadline);
     };
   }, []);
 
@@ -870,8 +863,10 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       // running, and SET_THEME carries every later change.
       const shellTheme = getThemeSnapshot();
       const themeScript = shellThemeScript(shellTheme);
+      // The dev path waits for the stored theme as well, so its injected global is the restored one.
+      if (!themeReady) return { epoch, themeScript, source: null };
       if (!isEmbedded) return { epoch, themeScript, source: { uri: devUri } };
-      if (embeddedRawHtml === null || !migrationResolved || !themeReady) {
+      if (embeddedRawHtml === null || !migrationResolved) {
         return { epoch, themeScript, source: null };
       }
       const owesMigration = migrationPendingRef.current === true;

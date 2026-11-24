@@ -17,7 +17,13 @@ import { NATIVE_WALLET_BLOCKCHAIN } from './NativeWalletProfile';
 import DeviceLoginState from './DeviceLoginState';
 import { isLanguage, type Language } from '../i18n/languages';
 import { applyLanguage, restoreLanguagePreference, savedLanguagePreference } from '../i18n/preference';
-import { applyTheme, getThemeSnapshot, restoreThemePreference, subscribeTheme } from '../theme/preference';
+import {
+  applyTheme,
+  getThemeSnapshot,
+  restoreThemeWithinDeadline,
+  savedThemePreference,
+  subscribeTheme,
+} from '../theme/preference';
 import { isThemePreference, type ThemePreference } from '../theme/themes';
 
 export const NATIVE_PIN_COMMIT_ERROR = 'Native secure PIN commit failed';
@@ -177,6 +183,10 @@ export type WebToNativeMessageType =
   | 'DAPP_HAPTIC' // Trigger haptic for dApp approve/reject
   | 'DAPP_RETURN'; // Bounce back to the dApp after approval (peer redirect)
 
+// Forced SET_THEME answers allowed per document in one window (see allowForcedThemeAnswer).
+const FORCED_THEME_MAX_PER_WINDOW = 8;
+const FORCED_THEME_WINDOW_MS = 5000;
+
 const LOCKED_ALLOWED_MESSAGE_TYPES: ReadonlySet<string> = new Set<WebToNativeMessageType>([
   'LANGUAGE_CHANGED',
   'THEME_CHANGED',
@@ -335,6 +345,8 @@ class NativeBridge {
   // One subscription for the life of the app: a change of the choice or of the
   // OS appearance (for `system`) tells the wallet whenever it can hear it.
   private lastThemeSent: string | null = null;
+  private forcedThemeAnswers: number[] = [];
+  private forcedThemeWarned = false;
   readonly unsubscribeTheme = subscribeTheme(() => this.sendTheme());
   private openNativeSettingsCallback: OpenNativeSettingsCallback | null = null;
   private walletClearedCallback: WalletClearedCallback | null = null;
@@ -696,6 +708,8 @@ class NativeBridge {
     this.isWebAppReady = false;
     this.languageAwaitingEcho = null;
     this.lastThemeSent = null;
+    this.forcedThemeAnswers = [];
+    this.forcedThemeWarned = false;
     this.nativeAuthorized = false;
     this.authorizedSyncDocumentGeneration = -1;
     this.activeDocumentId = null;
@@ -946,6 +960,26 @@ class NativeBridge {
    * start and on every change; a document that cannot hear it yet gets it at
    * its start. The shell leads, so there is no request for it.
    */
+  /**
+   * A forced answer repeats a state the wallet already got, which is what a wallet with a stale
+   * copy needs. The wallet never replies to SET_THEME, so this cannot loop with a correct wallet;
+   * this guard keeps a misbehaving one that echoes from turning it into a flood.
+   */
+  private allowForcedThemeAnswer(): boolean {
+    const now = Date.now();
+    this.forcedThemeAnswers = this.forcedThemeAnswers.filter((at) => now - at < FORCED_THEME_WINDOW_MS);
+    if (this.forcedThemeAnswers.length >= FORCED_THEME_MAX_PER_WINDOW) {
+      if (!this.forcedThemeWarned) {
+        this.forcedThemeWarned = true;
+        Logger.warn('NativeBridge', 'Dropped repeated SET_THEME answers: the wallet is echoing theme changes');
+      }
+      return false;
+    }
+    this.forcedThemeWarned = false;
+    this.forcedThemeAnswers.push(now);
+    return true;
+  }
+
   private sendTheme(force = false): void {
     if (!this.isWebAppReady || !this.activeDocumentId) return;
     const { theme, resolved } = getThemeSnapshot();
@@ -953,11 +987,14 @@ class NativeBridge {
     // sends the state as well; the document hears each state once.
     const key = `${this.activeDocumentId}|${theme}|${resolved}`;
     if (!force && key === this.lastThemeSent) return;
+    if (force && !this.allowForcedThemeAnswer()) return;
     if (this.sendToWeb({ type: 'SET_THEME', payload: { theme, resolved } })) this.lastThemeSent = key;
   }
 
   private async syncThemeWithDocument(documentId: string): Promise<void> {
-    await restoreThemePreference();
+    // The same deadline as the splash and the document: a read that never settles must not
+    // leave the wallet without SET_THEME. The current snapshot is sent either way.
+    await restoreThemeWithinDeadline();
     if (this.activeDocumentId !== documentId) return;
     this.sendTheme();
   }
@@ -1102,14 +1139,15 @@ class NativeBridge {
           Logger.warn('NativeBridge', 'THEME_CHANGED has an unsupported theme');
           return;
         }
-        // A value equal to the current choice is not saved again (the default must not land
-        // in storage as if chosen), but the wallet always gets the resolved value back: its own
-        // copy may be stale. The wallet never replies to SET_THEME, so this cannot loop.
-        if (payload.theme === getThemeSnapshot().theme) {
-          this.sendTheme(true);
-          break;
-        }
-        await applyTheme(payload.theme);
+        // The same rule as the Settings row: a pick that is not saved yet is saved, even when it
+        // equals the effective default, so it pins the choice against a later change of the
+        // default. A pick that is already saved is not written again. The wallet always gets
+        // the resolved value back, because its own copy may be stale. The wallet never
+        // replies to SET_THEME, and a guard limits forced answers per document.
+        const changed = payload.theme !== getThemeSnapshot().theme;
+        if (savedThemePreference() !== payload.theme || changed) await applyTheme(payload.theme);
+        // A change reaches the wallet through the store subscription; an equal pick does not.
+        if (!changed) this.sendTheme(true);
         break;
       }
 

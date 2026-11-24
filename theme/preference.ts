@@ -37,8 +37,13 @@ function resolve(): ResolvedTheme {
   return preference === 'system' ? osScheme : preference;
 }
 
-/** Make the platform follow: alerts, action sheets, the Android system bars and the root view. */
+/**
+ * Make the platform follow: alerts, action sheets, the Android system bars and the root view.
+ * Nothing native is touched before `startThemePlatform()` ran: the module is imported while the
+ * bundle evaluates, which is the start-up window kept free of native calls.
+ */
 function applyToPlatform(resolved: ResolvedTheme) {
+  if (!started) return;
   try {
     // 'unspecified' hands the appearance back to the OS, so `system` keeps reading the real value.
     Appearance.setColorScheme(preference === 'system' ? 'unspecified' : preference);
@@ -75,15 +80,29 @@ function readOsScheme() {
  * background (the snapshot for the app switcher). Those flips are held until
  * the app is active again, when the real value is read.
  */
-function start() {
+/**
+ * The first native calls of the theme code: read the OS appearance, apply the effective choice
+ * to the platform and watch for appearance changes. The boot sequence calls this where it runs its
+ * other deferred native steps; until then the store only holds JavaScript state.
+ *
+ * The OS value read here happens BEFORE the platform override is applied, and it is the one
+ * used for `system` from then on. It is never read again right after releasing an override,
+ * because the native release lands later and a read in between returns the forced value; the
+ * `appearanceChanged` event corrects the value afterwards.
+ */
+export function startThemePlatform() {
   if (started) return;
   started = true;
   osScheme = readOsScheme();
-  snapshot = { theme: preference, resolved: resolve() };
+  const resolved = resolve();
   // The effective choice (the default while nothing is chosen) drives the platform from the
-  // start, so alerts and keyboards match the app. The OS value was read above, before this.
-  // Nothing is written to storage.
-  applyToPlatform(snapshot.resolved);
+  // start, so alerts and keyboards match the app. Nothing is written to storage.
+  applyToPlatform(resolved);
+  const changed = snapshot.theme !== preference || snapshot.resolved !== resolved;
+  if (changed) {
+    snapshot = { theme: preference, resolved };
+    listeners.forEach((listener) => listener());
+  }
   try {
     Appearance.addChangeListener(({ colorScheme }) => {
       if (preference !== 'system') return;
@@ -113,12 +132,10 @@ function start() {
 
 /** The current choice and what it resolves to. The same object until something changes. */
 export function getThemeSnapshot(): ThemeSnapshot {
-  start();
   return snapshot;
 }
 
 export function subscribeTheme(listener: Listener): () => void {
-  start();
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -132,7 +149,6 @@ export function savedThemePreference(): ThemePreference | undefined {
 
 /** A live change wins over a storage read that started earlier. */
 export function restoreThemePreference(): Promise<void> {
-  start();
   if (liveRevision > 0) return Promise.resolve();
   if (restore) return restore;
   const revision = liveRevision;
@@ -142,15 +158,6 @@ export function restoreThemePreference(): Promise<void> {
       if (revision === liveRevision && isThemePreference(stored)) {
         saved = stored;
         preference = stored;
-        if (stored === 'system') {
-          // The start override must be released before the OS value can be read.
-          try {
-            Appearance.setColorScheme('unspecified');
-          } catch {
-            /* publish reports it */
-          }
-          osScheme = readOsScheme();
-        }
         publish();
       }
     } catch {
@@ -163,20 +170,13 @@ export function restoreThemePreference(): Promise<void> {
 /** The Settings screen's choice, or a report the bridge has authenticated and validated. */
 export function applyTheme(value: unknown): Promise<void> {
   if (!isThemePreference(value)) return Promise.resolve();
-  start();
+  startThemePlatform();
   liveRevision += 1;
   if (saved === value && preference === value) return writes;
   saved = value;
   preference = value;
-  // Handing the appearance back to the OS first, so the value read next is the OS's own.
-  if (value === 'system') {
-    try {
-      Appearance.setColorScheme('unspecified');
-    } catch {
-      /* publish reports it */
-    }
-    osScheme = readOsScheme();
-  }
+  // For `system`, publish hands the appearance back to the OS and uses the OS value read at
+  // start. A later `appearanceChanged` event corrects it if the OS moved while an override held.
   publish();
   writes = writes.then(async () => {
     try {
@@ -186,6 +186,24 @@ export function applyTheme(value: unknown): Promise<void> {
     }
   });
   return writes;
+}
+
+/** How long the document and the splash wait for the stored choice before they go on without it. */
+export const THEME_RESTORE_DEADLINE_MS = 1500;
+
+/**
+ * The restore, raced against one shared deadline. A read that never settles must not hold the
+ * splash, the wallet document or the handshake back. After the deadline the store still takes the
+ * stored value when it arrives, and the change reaches the native screens and the wallet.
+ */
+export function restoreThemeWithinDeadline(): Promise<void> {
+  return new Promise<void>((resolveDeadline) => {
+    const timer = setTimeout(resolveDeadline, THEME_RESTORE_DEADLINE_MS);
+    void restoreThemePreference().finally(() => {
+      clearTimeout(timer);
+      resolveDeadline();
+    });
+  });
 }
 
 /** Test seam: return the module to its first-start state. */

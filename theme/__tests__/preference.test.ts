@@ -8,7 +8,7 @@ import type AsyncStorage from '@react-native-async-storage/async-storage';
 type AppearanceListener = (preferences: { colorScheme: string | null }) => void;
 
 /** A stand-in for the platform: the OS appearance, the override the app sets and the app state. */
-function load(initialOs: 'dark' | 'light' = 'dark', releaseIsAsync = false) {
+function load(initialOs: 'dark' | 'light' = 'dark', releaseIsAsync = false, started = true) {
   let os = initialOs;
   let override: string | null = null;
   let appearanceListener: AppearanceListener | undefined;
@@ -30,6 +30,7 @@ function load(initialOs: 'dark' | 'light' = 'dark', releaseIsAsync = false) {
   const storage = jest.mocked(jest.requireMock<typeof AsyncStorage>('@react-native-async-storage/async-storage'));
   const preference = jest.requireActual<typeof import('../preference')>('../preference');
   const systemUi = jest.requireMock<{ setBackgroundColorAsync: jest.Mock }>('expo-system-ui');
+  if (started) preference.startThemePlatform();
   return {
     storage,
     systemUi,
@@ -202,7 +203,6 @@ describe('choosing', () => {
 describe('the platform follows the choice', () => {
   it('applies the default from the start while nothing is chosen, without writing it', () => {
     const app = load('light');
-    app.getThemeSnapshot();
     expect(app.platform.Appearance.setColorScheme).toHaveBeenCalledWith('dark');
     expect(app.systemUi.setBackgroundColorAsync).toHaveBeenCalledWith('#080C16');
     expect(app.storage.setItem).not.toHaveBeenCalled();
@@ -210,7 +210,6 @@ describe('the platform follows the choice', () => {
 
   it('keeps reading the real OS value for system after the start override', async () => {
     const app = load('light');
-    app.getThemeSnapshot();
     await app.applyTheme('system');
     expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
   });
@@ -264,17 +263,25 @@ describe('system', () => {
     expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
   });
 
-  it('settles on the OS value when the platform releases the override late', async () => {
+  it('uses the OS value read before any override when the platform releases late', async () => {
     const app = load('dark', true);
     await app.applyTheme('light');
+    await app.applyTheme('system');
+    // The release has not landed, so a read now would return the forced light value.
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'dark' });
+  });
+
+  it('lets the appearance event correct a value that moved while an override held', async () => {
+    const app = load('dark', true);
+    await app.applyTheme('light');
+    app.setOs('light');
     const listener = jest.fn();
     app.subscribeTheme(listener);
     await app.applyTheme('system');
-    // The first read still sees the old override, so the stale value shows until the platform reports.
-    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
+    expect(app.getThemeSnapshot().resolved).toBe('dark');
     listener.mockClear();
     app.finishRelease();
-    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'dark' });
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
@@ -313,5 +320,58 @@ describe('system', () => {
     app.setAppState('active');
     expect(app.getThemeSnapshot().resolved).toBe('dark');
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe.each([['light'], ['dark']] as const)('a cold start with system stored on a %s phone', os => {
+  it.each([[true], [false]])('starts in the OS theme although the start override is not released yet (platform start first: %s)', async startFirst => {
+    const app = load(os, true, false);
+    app.storage.getItem.mockResolvedValue('system');
+    if (startFirst) app.startThemePlatform();
+    await app.restoreThemePreference();
+    app.startThemePlatform();
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: os });
+  });
+});
+
+describe('before the boot sequence starts the theme platform', () => {
+  it('makes no native call when the modules are imported, read, subscribed to or restored', async () => {
+    const app = load('light', false, false);
+    app.getThemeSnapshot();
+    app.subscribeTheme(jest.fn());
+    app.storage.getItem.mockResolvedValue('light');
+    await app.restoreThemePreference();
+    expect(app.getThemeSnapshot().theme).toBe('light');
+    expect(app.platform.Appearance.getColorScheme).not.toHaveBeenCalled();
+    expect(app.platform.Appearance.setColorScheme).not.toHaveBeenCalled();
+    expect(app.platform.Appearance.addChangeListener).not.toHaveBeenCalled();
+    expect(app.platform.AppState.addEventListener).not.toHaveBeenCalled();
+    expect(app.systemUi.setBackgroundColorAsync).not.toHaveBeenCalled();
+  });
+
+  it('applies the restored choice to the platform when the boot sequence starts it', async () => {
+    const app = load('light', false, false);
+    app.storage.getItem.mockResolvedValue('dark');
+    await app.restoreThemePreference();
+    app.startThemePlatform();
+    expect(app.platform.Appearance.setColorScheme).toHaveBeenLastCalledWith('dark');
+    expect(app.systemUi.setBackgroundColorAsync).toHaveBeenLastCalledWith('#080C16');
+  });
+
+  it('shares one deadline: a read that never settles lets the restore wait end', async () => {
+    jest.useFakeTimers();
+    try {
+      const app = load('dark', false, false);
+      app.storage.getItem.mockReturnValue(new Promise(() => undefined));
+      let done = false;
+      void app.restoreThemeWithinDeadline().then(() => { done = true; });
+      await Promise.resolve();
+      expect(done).toBe(false);
+      jest.advanceTimersByTime(app.THEME_RESTORE_DEADLINE_MS + 1);
+      await Promise.resolve();
+      expect(done).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
