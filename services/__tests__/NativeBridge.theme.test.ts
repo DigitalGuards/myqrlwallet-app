@@ -316,7 +316,7 @@ describe('THEME_CHANGED from the wallet', () => {
       now += 10;
     }
     expect(themes(send)).toHaveLength(8);
-    expect(warn.mock.calls.filter(call => String(call[1]).includes('echoing'))).toHaveLength(1);
+    expect(warn.mock.calls.filter(call => typeof call[1] === 'string' && call[1].includes('echoing'))).toHaveLength(1);
     // Later, outside the window, the wallet is answered again.
     now += 6000;
     await report('dark');
