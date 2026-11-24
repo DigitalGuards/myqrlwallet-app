@@ -259,17 +259,31 @@ describe('THEME_CHANGED from the wallet', () => {
     expect(themes(send)).toEqual([{ theme, resolved: theme === 'system' ? 'dark' : theme }]);
   });
 
-  it('treats a report equal to the current choice as an echo: no write, no answer', async () => {
+  it('answers a report equal to the current choice with SET_THEME every time, and does not save it', async () => {
+    await report('dark');
     await report('dark');
     expect(storage.setItem).not.toHaveBeenCalled();
-    expect(themes(send)).toEqual([]);
+    expect(themes(send)).toEqual([
+      { theme: 'dark', resolved: 'dark' },
+      { theme: 'dark', resolved: 'dark' },
+    ]);
     expect(preference.savedThemePreference()).toBeUndefined();
   });
 
-  it('answers a real change once, and a repeat of it not at all', async () => {
+  it('gives a stale wallet the resolved value of system', async () => {
+    mockPlatform.os = 'light';
+    await NativeBridge.setTheme('system');
+    send.mockClear();
+    storage.setItem.mockClear();
+    await report('system');
+    expect(themes(send)).toEqual([{ theme: 'system', resolved: 'light' }]);
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('saves and answers a real change once; a repeat saves nothing and is answered again', async () => {
     await report('light');
     await report('light');
-    expect(themes(send)).toHaveLength(1);
+    expect(themes(send)).toHaveLength(2);
     expect(storage.setItem).toHaveBeenCalledTimes(1);
   });
 

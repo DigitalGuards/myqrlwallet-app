@@ -138,7 +138,7 @@ myqrlwallet-app/
 |---------|---------|-------------|
 | `WEB_APP_READY` | - | Web app initialized, ready for data |
 | `LANGUAGE_CHANGED` | `{ language }` | On each language change, and in answer to `REQUEST_LANGUAGE`, synchronize native UI and persist the exact code: `en`, `de`, `es`, `ru`, or `zh-CN`. Uses the current `documentId` envelope; invalid values are ignored. |
-| `THEME_CHANGED` | `{ theme }` | The user picked a theme with the wallet's own Theme row (`dark`, `light` or `system`). The shell validates it, saves it, repaints the native screens and answers with `SET_THEME`. A value equal to the current choice is ignored, so an echo neither writes nor loops. Allowed while locked, like `LANGUAGE_CHANGED`. |
+| `THEME_CHANGED` | `{ theme }` | The user picked a theme with the wallet's own Theme row (`dark`, `light` or `system`). The shell validates it, saves it, repaints the native screens and answers with `SET_THEME`. A value equal to the current choice is not saved again, and the shell still answers with `SET_THEME` so a wallet with a stale copy gets the resolved value; the wallet never replies to `SET_THEME`, so this cannot loop. Allowed while locked, like `LANGUAGE_CHANGED`. |
 | `SCAN_QR` | - | Request native QR scanner |
 | `COPY_TO_CLIPBOARD` | `{ text }` | Copy text to clipboard |
 | `SHARE` | `{ title?, text?, url? }` | Open native share sheet |

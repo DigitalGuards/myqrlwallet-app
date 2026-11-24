@@ -1102,10 +1102,13 @@ class NativeBridge {
           Logger.warn('NativeBridge', 'THEME_CHANGED has an unsupported theme');
           return;
         }
-        // The wallet reports only a choice the user made. A value equal to the
-        // current one is an echo or a repeat: it neither writes (the default
-        // must not land in storage as if chosen) nor gets an answer (no loop).
-        if (payload.theme === getThemeSnapshot().theme) return;
+        // A value equal to the current choice is not saved again (the default must not land
+        // in storage as if chosen), but the wallet always gets the resolved value back: its own
+        // copy may be stale. The wallet never replies to SET_THEME, so this cannot loop.
+        if (payload.theme === getThemeSnapshot().theme) {
+          this.sendTheme(true);
+          break;
+        }
         await applyTheme(payload.theme);
         break;
       }
