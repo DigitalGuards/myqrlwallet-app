@@ -138,6 +138,7 @@ myqrlwallet-app/
 |---------|---------|-------------|
 | `WEB_APP_READY` | - | Web app initialized, ready for data |
 | `LANGUAGE_CHANGED` | `{ language }` | On each language change, and in answer to `REQUEST_LANGUAGE`, synchronize native UI and persist the exact code: `en`, `de`, `es`, `ru`, or `zh-CN`. Uses the current `documentId` envelope; invalid values are ignored. |
+| `THEME_CHANGED` | `{ theme }` | The user picked a theme with the wallet's own Theme row (`dark`, `light` or `system`). The shell validates it, saves it, repaints the native screens and answers with `SET_THEME`. A value equal to the current choice is ignored, so an echo neither writes nor loops. Allowed while locked, like `LANGUAGE_CHANGED`. |
 | `SCAN_QR` | - | Request native QR scanner |
 | `COPY_TO_CLIPBOARD` | `{ text }` | Copy text to clipboard |
 | `SHARE` | `{ title?, text?, url? }` | Open native share sheet |
@@ -165,6 +166,7 @@ myqrlwallet-app/
 | `APP_STATE` | `{ state }` | App foregrounded/backgrounded |
 | `SET_LANGUAGE` | `{ language }` | The language chosen in Settings, or the saved one when a document activates |
 | `REQUEST_LANGUAGE` | - | Nothing saved: the wallet answers with `LANGUAGE_CHANGED` |
+| `SET_THEME` | `{ theme, resolved }` | The shell's Theme choice and what it resolves to (`dark` or `light`; `system` follows the OS appearance). Sent after each document start and on every change of the choice or of the OS appearance. The wallet applies `resolved` as given. The same pair is written as `window.__QRL_SHELL_THEME__` into the document head before the wallet's scripts run. |
 | `CLIPBOARD_SUCCESS` | - | Clipboard operation succeeded |
 | `SHARE_SUCCESS` | - | Share completed |
 | `ERROR` | `{ message }` | Error occurred |
