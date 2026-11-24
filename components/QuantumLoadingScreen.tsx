@@ -12,7 +12,7 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { LOGO_IMAGE } from '../constants/Assets';
+import { createThemedStyles, usePalette, useLogoSource, useResolvedTheme } from '../theme/useAppTheme';
 
 const { width, height } = Dimensions.get('window');
 
@@ -24,13 +24,13 @@ const LOADING_MESSAGES: readonly NativeKey[] = [
   'loading.accounts',
 ];
 
-// QRL Blue palette (mirrors the web wallet tokens).
-const INK = '#080C16';
-const PRIMARY = '#33ADE6';
-const PRIMARY_SOFT = '#5CC2EF';
-const IDENTITY = '#A5D7E9';
-const MUTED = '#9BA6B5';
-const TRACK = 'rgba(242, 245, 248, 0.08)';
+// Sparks: sky blue and a softer sky blue, with a few ice-blue identity ones in
+// dark; the light theme keeps them within its blue so they stay visible on a
+// pale page. Everything else comes from the theme tables (constants/Theme.ts).
+const EMBER_COLORS = {
+  dark: { primary: '#33ADE6', soft: '#5CC2EF', identity: '#A5D7E9' },
+  light: { primary: '#0967AE', soft: '#3E8DC4', identity: '#7FB4DA' },
+} as const;
 
 const PROGRESS_TRACK_WIDTH = 220;
 
@@ -39,7 +39,7 @@ type EmberSpec = {
   size: number;
   duration: number;
   delay: number;
-  color: string;
+  tone: 'primary' | 'soft' | 'identity';
   drift: number;
 };
 
@@ -49,6 +49,7 @@ type EmberSpec = {
  * on the native driver.
  */
 const Ember: React.FC<{ spec: EmberSpec }> = ({ spec }) => {
+  const colors = EMBER_COLORS[useResolvedTheme()];
   const [progress] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
@@ -93,7 +94,7 @@ const Ember: React.FC<{ spec: EmberSpec }> = ({ spec }) => {
         width: spec.size,
         height: spec.size,
         borderRadius: spec.size / 2,
-        backgroundColor: spec.color,
+        backgroundColor: colors[spec.tone],
         opacity,
         transform: [{ translateY }, { translateX }],
       }}
@@ -117,6 +118,9 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
   progress,
 }) => {
   useNativeLanguage();
+  const palette = usePalette();
+  const styles = useStyles();
+  const logo = useLogoSource();
   const [fadeAnim] = useState(() => new Animated.Value(1));
   const [logoScale] = useState(() => new Animated.Value(0.9));
   const [logoOpacity] = useState(() => new Animated.Value(0));
@@ -132,7 +136,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
       duration: 6000 + Math.random() * 5000,
       delay: Math.random() * 4000,
       // A couple of ice-blue identity sparks among the sky-blue ones.
-      color: i % 7 === 3 ? IDENTITY : i % 2 ? PRIMARY : PRIMARY_SOFT,
+      tone: i % 7 === 3 ? 'identity' : i % 2 ? 'primary' : 'soft',
       drift: (Math.random() - 0.5) * 60,
     })),
   );
@@ -249,13 +253,13 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
       {/* Atmosphere: soft sky-blue wash above, faint ice-blue breath below. */}
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(51, 173, 230, 0.14)', 'rgba(51, 173, 230, 0.04)', 'rgba(0, 0, 0, 0)']}
+        colors={[...palette.accentGlow]}
         locations={[0, 0.45, 1]}
         style={styles.glowTop}
       />
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(0, 0, 0, 0)', 'rgba(165, 215, 233, 0.05)']}
+        colors={[...palette.accentFloor]}
         style={styles.glowBottom}
       />
 
@@ -275,7 +279,7 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
           }}
         >
           <Image
-            source={LOGO_IMAGE}
+            source={logo}
             style={styles.logo}
             resizeMode="contain"
           />
@@ -318,10 +322,10 @@ const QuantumLoadingScreen: React.FC<QuantumLoadingScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => ({
   container: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: INK,
+    backgroundColor: p.background,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
@@ -351,7 +355,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 11,
-    color: MUTED,
+    color: p.mutedForeground,
     marginBottom: 36,
     letterSpacing: 4,
     textTransform: 'uppercase',
@@ -360,16 +364,16 @@ const styles = StyleSheet.create({
     width: PROGRESS_TRACK_WIDTH,
     height: 4,
     borderRadius: 999,
-    backgroundColor: TRACK,
+    backgroundColor: p.track,
     overflow: 'hidden',
   },
   fill: {
     width: PROGRESS_TRACK_WIDTH,
     height: 4,
     borderRadius: 999,
-    backgroundColor: PRIMARY,
+    backgroundColor: p.primary,
     transformOrigin: 'left',
-    shadowColor: PRIMARY,
+    shadowColor: p.primary,
     shadowOpacity: 0.6,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
@@ -384,8 +388,8 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 4,
     borderRadius: 999,
-    backgroundColor: PRIMARY,
-    shadowColor: PRIMARY,
+    backgroundColor: p.primary,
+    shadowColor: p.primary,
     shadowOpacity: 0.6,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
@@ -395,7 +399,7 @@ const styles = StyleSheet.create({
     height: 6,
     marginLeft: -3,
     borderRadius: 3,
-    backgroundColor: IDENTITY,
+    backgroundColor: p.identityAccent,
   },
   messageContainer: {
     height: 44,
@@ -404,10 +408,10 @@ const styles = StyleSheet.create({
   },
   loadingMessage: {
     fontSize: 13,
-    color: MUTED,
+    color: p.mutedForeground,
     textAlign: 'center',
     letterSpacing: 0.2,
   },
-});
+}));
 
 export default QuantumLoadingScreen;

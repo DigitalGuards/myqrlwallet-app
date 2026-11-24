@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
+import { nativePalettes } from '../constants/Theme';
+import { createThemedStyles, usePalette, useResolvedTheme } from '../theme/useAppTheme';
 
 interface QRScannerModalProps {
   visible: boolean;
@@ -26,6 +28,9 @@ interface QRScannerModalProps {
  */
 export default function QRScannerModal({ visible, onScan, onClose }: QRScannerModalProps) {
   useNativeLanguage();
+  const palette = usePalette();
+  const resolvedTheme = useResolvedTheme();
+  const styles = useStyles();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [wasVisible, setWasVisible] = useState(visible);
@@ -58,6 +63,8 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
     onClose();
   };
 
+  const showsCamera = permission?.granted === true;
+
   const renderContent = () => {
     // Permission not yet determined
     if (!permission) {
@@ -72,7 +79,7 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
     if (!permission.granted) {
       return (
         <View style={styles.centeredContent}>
-          <Ionicons name="camera-outline" size={64} color="#33ADE6" />
+          <Ionicons name="camera-outline" size={64} color={palette.primary} />
           {permission.canAskAgain ? (
             <>
               <Text style={styles.text}>
@@ -164,8 +171,14 @@ export default function QRScannerModal({ visible, onScan, onClose }: QRScannerMo
       presentationStyle="fullScreen"
       onRequestClose={onClose}
     >
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      <View style={styles.container}>
+      {/* The camera view is always on black with a dark scrim, whatever the theme:
+          the viewfinder chrome sits over live video. Only the permission screens
+          follow the theme. */}
+      <StatusBar
+        barStyle={showsCamera || resolvedTheme === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={showsCamera ? '#000000' : palette.background}
+      />
+      <View style={[styles.container, !showsCamera && { backgroundColor: palette.background }]}>
         {renderContent()}
       </View>
     </Modal>
@@ -176,7 +189,9 @@ const SCANNER_SIZE = 280;
 const CORNER_SIZE = 40;
 const CORNER_WIDTH = 4;
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => {
+  const dark = p === nativePalettes.dark;
+  return {
   container: {
     flex: 1,
     backgroundColor: '#000000',
@@ -188,21 +203,21 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   text: {
-    color: '#F2F5F8',
+    color: p.foreground,
     fontSize: 16,
     textAlign: 'center',
     marginTop: 16,
     marginBottom: 24,
   },
   permissionButton: {
-    backgroundColor: '#33ADE6',
+    backgroundColor: p.primary,
     paddingVertical: 14,
     paddingHorizontal: 32,
     borderRadius: 8,
     marginBottom: 12,
   },
   permissionButtonText: {
-    color: '#041725',
+    color: p.primaryForeground,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -211,7 +226,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   cancelButtonText: {
-    color: '#8B959C',
+    color: dark ? '#8B959C' : p.mutedForeground,
     fontSize: 16,
   },
   overlay: {
@@ -290,4 +305,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  };
 });

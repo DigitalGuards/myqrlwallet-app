@@ -15,20 +15,26 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { PinBoxInput, PIN_MIN_LENGTH, PIN_MAX_LENGTH } from './PinBoxInput';
+import type { NativePalette } from '../constants/Theme';
+import { createThemed, createThemedStyles } from '../theme/useAppTheme';
 
-// Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
-const C = {
-  overlay: 'rgba(0, 0, 0, 0.7)',
-  card: '#0E1320',
-  input: '#171D2B',
-  divider: '#1E2738',
-  textPrimary: '#F2F5F8',
-  textSecondary: '#9BA6B5',
-  textTertiary: '#69717D',
-  brandBlue: '#33ADE6',
-  brandBlueForeground: '#041725',
-  red: '#E56161',
-};
+// Colours come from the theme tables (constants/Theme.ts), as in the web wallet.
+function colorsFor(p: NativePalette) {
+  return {
+    overlay: p.scrim,
+    card: p.card,
+    input: p.elevated,
+    divider: p.border,
+    textPrimary: p.foreground,
+    textSecondary: p.mutedForeground,
+    textTertiary: p.tertiary,
+    brandBlue: p.primary,
+    brandBlueForeground: p.primaryForeground,
+    red: p.destructive,
+    disabledPrimary: p.disabledPrimary,
+  };
+}
+const useC = createThemed(colorsFor);
 
 interface ChangePinOverlayProps {
   visible: boolean;
@@ -46,6 +52,7 @@ interface PinFieldProps {
 }
 
 function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEditing }: PinFieldProps) {
+  const styles = useStyles();
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.label}>{label}</Text>
@@ -66,6 +73,8 @@ function PinField({ label, value, onChangeText, inputRef, onFilled, onSubmitEdit
 // Change PIN with no dialog.
 export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onSubmit, onCancel }) => {
   useNativeLanguage();
+  const C = useC();
+  const styles = useStyles();
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -224,7 +233,9 @@ export const ChangePinOverlay: React.FC<ChangePinOverlayProps> = ({ visible, onS
   );
 };
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => {
+  const C = colorsFor(p);
+  return {
   root: {
     ...StyleSheet.absoluteFill,
     zIndex: 1000,
@@ -309,7 +320,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.brandBlue,
   },
   submitButtonDisabled: {
-    backgroundColor: '#213A45',
+    backgroundColor: C.disabledPrimary,
     opacity: 0.6,
   },
   cancelButtonText: {
@@ -325,6 +336,7 @@ const styles = StyleSheet.create({
   submitButtonTextDisabled: {
     color: C.textTertiary,
   },
+  };
 });
 
 export default ChangePinOverlay;

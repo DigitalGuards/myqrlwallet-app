@@ -11,3 +11,6 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('expo-localization', () => ({
   getLocales: jest.fn(() => [{ languageTag: 'en-US' }]),
 }));
+jest.mock('expo-system-ui', () => ({
+  setBackgroundColorAsync: jest.fn(() => Promise.resolve(true)),
+}));

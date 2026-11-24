@@ -17,24 +17,29 @@ import DAppConnectionStore, { type DAppConnectionRecord } from '../services/DApp
 import NativeBridge from '../services/NativeBridge';
 import Logger from '../services/Logger';
 import { formatQrlAddressFingerprint } from '../services/QrlAddress';
+import type { NativePalette } from '../constants/Theme';
+import { createThemed, createThemedStyles } from '../theme/useAppTheme';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
-const C = {
-  bg: '#080C16',
-  card: '#0E1320',
-  divider: '#1E2738',
-  textPrimary: '#F2F5F8',
-  textSecondary: '#9BA6B5',
-  textTertiary: '#69717D',
-  chevron: '#69717D',
-  brandBlue: '#33ADE6',
-  green: '#37BE7F',
-  red: '#E56161',
-  gray: '#69717D',
-  blue: '#3b82f6',
-};
+// Colours come from the theme tables (constants/Theme.ts).
+function colorsFor(p: NativePalette) {
+  return {
+    bg: p.background,
+    card: p.card,
+    divider: p.border,
+    textPrimary: p.foreground,
+    textSecondary: p.mutedForeground,
+    textTertiary: p.tertiary,
+    chevron: p.tertiary,
+    brandBlue: p.primary,
+    green: p.success,
+    red: p.destructive,
+    gray: p.tertiary,
+    blue: '#3b82f6',
+  };
+}
+const useC = createThemed(colorsFor);
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -78,6 +83,7 @@ function hostname(url: string): string {
 
 /** Animated pulsing dot for live connections. */
 function PulsingDot({ active }: { active: boolean }) {
+  const C = useC();
   const color = active ? C.green : C.gray;
   return (
     <View style={[pulseStyles.container, { backgroundColor: `${color}33` }]}>
@@ -118,6 +124,8 @@ interface ConnectionRowProps {
 
 function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
   useNativeLanguage();
+  const C = useC();
+  const styles = useStyles();
   const isActive = record.disconnectedAt === null;
   const ts = isActive ? record.connectedAt : (record.disconnectedAt ?? record.connectedAt);
   const rel = relativeTime(ts, now);
@@ -190,6 +198,7 @@ function ConnectionRow({ record, now, onAction }: ConnectionRowProps) {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const styles = useStyles();
   const items = React.Children.toArray(children).filter(Boolean);
   if (items.length === 0) return null;
   return (
@@ -209,6 +218,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function DAppConnectionsScreen() {
   useNativeLanguage();
+  const C = useC();
+  const styles = useStyles();
   const navigation = useNavigation();
   const [active, setActive] = useState<DAppConnectionRecord[]>([]);
   const [recent, setRecent] = useState<DAppConnectionRecord[]>([]);
@@ -323,7 +334,9 @@ export default function DAppConnectionsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => {
+  const C = colorsFor(p);
+  return {
   root: {
     flex: 1,
     backgroundColor: C.bg,
@@ -481,4 +494,5 @@ const styles = StyleSheet.create({
   footer: {
     height: 24,
   },
+  };
 });

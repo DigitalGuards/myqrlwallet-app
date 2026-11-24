@@ -1,8 +1,11 @@
 import { nativeMessage } from '../i18n/nativeMessage';
 import { t } from '../i18n';
 import { useNativeLanguage } from '../i18n/useNativeLanguage';
+import { getThemeSnapshot, restoreThemePreference } from '../theme/preference';
+import { createThemedStyles, usePalette, useResolvedTheme } from '../theme/useAppTheme';
+import { shellThemeScript } from '../services/ShellTheme';
 import { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle, forwardRef } from 'react';
-import { StyleSheet, View, BackHandler, Linking, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
+import { View, BackHandler, Linking, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -115,6 +118,8 @@ export interface QRLWebViewRef {
 // Long enough for the entrance animation to land, short enough that a
 // warm cache load is not artificially delayed (was 3000ms of forced wait).
 const MIN_LOADING_TIME = 1200;
+// How long the document waits for the stored Theme before it starts anyway.
+export const THEME_RESTORE_DEADLINE_MS = 1500;
 export const MAX_BRIDGE_MESSAGE_CHARS = 300 * 1024;
 // How long the shipped document has to send its first bridge message before
 // the binding is reported as broken. The wallet sends WEB_APP_READY as soon as
@@ -138,6 +143,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   skipLoadingScreen = false
 }, ref) => {
   useNativeLanguage();
+  const palette = usePalette();
+  const resolvedTheme = useResolvedTheme();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(true);
   const [showLoadingScreen, setShowLoadingScreen] = useState(!skipLoadingScreen);
@@ -185,6 +193,11 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const migrationPendingRef = useRef<boolean | null>(null);
   // Flips once, when the first read resolves, so the document can be built.
   const [migrationResolved, setMigrationResolved] = useState(false);
+  // The stored Theme choice has to be known before the document is built, so
+  // the wallet's first paint is already in the right theme. A read that never
+  // settles must not hold the wallet back, hence the deadline: the document
+  // then starts with whatever the shell knows and SET_THEME corrects it.
+  const [themeReady, setThemeReady] = useState(false);
   // What the document currently on screen was actually told. The live ref can
   // flip after that document was built, and the native half must agree with
   // the document it is running against rather than with the newer value.
@@ -286,6 +299,21 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
       cancelled = true;
     };
   }, [isEmbedded, documentEpoch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const deadline = setTimeout(() => {
+      if (!cancelled) setThemeReady(true);
+    }, THEME_RESTORE_DEADLINE_MS);
+    void restoreThemePreference().finally(() => {
+      clearTimeout(deadline);
+      if (!cancelled) setThemeReady(true);
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(deadline);
+    };
+  }, []);
 
   // The caches half of the one-time hygiene pass: service workers, the Cache
   // Storage API and the WebView HTTP cache. It runs after load because it
@@ -834,17 +862,25 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   // object mid-session would hand the WebView a new document and reload the
   // wallet under the user, so the token and the migration flag are read from
   // refs here and a new document is produced only when the epoch advances.
-  const { source: embeddedSource, epoch: renderEpoch } = useMemo(
+  const { source: embeddedSource, epoch: renderEpoch, themeScript } = useMemo(
     () => {
       const epoch = documentEpoch;
-      if (!isEmbedded) return { epoch, source: { uri: devUri } };
-      if (embeddedRawHtml === null || !migrationResolved) return { epoch, source: null };
+      // The theme the shell injects is read when the document for this epoch is
+      // built, never on a later render: a changed prop would not reach a document
+      // that is already running, and SET_THEME carries every later change.
+      const shellTheme = getThemeSnapshot();
+      const themeScript = shellThemeScript(shellTheme);
+      if (!isEmbedded) return { epoch, themeScript, source: { uri: devUri } };
+      if (embeddedRawHtml === null || !migrationResolved || !themeReady) {
+        return { epoch, themeScript, source: null };
+      }
       const owesMigration = migrationPendingRef.current === true;
       servedMigrationPending.current = owesMigration;
       return {
         epoch,
+        themeScript,
         source: {
-          html: withEmbeddedFlag(embeddedRawHtml, documentToken.current, owesMigration),
+          html: withEmbeddedFlag(embeddedRawHtml, documentToken.current, owesMigration, shellTheme),
           baseUrl: EMBEDDED_BASE_URL,
         },
       };
@@ -852,7 +888,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     // Capture the epoch with its source so the WebView key and callbacks
     // identify the document they belong to. Token and migration refs stay
     // fixed for this source until reloadDocument advances the epoch.
-    [isEmbedded, devUri, embeddedRawHtml, migrationResolved, documentEpoch],
+    [isEmbedded, devUri, embeddedRawHtml, migrationResolved, themeReady, documentEpoch],
   );
 
   // Embedded mode admits every origin here on purpose. This list is not a
@@ -872,6 +908,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
     .join('\n') || undefined;
 
   const beforeContentScript = [
+    themeScript,
     isEmbedded ? EMBEDDED_FLAG_SCRIPT : null,
     Platform.OS === 'android' ? NATIVE_WEBVIEW_CAPABILITY_SCRIPT : null,
   ]
@@ -883,10 +920,13 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   const documentReady = embeddedSource !== null;
 
   return (
-    <View style={[styles.outerContainer, { backgroundColor: '#080C16' }]}>
-      <StatusBar backgroundColor="#080C16" barStyle="light-content" />
+    <View style={[styles.outerContainer, { backgroundColor: palette.background }]}>
+      <StatusBar
+        backgroundColor={palette.background}
+        barStyle={resolvedTheme === 'light' ? 'dark-content' : 'light-content'}
+      />
       <View style={[styles.container, {
-        backgroundColor: '#080C16',
+        backgroundColor: palette.background,
         paddingTop: insets.top || 40,
         paddingBottom: insets.bottom
       }]}>
@@ -922,7 +962,9 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
               {...(afterContentScript !== undefined
                 ? { injectedJavaScript: afterContentScript }
                 : {})}
-              style={styles.webView}
+              // The native background shows until the wallet paints, so it
+              // carries the theme and no frame is in the wrong one.
+              style={[styles.webView, { backgroundColor: palette.background }]}
               originWhitelist={originWhitelist}
               userAgent={customUserAgent}
               onShouldStartLoadWithRequest={(request) =>
@@ -981,7 +1023,7 @@ const QRLWebView = forwardRef<QRLWebViewRef, QRLWebViewProps>(({
   );
 });
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => ({
   outerContainer: {
     flex: 1,
     width: '100%',
@@ -1000,26 +1042,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#080C16',
+    backgroundColor: p.background,
   },
   errorText: {
     fontSize: 16,
     marginBottom: 20,
     textAlign: 'center',
-    color: '#F2F5F8',
+    color: p.foreground,
   },
   retryButton: {
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
     marginTop: 10,
-    backgroundColor: '#33ADE6',
+    backgroundColor: p.primary,
   },
   retryButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#041725',
+    color: p.primaryForeground,
   },
-});
+}));
 
 export default QRLWebView;

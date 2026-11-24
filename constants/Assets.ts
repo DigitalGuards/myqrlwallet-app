@@ -10,6 +10,9 @@ import type { ImageSourcePropType } from 'react-native';
  */
 export const LOGO_IMAGE: ImageSourcePropType = require('../assets/images/myqrlwallet/mqrlwallet.png');
 
+/** The same wordmark with its lettering in ink, for the light theme (the original is near white). */
+export const LOGO_IMAGE_LIGHT: ImageSourcePropType = require('../assets/images/myqrlwallet/mqrlwallet-light.png');
+
 export const SPACE_MONO_FONT: FontSource = require('../assets/fonts/SpaceMono-Regular.ttf');
 
 export function getEmbeddedWalletModuleId(): unknown {

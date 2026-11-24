@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { useNativeLanguage } from '../i18n/useNativeLanguage';
 import { useFonts } from 'expo-font';
-import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -19,10 +19,9 @@ import { normalizeQrlConnectDeepLink } from '../services/DAppDeepLink';
 import { embeddedHashRouteForWalletUrl } from '../services/EmbeddedDeepLink';
 import EmbeddedRouteIntent from '../services/EmbeddedRouteIntent';
 import { restoreLanguagePreference } from '../i18n/preference';
+import { restoreThemePreference } from '../theme/preference';
+import { usePalette, useResolvedTheme } from '../theme/useAppTheme';
 
-const APP_BACKGROUND = '#080C16';
-const APP_TEXT = '#F2F5F8';
-const APP_ACCENT = '#33ADE6';
 const HEADER_TITLE_STYLE = {
   fontWeight: 'bold' as const,
   fontSize: 16,
@@ -74,6 +73,11 @@ function withBootTimeout(promise: Promise<unknown>, label: string): Promise<unkn
 
 export default function RootLayout() {
   useNativeLanguage();
+  const palette = usePalette();
+  const resolvedTheme = useResolvedTheme();
+  const APP_BACKGROUND = palette.background;
+  const APP_TEXT = palette.foreground;
+  const APP_ACCENT = palette.primary;
   const [fontsLoaded, fontError] = useFonts({
     SpaceMono: SPACE_MONO_FONT,
   });
@@ -116,6 +120,11 @@ export default function RootLayout() {
           }),
           'pin_exists marker repair',
         );
+        // The stored Theme is read before the splash goes, so the first frame the
+        // user sees is already in their theme. The splash itself is the same
+        // dark launch screen for every theme (it is native config, painted
+        // before any JavaScript can read the choice).
+        await withBootTimeout(restoreThemePreference(), 'theme restore');
         // Hide splash only after security is initialized
         await SplashScreen.hideAsync();
       })();
@@ -125,7 +134,10 @@ export default function RootLayout() {
   // Keep preference I/O independent of security initialization and splash release.
   // Views start in the device language and subscribe to the restored preference.
   useEffect(() => {
-    if (bootReady) void restoreLanguagePreference();
+    if (bootReady) {
+      void restoreLanguagePreference();
+      void restoreThemePreference();
+    }
   }, [bootReady]);
 
   // Last-resort splash release, independent of the boot chain above.
@@ -192,26 +204,24 @@ export default function RootLayout() {
     return null;
   }
 
-  // Create custom dark theme based on QRL colors
-  const customDarkTheme = {
-    ...DarkTheme,
+  // Navigation theme built from the native palette of the resolved theme.
+  const baseTheme = resolvedTheme === 'light' ? DefaultTheme : DarkTheme;
+  const appTheme = {
+    ...baseTheme,
     colors: {
-      ...DarkTheme.colors,
-      primary: APP_ACCENT, // QRL Blue
-      background: APP_BACKGROUND, // Dark navy
+      ...baseTheme.colors,
+      primary: APP_ACCENT,
+      background: APP_BACKGROUND,
       card: APP_BACKGROUND,
       text: APP_TEXT,
       border: APP_BACKGROUND,
     },
   };
 
-  // We always use dark theme regardless of system setting
-  const appTheme = customDarkTheme;
-
   return (
     <ThemeProvider value={appTheme}>
       <View style={{ flex: 1, backgroundColor: APP_BACKGROUND }}>
-        <StatusBar style="light" />
+        <StatusBar style={resolvedTheme === 'light' ? 'dark' : 'light'} />
         <Stack screenOptions={{
           headerShown: false,
           contentStyle: {

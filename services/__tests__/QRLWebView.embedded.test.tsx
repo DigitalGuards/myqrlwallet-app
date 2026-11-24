@@ -6,6 +6,9 @@ import NativeBridge from '../NativeBridge';
 import Logger from '../Logger';
 import { isRecord } from '../guards';
 import { runAsPromise } from '../runAsPromise';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as themePreference from '../../theme/preference';
+import { THEME_RESTORE_DEADLINE_MS } from '../../components/QRLWebView';
 
 function isNativeTestRenderer(value: unknown): value is {
   create: (element: React.ReactElement) => Promise<ReactTestRenderer>;
@@ -255,6 +258,87 @@ describe('embedded QRLWebView', () => {
     expect(view.props.injectedJavaScriptBeforeContentLoaded).toContain(
       'window.__QRL_EMBEDDED__ = true;',
     );
+  });
+
+  describe('the theme the document starts in', () => {
+    const htmlOf = (view: WebViewTestInstance): string => {
+      const html = recordFrom(view.props.source).html;
+      if (typeof html !== 'string') throw new Error('missing embedded html');
+      return html;
+    };
+    const backgroundOf = (view: WebViewTestInstance): unknown => {
+      const style: unknown = view.props.style;
+      return (Array.isArray(style) ? style : [style]).map(recordFrom).find(entry => 'backgroundColor' in entry)?.backgroundColor;
+    };
+
+    beforeEach(() => {
+      themePreference.resetThemeForTests();
+      jest.mocked(AsyncStorage.getItem).mockReset().mockResolvedValue(null);
+    });
+
+    it('is the default when nothing is saved, in the head script and the before-content hook', async () => {
+      const view = await renderEmbedded();
+      const statement = 'window.__QRL_SHELL_THEME__ = {"theme":"dark","resolved":"dark"};';
+      expect(htmlOf(view)).toContain(statement);
+      expect(htmlOf(view).indexOf('__QRL_SHELL_THEME__')).toBeLessThan(htmlOf(view).indexOf('<title>'));
+      expect(view.props.injectedJavaScriptBeforeContentLoaded).toContain(statement);
+      expect(backgroundOf(view)).toBe('#080C16');
+    });
+
+    it('is the saved choice, so no frame is in the wrong theme', async () => {
+      jest.mocked(AsyncStorage.getItem).mockResolvedValue('light');
+      const view = await renderEmbedded();
+      expect(htmlOf(view)).toContain('window.__QRL_SHELL_THEME__ = {"theme":"light","resolved":"light"};');
+      expect(view.props.injectedJavaScriptBeforeContentLoaded).toContain('"resolved":"light"');
+      expect(backgroundOf(view)).toBe('#F3F4F7');
+    });
+
+    it('holds the document back until the stored choice has been read', async () => {
+      let finishRead: (value: string) => void = () => undefined;
+      jest.mocked(AsyncStorage.getItem).mockReturnValue(new Promise(resolve => { finishRead = resolve; }));
+      await act(async () => {
+        screen = await nativeTestRenderer.create(<QRLWebView webSource="embedded" />);
+      });
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.root.findAll(hasType('NativeWebView'))).toHaveLength(0);
+      await act(async () => {
+        finishRead('light');
+        await Promise.resolve();
+      });
+      const view = readWebView(screen.root.find(hasType('NativeWebView')));
+      expect(htmlOf(view)).toContain('"theme":"light"');
+    });
+
+    it('starts anyway when the read never settles, with the default', async () => {
+      jest.mocked(AsyncStorage.getItem).mockReturnValue(new Promise(() => undefined));
+      await act(async () => {
+        screen = await nativeTestRenderer.create(<QRLWebView webSource="embedded" />);
+      });
+      expect(screen.root.findAll(hasType('NativeWebView'))).toHaveLength(0);
+      await act(async () => {
+        jest.advanceTimersByTime(THEME_RESTORE_DEADLINE_MS + 1);
+        await Promise.resolve();
+      });
+      const view = readWebView(screen.root.find(hasType('NativeWebView')));
+      expect(htmlOf(view)).toContain('"theme":"dark","resolved":"dark"');
+    });
+
+    it('does not rebuild the document when the choice changes mid-session', async () => {
+      const view = await renderEmbedded();
+      const before = view.props.source;
+      await act(async () => { await themePreference.applyTheme('light'); });
+      const after = readWebView(screen.root.find(hasType('NativeWebView')));
+      expect(after.props.source).toBe(before);
+      expect(backgroundOf(after)).toBe('#F3F4F7');
+    });
+
+    it('hands a re-served document the current choice', async () => {
+      const view = await renderEmbedded();
+      await act(async () => { await themePreference.applyTheme('light'); });
+      await act(() => runAsPromise(() => callProp(view.props, 'onContentProcessDidTerminate')));
+      const recovered = readWebView(screen.root.find(hasType('NativeWebView')));
+      expect(htmlOf(recovered)).toContain('"theme":"light","resolved":"light"');
+    });
   });
 
   it('keeps the Android capability script alongside the embedded flag', async () => {

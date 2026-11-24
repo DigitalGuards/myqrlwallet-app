@@ -1,21 +1,14 @@
 import React, { useRef, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native';
+import { createThemedStyles, useResolvedTheme } from '../theme/useAppTheme';
 
 export const PIN_MIN_LENGTH = 4;
 export const PIN_MAX_LENGTH = 6;
 
 // Mirrors the web wallet's Set Transaction PIN entry (segmented boxes with
 // dots) so PIN entry looks and behaves the same in native modals and in the
-// WebView. Structure over pixel-parity: navy wells, slate borders, brand
-// blue focus ring (QRL Blue palette, see constants/Theme.ts).
-const C = {
-  box: '#080C16',
-  boxBorder: '#1E2738',
-  boxBorderActive: '#33ADE6',
-  dot: '#F2F5F8',
-  helper: '#9BA6B5',
-};
-
+// WebView. Structure over pixel-parity: navy wells (white wells in light),
+// slate borders, brand blue focus ring (see constants/Theme.ts).
 type PinBoxInputProps = {
   value: string;
   onChangeText: (v: string) => void;
@@ -38,6 +31,8 @@ export function PinBoxInput({
   onFilled,
   onSubmitEditing,
 }: PinBoxInputProps) {
+  const styles = useStyles();
+  const resolvedTheme = useResolvedTheme();
   const [focused, setFocused] = useState(false);
   const localRef = useRef<TextInput>(null);
   const fieldRef = inputRef ?? localRef;
@@ -83,6 +78,7 @@ export function PinBoxInput({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         keyboardType="number-pad"
+        keyboardAppearance={resolvedTheme}
         maxLength={PIN_MAX_LENGTH}
         caretHidden
         autoComplete="off"
@@ -97,7 +93,7 @@ export function PinBoxInput({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => ({
   boxRow: {
     flexDirection: 'row',
     gap: 8,
@@ -108,19 +104,19 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: 8,
     borderWidth: 1.5,
-    borderColor: C.boxBorder,
-    backgroundColor: C.box,
+    borderColor: p.inputBorder,
+    backgroundColor: p.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
   boxActive: {
-    borderColor: C.boxBorderActive,
+    borderColor: p.primary,
   },
   dot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: C.dot,
+    backgroundColor: p.pinDot,
   },
   hiddenInput: {
     ...StyleSheet.absoluteFill,
@@ -129,9 +125,9 @@ const styles = StyleSheet.create({
   },
   helper: {
     fontSize: 13,
-    color: C.helper,
+    color: p.mutedForeground,
     marginTop: 8,
   },
-});
+}));
 
 export default PinBoxInput;
