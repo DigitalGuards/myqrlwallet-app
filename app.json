@@ -83,6 +83,15 @@
       ],
       "expo-font",
       [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true,
+            "usePrecompiledModules": false
+          }
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "This app needs camera access to scan QR codes for wallet addresses.",
