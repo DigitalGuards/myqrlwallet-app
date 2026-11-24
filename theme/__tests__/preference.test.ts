@@ -200,6 +200,21 @@ describe('choosing', () => {
 });
 
 describe('the platform follows the choice', () => {
+  it('applies the default from the start while nothing is chosen, without writing it', () => {
+    const app = load('light');
+    app.getThemeSnapshot();
+    expect(app.platform.Appearance.setColorScheme).toHaveBeenCalledWith('dark');
+    expect(app.systemUi.setBackgroundColorAsync).toHaveBeenCalledWith('#080C16');
+    expect(app.storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('keeps reading the real OS value for system after the start override', async () => {
+    const app = load('light');
+    app.getThemeSnapshot();
+    await app.applyTheme('system');
+    expect(app.getThemeSnapshot()).toEqual({ theme: 'system', resolved: 'light' });
+  });
+
   it('sets the appearance for alerts and system bars, and hands it back for system', async () => {
     const app = load();
     await app.applyTheme('light');

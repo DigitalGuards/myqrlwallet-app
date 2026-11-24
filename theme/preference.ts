@@ -80,6 +80,10 @@ function start() {
   started = true;
   osScheme = readOsScheme();
   snapshot = { theme: preference, resolved: resolve() };
+  // The effective choice (the default while nothing is chosen) drives the platform from the
+  // start, so alerts and keyboards match the app. The OS value was read above, before this.
+  // Nothing is written to storage.
+  applyToPlatform(snapshot.resolved);
   try {
     Appearance.addChangeListener(({ colorScheme }) => {
       if (preference !== 'system') return;
@@ -138,7 +142,15 @@ export function restoreThemePreference(): Promise<void> {
       if (revision === liveRevision && isThemePreference(stored)) {
         saved = stored;
         preference = stored;
-        if (stored === 'system') osScheme = readOsScheme();
+        if (stored === 'system') {
+          // The start override must be released before the OS value can be read.
+          try {
+            Appearance.setColorScheme('unspecified');
+          } catch {
+            /* publish reports it */
+          }
+          osScheme = readOsScheme();
+        }
         publish();
       }
     } catch {
