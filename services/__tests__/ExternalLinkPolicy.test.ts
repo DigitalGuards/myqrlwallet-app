@@ -3,6 +3,7 @@ import { externalOpenDecision, isWalletOwnHost } from '../ExternalLinkPolicy';
 describe('external link policy', () => {
   it('opens ordinary https links and the two inert handoff schemes', () => {
     for (const url of [
+      'https://shorscan.com/tx/0xabc',
       'https://zondscan.com/tx/0xabc',
       'https://theqrl.org/',
       'mailto:security@qrlwallet.com',

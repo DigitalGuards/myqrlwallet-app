@@ -11,6 +11,9 @@
       "env": {
         "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "APP_VARIANT": "embedded-dev"
+      },
+      "ios": {
+        "image": "macos-tahoe-26.6-xcode-27.2"
       }
     },
     "development-embedded": {
@@ -20,6 +23,9 @@
         "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "APP_VARIANT": "embedded-dev",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
+      },
+      "ios": {
+        "image": "macos-tahoe-26.6-xcode-27.2"
       }
     },
     "preview": {
@@ -27,6 +33,9 @@
       "env": {
         "EXPO_PUBLIC_QRL_NETWORK_PROFILE": "testnet",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
+      },
+      "ios": {
+        "image": "macos-tahoe-26.6-xcode-27.2"
       }
     },
     "preview-embedded": {
@@ -37,6 +46,9 @@
         "EXPO_PUBLIC_WEB_SOURCE": "embedded",
         "RCT_USE_PREBUILT_RNCORE": "0",
         "RCT_USE_RN_DEP": "0"
+      },
+      "ios": {
+        "image": "macos-tahoe-26.6-xcode-27.2"
       }
     },
     "production": {
@@ -46,6 +58,9 @@
         "RCT_USE_PREBUILT_RNCORE": "0",
         "RCT_USE_RN_DEP": "0",
         "EXPO_PUBLIC_WEB_SOURCE": "embedded"
+      },
+      "ios": {
+        "image": "macos-tahoe-26.6-xcode-27.2"
       }
     }
   },

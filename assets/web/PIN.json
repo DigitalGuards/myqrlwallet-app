@@ -1,9 +1,9 @@
 {
   "comment": "Reviewed pin for the wallet document shipped in assets/web/index.html. A build verifies the file against this before it is packaged, so changing the wallet requires changing this file in a reviewed commit.",
-  "frontendCommit": "a6bfb94ebf5644a2e30ebda115eb2cc4921dcc9e",
+  "frontendCommit": "f137af3a8e65de0d21a98962547a605af5ef9cf1",
   "frontendTag": "",
-  "frontendRef": "main at a6bfb94 (release #451: the re-check after a PIN unlock in the wallet's own send screens; #448 before it covers dApp approvals), the build live on qrlwallet.com. A merge commit on main stays reachable.",
+  "frontendRef": "release/2026-11-rollout-prod at f137af3 (#453: failed dApp requests answer with matching error codes; #459: page title and App Store notice; #460, #461: Settings layout by screen width (the app opens its own settings screen); #462: Ink and blue colours for the light theme; #463: shorscan.com as the explorer host; #465: light theme as a choice in every build, driven by the native shells through window.__QRL_SHELL_THEME__, SET_THEME and THEME_CHANGED; #466: the theme follows the system until the user has chosen, and falls back to dark when a shell has stated nothing). The branch is to merge to main with a merge commit, which keeps the commit reachable.",
   "walletProfile": "v3-private",
-  "sha256": "9659600c68392ed42e831087d46ef79ec69e2e843aa3a3813ecf34aa745b61f2",
-  "bytes": 4053947
+  "sha256": "fafc9117169d36dff727c992f57c0c195ecec234ef431b854f1728879490ef40",
+  "bytes": 4062593
 }

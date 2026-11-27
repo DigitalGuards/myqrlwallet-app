@@ -2,7 +2,7 @@
   "expo": {
     "name": "MyQRLWallet",
     "slug": "myqrlwallet",
-    "version": "1.5.3",
+    "version": "1.5.4",
     "orientation": "portrait",
     "icon": "./assets/images/myqrlwallet/applogo.png",
     "scheme": [
@@ -75,13 +75,26 @@
           "image": "./assets/images/myqrlwallet/splash-icon.png",
           "imageWidth": 280,
           "resizeMode": "contain",
-          "backgroundColor": "#080C16",
+          "backgroundColor": "#F3F4F7",
+          "dark": {
+            "image": "./assets/images/myqrlwallet/splash-icon.png",
+            "backgroundColor": "#080C16"
+          },
           "android": {
             "imageWidth": 130
           }
         }
       ],
       "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true,
+            "usePrecompiledModules": false
+          }
+        }
+      ],
       [
         "expo-camera",
         {

@@ -36,31 +36,44 @@ import Diagnostics from '../services/Diagnostics';
 import { authorizeWalletRemoval } from '../services/WalletRemoval';
 import { resolveWebSource } from '../services/WebSource';
 import { envString } from '../services/guards';
-import { LOGO_IMAGE } from '../constants/Assets';
 import { EMBEDDED_WALLET_BUILD_INFO } from '../services/EmbeddedWalletDocument';
+import type { NativePalette } from '../constants/Theme';
+import { createThemed, createThemedStyles, useAppTheme, useLogoSource } from '../theme/useAppTheme';
+import { themePreferences, type ThemePreference } from '../theme/themes';
+import { savedThemePreference } from '../theme/preference';
 
-// Visual tokens are kept local to this screen per user scope.
-// Mirrors the web wallet's QRL Blue palette (see constants/Theme.ts).
-const C = {
-  bg: '#080C16',
-  card: '#0E1320',
-  cardPressed: '#171D2B',
-  divider: '#1E2738',
-  textPrimary: '#F2F5F8',
-  textSecondary: '#9BA6B5',
-  textTertiary: '#69717D',
-  chevron: '#69717D',
-  brandBlue: '#33ADE6',
-  brandBlueForeground: '#041725',
-  pinBlue: '#20A6E9',
-  blue: '#3b82f6',
-  purple: '#a855f7',
-  teal: '#06b6d4',
-  green: '#37BE7F',
-  red: '#E56161',
-  gray: '#69717D',
-  github: '#6e7681',
-};
+// Visual tokens are kept local to this screen per user scope and come from the
+// theme tables (constants/Theme.ts). The tile colours are the same in both
+// themes: white glyphs on a saturated tile.
+function colorsFor(p: NativePalette) {
+  return {
+    bg: p.background,
+    card: p.card,
+    cardPressed: p.elevated,
+    divider: p.border,
+    textPrimary: p.foreground,
+    textSecondary: p.mutedForeground,
+    textTertiary: p.tertiary,
+    chevron: p.tertiary,
+    brandBlue: p.primary,
+    brandBlueForeground: p.primaryForeground,
+    pinBlue: p.secondary,
+    blue: '#3b82f6',
+    purple: '#a855f7',
+    teal: '#06b6d4',
+    green: p.success,
+    red: p.destructive,
+    gray: p.tertiary,
+    github: '#6e7681',
+  };
+}
+const useC = createThemed(colorsFor);
+
+const THEME_LABEL_KEYS = {
+  dark: 'settings.themeDark',
+  light: 'settings.themeLight',
+  system: 'settings.themeSystem',
+} as const;
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -86,6 +99,8 @@ type RowProps = {
 };
 
 function Row({ icon, tint, iconColor = '#ffffff', title, subtitle, right, onPress, destructive, expanded }: RowProps) {
+  const C = useC();
+  const styles = useStyles();
   const content = (
     <View style={styles.row}>
       <View style={[styles.tile, { backgroundColor: tint }]}>
@@ -126,6 +141,7 @@ function Row({ icon, tint, iconColor = '#ffffff', title, subtitle, right, onPres
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const styles = useStyles();
   const items = React.Children.toArray(children).filter(Boolean);
   if (items.length === 0) return null;
   return (
@@ -145,6 +161,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function SettingsScreen() {
   useNativeLanguage();
+  const C = useC();
+  const styles = useStyles();
+  const { theme: currentTheme } = useAppTheme();
+  const logo = useLogoSource();
+  const [themeListOpen, setThemeListOpen] = useState(false);
   const navigation = useNavigation();
   const [preferences, setPreferences] = useState<UserPreferences>({
     notificationsEnabled: true,
@@ -299,6 +320,13 @@ export default function SettingsScreen() {
   const handleLanguageChoice = (language: Language) => {
     setLanguageListOpen(false);
     if (language !== currentLanguage) void NativeBridge.setLanguage(language);
+  };
+
+  const handleThemeChoice = (theme: ThemePreference) => {
+    setThemeListOpen(false);
+    // A choice equal to the shown one still counts when nothing is saved yet:
+    // it pins the choice against a later change of the default.
+    if (theme !== currentTheme || savedThemePreference() !== theme) void NativeBridge.setTheme(theme);
   };
 
   const handleDeviceLoginToggle = async (newValue: boolean) => {
@@ -623,6 +651,46 @@ export default function SettingsScreen() {
         {/* Display */}
         <Section title={t('settings.display')}>
           <Row
+            icon="contrast"
+            tint={C.purple}
+            title={t('settings.theme')}
+            subtitle={t('settings.themeHint')}
+            right={
+              <View style={styles.rowRightInline}>
+                <Text style={styles.languageValue}>{t(THEME_LABEL_KEYS[currentTheme])}</Text>
+                <Ionicons
+                  name={themeListOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={C.chevron}
+                />
+              </View>
+            }
+            onPress={() => setThemeListOpen((open) => !open)}
+            expanded={themeListOpen}
+          />
+          {themeListOpen ? (
+            <View accessibilityRole="radiogroup">
+              {themePreferences.map((theme, index) => (
+                <React.Fragment key={theme}>
+                  {index > 0 ? <View style={styles.divider} /> : null}
+                  <TouchableOpacity
+                    activeOpacity={0.6}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: theme === currentTheme }}
+                    onPress={() => handleThemeChoice(theme)}
+                  >
+                    <View style={styles.languageOption}>
+                      <Text style={styles.rowTitle}>{t(THEME_LABEL_KEYS[theme])}</Text>
+                      {theme === currentTheme ? (
+                        <Ionicons name="checkmark" size={20} color={C.brandBlue} />
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                </React.Fragment>
+              ))}
+            </View>
+          ) : null}
+          <Row
             icon="pricetags"
             tint={C.green}
             title={t('settings.tokens')}
@@ -784,7 +852,7 @@ export default function SettingsScreen() {
         {/* About */}
         <View style={styles.aboutHeader}>
           <Image
-            source={LOGO_IMAGE}
+            source={logo}
             style={styles.logo}
             resizeMode="contain"
           />
@@ -839,7 +907,9 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => {
+  const C = colorsFor(p);
+  return {
   root: {
     flex: 1,
     backgroundColor: C.bg,
@@ -953,7 +1023,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   badgeText: {
-    color: '#041725',
+    color: C.brandBlueForeground,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -987,4 +1057,5 @@ const styles = StyleSheet.create({
   footer: {
     height: 24,
   },
+  };
 });

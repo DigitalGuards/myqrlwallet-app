@@ -12,7 +12,6 @@ import {
   Linking,
   Platform,
   StatusBar,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View as RNView,
@@ -31,6 +30,7 @@ import { createBackgroundLock } from '../../services/BackgroundLock';
 import EmbeddedRouteIntent from '../../services/EmbeddedRouteIntent';
 import { waitForForegroundAuthorization } from '../../services/ForegroundAuthorization';
 import { router, useFocusEffect, useIsFocused, usePathname } from 'expo-router';
+import { createThemedStyles, usePalette, useResolvedTheme } from '../../theme/useAppTheme';
 
 // Time threshold for showing loading screen (5 minutes in ms)
 const LOADING_SCREEN_THRESHOLD_MS = 5 * 60 * 1000;
@@ -42,6 +42,9 @@ interface PendingUnlockPin {
 
 export default function WalletScreen() {
   useNativeLanguage();
+  const palette = usePalette();
+  const resolvedTheme = useResolvedTheme();
+  const styles = useStyles();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalTitle, setPinModalTitle] = useState<NativeKey>('pin.title');
@@ -842,7 +845,10 @@ export default function WalletScreen() {
 
   return (
     <RNView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#080C16" />
+      <StatusBar
+        barStyle={resolvedTheme === 'light' ? 'dark-content' : 'light-content'}
+        backgroundColor={palette.background}
+      />
       {/* Keep the WebView mounted AND on-screen at full size even while locked.
           Moving it off-screen (left/top:-9999) throttles its JS, which stalled
           the dApp-connect relay reconnect (reconnectAll) during re-auth on
@@ -873,7 +879,7 @@ export default function WalletScreen() {
           <Text style={styles.lockMessage}>
             {authError ? nativeMessage(authError) : t('wallet.authenticate')}
           </Text>
-          {isUnlocking ? <ActivityIndicator color="#33ADE6" size="small" /> : null}
+          {isUnlocking ? <ActivityIndicator color={palette.primary} size="small" /> : null}
           {!authError?.startsWith('Finishing wallet removal') ? (
             <RNView style={styles.lockActions}>
               <TouchableOpacity
@@ -918,10 +924,10 @@ export default function WalletScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createThemedStyles((p) => ({
   container: {
     flex: 1,
-    backgroundColor: '#080C16',
+    backgroundColor: p.background,
   },
   webViewVisible: {
     flex: 1,
@@ -935,19 +941,19 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#080C16',
+    backgroundColor: p.background,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 28,
   },
   lockTitle: {
-    color: '#F2F5F8',
+    color: p.foreground,
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 10,
   },
   lockMessage: {
-    color: '#9BA6B5',
+    color: p.mutedForeground,
     fontSize: 14,
     lineHeight: 20,
     maxWidth: 360,
@@ -967,21 +973,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   lockButtonPrimary: {
-    backgroundColor: '#33ADE6',
+    backgroundColor: p.primary,
   },
   lockButtonSecondary: {
-    backgroundColor: '#171D2B',
-    borderColor: '#1E2738',
+    backgroundColor: p.elevated,
+    borderColor: p.border,
     borderWidth: 1,
   },
   lockButtonPrimaryText: {
-    color: '#041725',
+    color: p.primaryForeground,
     fontSize: 15,
     fontWeight: '700',
   },
   lockButtonSecondaryText: {
-    color: '#F2F5F8',
+    color: p.foreground,
     fontSize: 15,
     fontWeight: '600',
   },
-});
+}));
