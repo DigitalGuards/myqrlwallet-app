@@ -452,7 +452,7 @@ describe('NativeBridge hosted WebView boundaries', () => {
   });
 
   it('shares exact Q+128 address text and explorer URL', async () => {
-    const explorerUrl = `https://zondscan.com/address/${QIP55_ADDRESS}`;
+    const explorerUrl = `https://shorscan.com/address/${QIP55_ADDRESS}`;
     mockShare.mockResolvedValue({ action: 'sharedAction' });
 
     await handleBridge({

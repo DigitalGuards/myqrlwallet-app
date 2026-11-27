@@ -4,6 +4,8 @@ import * as Crypto from 'expo-crypto';
 
 import buildInfo from '../assets/web/BUILD_INFO.json';
 import { getEmbeddedWalletModuleId } from '../constants/Assets';
+import type { ThemeSnapshot } from '../theme/themes';
+import { shellThemeStatement } from './ShellTheme';
 
 /**
  * The wallet document shipped inside the app bundle.
@@ -94,7 +96,11 @@ export function createDocumentToken(): string {
  * can re-run the wrap if `ReactNativeWebView` only appeared after this ran.
  * It closes over the token rather than exposing it.
  */
-export function embeddedBootstrapScript(token: string, migrationPending: boolean): string {
+export function embeddedBootstrapScript(
+  token: string,
+  migrationPending: boolean,
+  shellTheme?: ThemeSnapshot,
+): string {
   if (!/^[0-9a-f]{64}$/.test(token)) {
     throw new Error('Embedded document token must be 64 hex characters');
   }
@@ -102,6 +108,9 @@ export function embeddedBootstrapScript(token: string, migrationPending: boolean
     '<script>(function(){' +
     'window.__QRL_EMBEDDED__ = true;' +
     `window.__QRL_EMBEDDED_MIGRATION__ = ${migrationPending ? 'true' : 'false'};` +
+    // The Theme the shell resolved, readable before the wallet's first render.
+    // The head script is the dependable site: it is part of the document.
+    (shellThemeStatement(shellTheme) ?? '') +
     `var t=${JSON.stringify(token + BRIDGE_TOKEN_SEPARATOR)};` +
     'function wrap(b){' +
     'if(!b||b.__qrlBound)return b;' +
@@ -148,6 +157,7 @@ export function withEmbeddedFlag(
   html: string,
   token: string,
   migrationPending = false,
+  shellTheme?: ThemeSnapshot,
 ): string {
   const headIndex = html.indexOf('<head>');
   if (headIndex === -1) {
@@ -155,7 +165,7 @@ export function withEmbeddedFlag(
   }
   const cut = headIndex + '<head>'.length;
   return (
-    html.slice(0, cut) + embeddedBootstrapScript(token, migrationPending) + html.slice(cut)
+    html.slice(0, cut) + embeddedBootstrapScript(token, migrationPending, shellTheme) + html.slice(cut)
   );
 }
 

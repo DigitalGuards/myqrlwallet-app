@@ -101,8 +101,9 @@ describe('embedded wallet document', () => {
       });
     }
 
-    // The flag script and the app bundle.
-    expect(executable).toHaveLength(2);
+    // The flag script, the theme boot script (reads the shell's theme before the first paint)
+    // and the app bundle.
+    expect(executable).toHaveLength(3);
     for (const script of executable) {
       expect(allowed).toContain(script.digest);
     }
@@ -273,5 +274,33 @@ describe('bridge token separator', () => {
     expect(BRIDGE_TOKEN_SEPARATOR.charCodeAt(0)).toBeGreaterThan(0x20);
     expect(BRIDGE_TOKEN_SEPARATOR.charCodeAt(0)).toBeLessThan(0x7f);
     expect(/[0-9a-f]/i.test(BRIDGE_TOKEN_SEPARATOR)).toBe(false);
+  });
+});
+
+describe('the theme the shell injects', () => {
+  const token = 'a'.repeat(64);
+  const html = '<!doctype html><html><head><title>x</title></head></html>';
+
+  it.each([
+    [{ theme: 'dark', resolved: 'dark' }],
+    [{ theme: 'light', resolved: 'light' }],
+    [{ theme: 'system', resolved: 'light' }],
+  ] as const)('writes window.__QRL_SHELL_THEME__ for %j before the wallet scripts and the title', snapshot => {
+    const out = withEmbeddedFlag(html, token, false, snapshot);
+    const statement = `window.__QRL_SHELL_THEME__ = ${JSON.stringify(snapshot)};`;
+    expect(out).toContain(statement);
+    expect(out.indexOf(statement)).toBeLessThan(out.indexOf('<title>'));
+    expect(out.indexOf(statement)).toBeLessThan(out.indexOf('function wrap'));
+  });
+
+  it('writes nothing for a missing snapshot, so the wallet falls back to its cache', () => {
+    expect(withEmbeddedFlag(html, token, false)).not.toContain('__QRL_SHELL_THEME__');
+  });
+
+  it('writes exactly the two validated strings and nothing else of the snapshot', () => {
+    const out = withEmbeddedFlag(html, token, false, { theme: 'system', resolved: 'light' });
+    const written = /window\.__QRL_SHELL_THEME__ = (\{[^}]*\});/.exec(out)?.[1] ?? '';
+    expect(JSON.parse(written)).toEqual({ theme: 'system', resolved: 'light' });
+    expect(out.match(/__QRL_SHELL_THEME__/g)).toHaveLength(1);
   });
 });

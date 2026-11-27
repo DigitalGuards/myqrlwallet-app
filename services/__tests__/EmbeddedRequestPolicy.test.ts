@@ -62,6 +62,7 @@ describe('embedded wallet request policy', () => {
 
   it('does not interfere with any other origin', () => {
     for (const url of [
+      'https://shorscan.com/api/blocks',
       'https://zondscan.com/api/blocks',
       'https://ipfs.io/ipfs/QmHash',
       'https://qrlwallet.com.attacker.invalid/assets/x.js',

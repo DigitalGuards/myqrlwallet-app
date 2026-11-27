@@ -192,6 +192,7 @@ describe('embedded wallet navigation policy', () => {
 
   it('hands every other http and https origin to the system browser', () => {
     for (const url of [
+      'https://shorscan.com/tx/0xabc',
       'https://zondscan.com/tx/0xabc',
       'https://theqrl.org',
       'http://example.invalid/page',

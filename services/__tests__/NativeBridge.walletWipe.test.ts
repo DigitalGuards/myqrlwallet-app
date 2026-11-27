@@ -141,6 +141,35 @@ describe('NativeBridge durable wallet wipe', () => {
     send.mockRestore();
   });
 
+  it('tells the wallet the theme again once its storage has been cleared, and not after a failed clear', async () => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    const themeMessages = () => send.mock.calls
+      .map(([value]) => value)
+      .filter((value) => value.type === 'SET_THEME');
+    const wipe = NativeBridge.clearWalletDurably();
+    const request = await waitForClearRequest(send);
+    const requestId = request.requestId;
+    const before = themeMessages().length;
+
+    await handleBridge({ type: 'WALLET_CLEARED', payload: { requestId, success: true } });
+    await expect(wipe).resolves.toBeUndefined();
+    const after = themeMessages();
+    expect(after.length).toBe(before + 1);
+    expect(after.at(-1)?.payload).toMatchObject({ theme: 'system', resolved: 'dark' });
+    send.mockRestore();
+  });
+
+  it('does not repeat the theme when the wallet reports that clearing failed', async () => {
+    const send = jest.spyOn(NativeBridge, 'sendToWeb').mockImplementation(() => true);
+    const wipe = NativeBridge.clearWalletDurably();
+    const request = await waitForClearRequest(send);
+    const before = send.mock.calls.filter(([value]) => value.type === 'SET_THEME').length;
+    await handleBridge({ type: 'WALLET_CLEARED', payload: { requestId: request.requestId, success: false, error: 'blocked' } });
+    await expect(wipe).rejects.toThrow();
+    expect(send.mock.calls.filter(([value]) => value.type === 'SET_THEME').length).toBe(before);
+    send.mockRestore();
+  });
+
   it('rejects stale fresh-removal authorization before any journal or wallet mutation', async () => {
     await expect(NativeBridge.clearWalletDurably(1000, () => false)).rejects.toThrow('authorization changed');
     expect(mockGetPending).not.toHaveBeenCalled();
